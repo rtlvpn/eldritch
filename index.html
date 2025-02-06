@@ -82,7 +82,7 @@
                     aggregated[key] = { count: 0, amount: 0 };
                 }
                 aggregated[key].count += item.count;
-                aggregated[key].amount += parseFloat(item.amount || 0);
+                aggregated[key].amount += parseFloat(item.total_amount || 0);
             });
 
             return {
@@ -96,7 +96,7 @@
             const data = interval === 1 ? rawData : aggregateData(interval);
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
-            const amountValues = interval === 1 ? data.map(d => parseFloat(d.amount || 0)) : data.amounts;
+            const amountValues = interval === 1 ? data.map(d => parseFloat(d.total_amount || 0)) : data.amounts;
 
             const countTrace = {
                 x: xValues,
