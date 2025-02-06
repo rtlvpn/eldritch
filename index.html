@@ -78,12 +78,17 @@
                 const rounded = new Date(Math.floor(date.getTime() / interval) * interval);
                 
                 const key = rounded.toISOString();
-                aggregated[key] = (aggregated[key] || 0) + item.count;
+                if (!aggregated[key]) {
+                    aggregated[key] = { count: 0, amount: 0 };
+                }
+                aggregated[key].count += item.count;
+                aggregated[key].amount += parseFloat(item.amount || 0);
             });
 
             return {
                 timestamps: Object.keys(aggregated).map(k => new Date(k)),
-                counts: Object.values(aggregated)
+                counts: Object.values(aggregated).map(v => v.count),
+                amounts: Object.values(aggregated).map(v => v.amount)
             };
         }
 
@@ -91,13 +96,15 @@
             const data = interval === 1 ? rawData : aggregateData(interval);
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
+            const amountValues = interval === 1 ? data.map(d => parseFloat(d.amount || 0)) : data.amounts;
 
-            const trace = {
+            const countTrace = {
                 x: xValues,
                 y: yValues,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'TRC20 Transfers',
+                name: 'Transfer Count',
+                yaxis: 'y',
                 fill: 'tozeroy',
                 fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
                 line: {
@@ -105,7 +112,22 @@
                     width: 2,
                     shape: 'spline'
                 },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Count: %{y}<extra></extra>`
+            };
+
+            const amountTrace = {
+                x: xValues,
+                y: amountValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Transfer Amount',
+                yaxis: 'y2',
+                line: {
+                    color: '#ffd700',
+                    width: 2,
+                    shape: 'spline'
+                },
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Amount: %{y:.2f}<extra></extra>`
             };
 
             const layout = {
@@ -119,7 +141,7 @@
                     title: 'Time',
                     gridcolor: '#2a2a2a',
                     color: '#fff',
-                    tickformat: interval === 1 ? '%H:%M' : '%H:%M'
+                    tickformat: '%H:%M'
                 },
                 yaxis: {
                     title: interval === 1 ? 'Transfer Count' : 'Aggregated Count',
@@ -129,16 +151,32 @@
                     rangemode: 'tozero',
                     autorange: true
                 },
+                yaxis2: {
+                    title: 'Amount',
+                    titlefont: { color: '#ffd700' },
+                    tickfont: { color: '#ffd700' },
+                    overlaying: 'y',
+                    side: 'right',
+                    showgrid: false,
+                    rangemode: 'tozero'
+                },
                 font: { color: '#fff' },
-                margin: { t: 60, l: 60, r: 30, b: 60 },
+                margin: { t: 60, l: 60, r: 60, b: 60 },
                 hoverlabel: {
                     bgcolor: '#121212',
-                    bordercolor: interval === 1 ? '#4ecdc4' : '#ff6b6b',
+                    font: { color: '#fff' }
+                },
+                showlegend: true,
+                legend: {
+                    x: 0.5,
+                    y: 1.1,
+                    xanchor: 'center',
+                    orientation: 'h',
                     font: { color: '#fff' }
                 }
             };
 
-            Plotly.newPlot('chart', [trace], layout, { responsive: true });
+            Plotly.newPlot('chart', [countTrace, amountTrace], layout, { responsive: true });
         }
 
         // Button handlers
