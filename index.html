@@ -72,17 +72,34 @@
                 const result = await response.json();
                 const newData = result.data;
                 
-                // Fetch price for each new data point
+                // Fetch price once per batch instead of per data point
                 const priceResponse = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT');
                 if (!priceResponse.ok) throw new Error(`HTTP error! status: ${priceResponse.status}`);
                 const priceResult = await priceResponse.json();
                 const currentPrice = parseFloat(priceResult.price);
                 
-                // Add price data for each transfer data point
-                const timestamp = new Date();
-                priceData.push({
-                    timestamp: timestamp,
-                    price: currentPrice
+                // Group transfers by minute to reduce duplicate timestamps
+                const minuteGroups = {};
+                newData.forEach(transfer => {
+                    const date = new Date(transfer.timestamp);
+                    // Round to nearest minute
+                    date.setSeconds(0, 0);
+                    const key = date.toISOString();
+                    if (!minuteGroups[key]) {
+                        minuteGroups[key] = {
+                            timestamp: date,
+                            count: 0
+                        };
+                    }
+                    minuteGroups[key].count += transfer.count;
+                });
+
+                // Add one price point per minute of data
+                Object.values(minuteGroups).forEach(group => {
+                    priceData.push({
+                        timestamp: group.timestamp,
+                        price: currentPrice
+                    });
                 });
                 
                 // Add new data to existing data
