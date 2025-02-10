@@ -88,16 +88,25 @@
             }
         }
 
-        async function fetchTRXPrices(fromTimestamp) {
+        async function fetchTRXPrices() {
             try {
-                const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT');
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const data = await response.json();
+                // Get unique timestamps from rawData
+                const timestamps = [...new Set(rawData.map(d => d.timestamp))];
+                const prices = [];
                 
-                return [{
-                    timestamp: new Date(),
-                    price: parseFloat(data.price)
-                }];
+                // Fetch current price for each timestamp
+                for (const timestamp of timestamps) {
+                    const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT');
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    
+                    prices.push({
+                        timestamp: new Date(timestamp),
+                        price: parseFloat(data.price)
+                    });
+                }
+                
+                return prices.sort((a, b) => a.timestamp - b.timestamp);
             } catch (error) {
                 console.error('Price fetch error:', error);
                 return [];
@@ -108,10 +117,9 @@
             while (hasMoreData) {
                 await fetchTransferData();
             }
-            // Once we have all transfer data, fetch price data for the same time range
+            // Once we have all transfer data, fetch price data for the same timestamps
             if (rawData.length > 0) {
-                const firstTimestamp = new Date(rawData[0].timestamp).getTime();
-                priceData = await fetchTRXPrices(firstTimestamp);
+                priceData = await fetchTRXPrices();
             }
             return rawData;
         }
