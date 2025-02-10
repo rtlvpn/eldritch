@@ -55,6 +55,7 @@
 
     <script>
         let rawData = [];
+        let priceData = [];
         let isLoading = false;
         let hasMoreData = true;
         let currentPage = 1;
@@ -87,10 +88,33 @@
             }
         }
 
-        // Add a function to load all data recursively
+        async function fetchTRXPrices(fromTimestamp) {
+            const from = Math.floor(fromTimestamp / 1000);
+            const to = Math.floor(Date.now() / 1000);
+            try {
+                const response = await fetch(
+                    `https://api.coingecko.com/api/v3/coins/tron/market_chart/range?vs_currency=usd&from=${from}&to=${to}`
+                );
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                return data.prices.map(([timestamp, price]) => ({
+                    timestamp: new Date(timestamp),
+                    price: price
+                }));
+            } catch (error) {
+                console.error('Price fetch error:', error);
+                return [];
+            }
+        }
+
         async function loadAllData() {
             while (hasMoreData) {
                 await fetchTransferData();
+            }
+            // Once we have all transfer data, fetch price data for the same time range
+            if (rawData.length > 0) {
+                const firstTimestamp = new Date(rawData[0].timestamp).getTime();
+                priceData = await fetchTRXPrices(firstTimestamp);
             }
             return rawData;
         }
@@ -117,12 +141,13 @@
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
 
-            const trace = {
+            const transferTrace = {
                 x: xValues,
                 y: yValues,
                 type: 'scatter',
                 mode: 'lines',
                 name: 'TRC20 Transfers',
+                yaxis: 'y',
                 fill: 'tozeroy',
                 fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
                 line: {
@@ -130,12 +155,26 @@
                     width: 2,
                     shape: 'spline'
                 },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Transfers: %{y}<extra></extra>`
+            };
+
+            const priceTrace = {
+                x: priceData.map(d => d.timestamp),
+                y: priceData.map(d => d.price),
+                type: 'scatter',
+                mode: 'lines',
+                name: 'TRX Price (USD)',
+                yaxis: 'y2',
+                line: {
+                    color: '#ffd700',
+                    width: 2
+                },
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Price: $%{y:.4f}<extra></extra>`
             };
 
             const layout = {
                 title: {
-                    text: `Transfer Frequency (${interval} Minute Intervals)`,
+                    text: `Transfer Frequency vs TRX Price (${interval} Minute Intervals)`,
                     font: { color: '#fff', size: 22 }
                 },
                 plot_bgcolor: '#121212',
@@ -144,26 +183,41 @@
                     title: 'Time',
                     gridcolor: '#2a2a2a',
                     color: '#fff',
-                    tickformat: interval === 1 ? '%H:%M' : '%H:%M'
+                    tickformat: '%H:%M'
                 },
                 yaxis: {
-                    title: interval === 1 ? 'Transfer Count' : 'Aggregated Count',
+                    title: 'Transfer Count',
                     gridcolor: '#2a2a2a',
-                    color: '#fff',
+                    color: '#4ecdc4',
                     zerolinecolor: '#2a2a2a',
                     rangemode: 'tozero',
                     autorange: true
                 },
+                yaxis2: {
+                    title: 'TRX Price (USD)',
+                    overlaying: 'y',
+                    side: 'right',
+                    gridcolor: '#2a2a2a',
+                    color: '#ffd700',
+                    zerolinecolor: '#2a2a2a'
+                },
                 font: { color: '#fff' },
-                margin: { t: 60, l: 60, r: 30, b: 60 },
+                margin: { t: 60, l: 60, r: 60, b: 60 },
                 hoverlabel: {
                     bgcolor: '#121212',
-                    bordercolor: interval === 1 ? '#4ecdc4' : '#ff6b6b',
+                    font: { color: '#fff' }
+                },
+                showlegend: true,
+                legend: {
+                    x: 0.5,
+                    y: 1.1,
+                    xanchor: 'center',
+                    orientation: 'h',
                     font: { color: '#fff' }
                 }
             };
 
-            Plotly.newPlot('chart', [trace], layout, { responsive: true });
+            Plotly.newPlot('chart', [transferTrace, priceTrace], layout, { responsive: true });
         }
 
         // Button handlers
