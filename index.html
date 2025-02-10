@@ -116,8 +116,12 @@
             const data = interval === 1 ? rawData : aggregateData(interval);
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
+            const priceValues = interval === 1 ? data.map(d => d.trx_price) : data.timestamps.map(t => {
+                const matchingData = rawData.find(d => new Date(d.timestamp).getTime() === t.getTime());
+                return matchingData ? matchingData.trx_price : null;
+            });
 
-            const trace = {
+            const transferTrace = {
                 x: xValues,
                 y: yValues,
                 type: 'scatter',
@@ -130,7 +134,23 @@
                     width: 2,
                     shape: 'spline'
                 },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>%{y} transfers<extra></extra>`,
+                yaxis: 'y'
+            };
+
+            const priceTrace = {
+                x: xValues,
+                y: priceValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'TRX Price',
+                line: {
+                    color: '#ffd700',
+                    width: 2,
+                    shape: 'spline'
+                },
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>$%{y:.4f}<extra></extra>`,
+                yaxis: 'y2'
             };
 
             const layout = {
@@ -152,18 +172,35 @@
                     color: '#fff',
                     zerolinecolor: '#2a2a2a',
                     rangemode: 'tozero',
-                    autorange: true
+                    autorange: true,
+                    side: 'left'
+                },
+                yaxis2: {
+                    title: 'TRX Price (USDT)',
+                    titlefont: { color: '#ffd700' },
+                    tickfont: { color: '#ffd700' },
+                    overlaying: 'y',
+                    side: 'right',
+                    gridcolor: 'rgba(255, 215, 0, 0.1)',
+                    zerolinecolor: '#2a2a2a'
                 },
                 font: { color: '#fff' },
-                margin: { t: 60, l: 60, r: 30, b: 60 },
+                margin: { t: 60, l: 60, r: 60, b: 60 },
                 hoverlabel: {
                     bgcolor: '#121212',
-                    bordercolor: interval === 1 ? '#4ecdc4' : '#ff6b6b',
+                    font: { color: '#fff' }
+                },
+                showlegend: true,
+                legend: {
+                    x: 0.5,
+                    y: 1.1,
+                    xanchor: 'center',
+                    orientation: 'h',
                     font: { color: '#fff' }
                 }
             };
 
-            Plotly.newPlot('chart', [trace], layout, { responsive: true });
+            Plotly.newPlot('chart', [transferTrace, priceTrace], layout, { responsive: true });
         }
 
         // Button handlers
