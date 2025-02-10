@@ -89,18 +89,15 @@
         }
 
         async function fetchTRXPrices(fromTimestamp) {
-            const from = Math.floor(fromTimestamp / 1000);
-            const to = Math.floor(Date.now() / 1000);
             try {
-                const response = await fetch(
-                    `https://api.coingecko.com/api/v3/coins/tron/market_chart/range?vs_currency=usd&from=${from}&to=${to}`
-                );
+                const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
-                return data.prices.map(([timestamp, price]) => ({
-                    timestamp: new Date(timestamp),
-                    price: price
-                }));
+                
+                return [{
+                    timestamp: new Date(),
+                    price: parseFloat(data.price)
+                }];
             } catch (error) {
                 console.error('Price fetch error:', error);
                 return [];
