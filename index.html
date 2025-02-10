@@ -55,7 +55,6 @@
 
     <script>
         let rawData = [];
-        let priceData = [];
         let isLoading = false;
         let hasMoreData = true;
         let currentPage = 1;
@@ -88,78 +87,11 @@
             }
         }
 
-        async function fetchPriceData(startTime, endTime) {
-            try {
-                const MAX_INTERVAL = 1000 * 60 * 60 * 24; // 24 hours in milliseconds
-                const allPriceData = [];
-                let consecutiveErrors = 0;
-                
-                // Split into multiple requests if the time range is large
-                for (let currentStart = startTime; currentStart < endTime; currentStart += MAX_INTERVAL) {
-                    const currentEnd = Math.min(currentStart + MAX_INTERVAL, endTime);
-                    
-                    try {
-                        const response = await fetch(
-                            `https://api.binance.com/api/v3/klines?symbol=TRXUSDT&interval=1m&startTime=${currentStart}&endTime=${currentEnd}&limit=1000`
-                        );
-                        
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        
-                        const data = await response.json();
-                        const processedData = data.map(item => ({
-                            timestamp: new Date(item[0]),
-                            price: parseFloat(item[4])
-                        }));
-                        
-                        allPriceData.push(...processedData);
-                        consecutiveErrors = 0;
-                        
-                        // Log progress
-                        console.log(`Fetched price data from ${new Date(currentStart).toISOString()} to ${new Date(currentEnd).toISOString()}`);
-                        
-                    } catch (error) {
-                        console.error(`Error fetching price data for range ${new Date(currentStart)} - ${new Date(currentEnd)}:`, error);
-                        consecutiveErrors++;
-                        
-                        if (consecutiveErrors >= 3) {
-                            console.error('Too many consecutive errors, stopping price data fetch');
-                            break;
-                        }
-                    }
-                    
-                    // Add a delay between requests to avoid rate limiting
-                    await new Promise(resolve => setTimeout(resolve, 250));
-                }
-                
-                console.log(`Total price data points fetched: ${allPriceData.length}`);
-                
-                // Sort and remove any duplicates
-                const uniquePriceData = Array.from(
-                    new Map(allPriceData.map(item => [item.timestamp.getTime(), item]))
-                    .values()
-                ).sort((a, b) => a.timestamp - b.timestamp);
-                
-                return uniquePriceData;
-                
-            } catch (error) {
-                console.error('Price fetch error:', error);
-                return [];
-            }
-        }
-
+        // Add a function to load all data recursively
         async function loadAllData() {
             while (hasMoreData) {
                 await fetchTransferData();
             }
-            
-            if (rawData.length > 0) {
-                const startTime = new Date(rawData[0].timestamp).getTime();
-                const endTime = new Date(rawData[rawData.length - 1].timestamp).getTime();
-                priceData = await fetchPriceData(startTime, endTime);
-            }
-            
             return rawData;
         }
 
@@ -185,40 +117,25 @@
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
 
-            const traces = [
-                {
-                    x: xValues,
-                    y: yValues,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'TRC20 Transfers',
-                    fill: 'tozeroy',
-                    fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
-                    line: {
-                        color: interval === 1 ? '#4ecdc4' : '#ff6b6b',
-                        width: 2,
-                        shape: 'spline'
-                    },
-                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
+            const trace = {
+                x: xValues,
+                y: yValues,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'TRC20 Transfers',
+                fill: 'tozeroy',
+                fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
+                line: {
+                    color: interval === 1 ? '#4ecdc4' : '#ff6b6b',
+                    width: 2,
+                    shape: 'spline'
                 },
-                {
-                    x: priceData.map(d => d.timestamp),
-                    y: priceData.map(d => d.price),
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'TRON Price',
-                    yaxis: 'y2',
-                    line: {
-                        color: '#ffd700',
-                        width: 2
-                    },
-                    hovertemplate: '<b>%{x|%H:%M:%S}</b><br>$%{y:.4f}<extra></extra>'
-                }
-            ];
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
+            };
 
             const layout = {
                 title: {
-                    text: `Transfer Frequency (${interval} Minute Intervals) & TRON Price`,
+                    text: `Transfer Frequency (${interval} Minute Intervals)`,
                     font: { color: '#fff', size: 22 }
                 },
                 plot_bgcolor: '#121212',
@@ -237,33 +154,16 @@
                     rangemode: 'tozero',
                     autorange: true
                 },
-                yaxis2: {
-                    title: 'TRON Price (USDT)',
-                    titlefont: { color: '#ffd700' },
-                    tickfont: { color: '#ffd700' },
-                    overlaying: 'y',
-                    side: 'right',
-                    gridcolor: '#2a2a2a',
-                    zerolinecolor: '#2a2a2a'
-                },
                 font: { color: '#fff' },
-                margin: { t: 60, l: 60, r: 60, b: 60 },
+                margin: { t: 60, l: 60, r: 30, b: 60 },
                 hoverlabel: {
                     bgcolor: '#121212',
                     bordercolor: interval === 1 ? '#4ecdc4' : '#ff6b6b',
                     font: { color: '#fff' }
-                },
-                showlegend: true,
-                legend: {
-                    x: 0.5,
-                    y: 1.1,
-                    xanchor: 'center',
-                    orientation: 'h',
-                    font: { color: '#fff' }
                 }
             };
 
-            Plotly.newPlot('chart', traces, layout, { responsive: true });
+            Plotly.newPlot('chart', [trace], layout, { responsive: true });
         }
 
         // Button handlers
