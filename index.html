@@ -55,6 +55,7 @@
 
     <script>
         let rawData = [];
+        let priceData = [];
         let isLoading = false;
         let hasMoreData = true;
         let currentPage = 1;
@@ -87,12 +88,46 @@
             }
         }
 
-        // Add a function to load all data recursively
+        // Add function to fetch price data from Binance
+        async function fetchPriceData() {
+            try {
+                // Get time range from transfer data
+                const startTime = Math.min(...rawData.map(d => new Date(d.timestamp).getTime()));
+                const endTime = Math.max(...rawData.map(d => new Date(d.timestamp).getTime()));
+                
+                // Binance kline API endpoint (1-minute intervals)
+                const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=TRXUSDT&interval=1m&startTime=${startTime}&endTime=${endTime}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const klines = await response.json();
+                
+                // Convert Binance kline data to our format
+                // Binance kline format: [openTime, open, high, low, close, volume, closeTime, ...]
+                priceData = klines.map(k => ({
+                    timestamp: new Date(k[0]),
+                    price: parseFloat(k[4]) // Using close price
+                }));
+
+                return priceData;
+            } catch (error) {
+                console.error('Price fetch error:', error);
+                return [];
+            }
+        }
+
+        // Modify loadAllData to fetch price data after transfer data
         async function loadAllData() {
+            // First load all transfer data
             while (hasMoreData) {
                 await fetchTransferData();
             }
-            return rawData;
+            
+            // Then fetch price data for the same time range
+            if (rawData.length > 0) {
+                await fetchPriceData();
+            }
+            
+            return { transfers: rawData, prices: priceData };
         }
 
         function aggregateData(intervalMinutes) {
