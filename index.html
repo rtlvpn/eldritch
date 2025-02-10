@@ -55,7 +55,6 @@
 
     <script>
         let rawData = [];
-        let priceData = [];
         let isLoading = false;
         let hasMoreData = true;
         let currentPage = 1;
@@ -71,36 +70,6 @@
                 
                 const result = await response.json();
                 const newData = result.data;
-                
-                // Fetch price once per batch instead of per data point
-                const priceResponse = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=TRXUSDT');
-                if (!priceResponse.ok) throw new Error(`HTTP error! status: ${priceResponse.status}`);
-                const priceResult = await priceResponse.json();
-                const currentPrice = parseFloat(priceResult.price);
-                
-                // Group transfers by minute to reduce duplicate timestamps
-                const minuteGroups = {};
-                newData.forEach(transfer => {
-                    const date = new Date(transfer.timestamp);
-                    // Round to nearest minute
-                    date.setSeconds(0, 0);
-                    const key = date.toISOString();
-                    if (!minuteGroups[key]) {
-                        minuteGroups[key] = {
-                            timestamp: date,
-                            count: 0
-                        };
-                    }
-                    minuteGroups[key].count += transfer.count;
-                });
-
-                // Add one price point per minute of data
-                Object.values(minuteGroups).forEach(group => {
-                    priceData.push({
-                        timestamp: group.timestamp,
-                        price: currentPrice
-                    });
-                });
                 
                 // Add new data to existing data
                 rawData = [...rawData, ...newData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -118,6 +87,7 @@
             }
         }
 
+        // Add a function to load all data recursively
         async function loadAllData() {
             while (hasMoreData) {
                 await fetchTransferData();
@@ -147,13 +117,12 @@
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
 
-            const transferTrace = {
+            const trace = {
                 x: xValues,
                 y: yValues,
                 type: 'scatter',
                 mode: 'lines',
                 name: 'TRC20 Transfers',
-                yaxis: 'y',
                 fill: 'tozeroy',
                 fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
                 line: {
@@ -161,26 +130,12 @@
                     width: 2,
                     shape: 'spline'
                 },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Transfers: %{y}<extra></extra>`
-            };
-
-            const priceTrace = {
-                x: priceData.map(d => d.timestamp),
-                y: priceData.map(d => d.price),
-                type: 'scatter',
-                mode: 'lines',
-                name: 'TRX Price (USD)',
-                yaxis: 'y2',
-                line: {
-                    color: '#ffd700',
-                    width: 2
-                },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Price: $%{y:.4f}<extra></extra>`
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>${interval === 1 ? '%{y} transfers' : '%{y} total transfers'}<extra></extra>`
             };
 
             const layout = {
                 title: {
-                    text: `Transfer Frequency vs TRX Price (${interval} Minute Intervals)`,
+                    text: `Transfer Frequency (${interval} Minute Intervals)`,
                     font: { color: '#fff', size: 22 }
                 },
                 plot_bgcolor: '#121212',
@@ -189,41 +144,26 @@
                     title: 'Time',
                     gridcolor: '#2a2a2a',
                     color: '#fff',
-                    tickformat: '%H:%M'
+                    tickformat: interval === 1 ? '%H:%M' : '%H:%M'
                 },
                 yaxis: {
-                    title: 'Transfer Count',
+                    title: interval === 1 ? 'Transfer Count' : 'Aggregated Count',
                     gridcolor: '#2a2a2a',
-                    color: '#4ecdc4',
+                    color: '#fff',
                     zerolinecolor: '#2a2a2a',
                     rangemode: 'tozero',
                     autorange: true
                 },
-                yaxis2: {
-                    title: 'TRX Price (USD)',
-                    overlaying: 'y',
-                    side: 'right',
-                    gridcolor: '#2a2a2a',
-                    color: '#ffd700',
-                    zerolinecolor: '#2a2a2a'
-                },
                 font: { color: '#fff' },
-                margin: { t: 60, l: 60, r: 60, b: 60 },
+                margin: { t: 60, l: 60, r: 30, b: 60 },
                 hoverlabel: {
                     bgcolor: '#121212',
-                    font: { color: '#fff' }
-                },
-                showlegend: true,
-                legend: {
-                    x: 0.5,
-                    y: 1.1,
-                    xanchor: 'center',
-                    orientation: 'h',
+                    bordercolor: interval === 1 ? '#4ecdc4' : '#ff6b6b',
                     font: { color: '#fff' }
                 }
             };
 
-            Plotly.newPlot('chart', [transferTrace, priceTrace], layout, { responsive: true });
+            Plotly.newPlot('chart', [trace], layout, { responsive: true });
         }
 
         // Button handlers
