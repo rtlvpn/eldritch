@@ -116,14 +116,17 @@
                 }
             });
 
-            // Calculate average prices
-            const avgPrices = Object.keys(priceAggregated).map(key => 
-                priceAggregated[key] / priceCount[key]
+            // Get sorted timestamps
+            const sortedTimestamps = Object.keys(aggregated).sort();
+            
+            // Calculate average prices using the same order as timestamps
+            const avgPrices = sortedTimestamps.map(key => 
+                priceCount[key] ? priceAggregated[key] / priceCount[key] : null
             );
 
             return {
-                timestamps: Object.keys(aggregated).map(k => new Date(k)),
-                counts: Object.values(aggregated),
+                timestamps: sortedTimestamps.map(k => new Date(k)),
+                counts: sortedTimestamps.map(k => aggregated[k]),
                 prices: avgPrices
             };
         }
