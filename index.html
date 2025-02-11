@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>TRC20 Transfers Monitor</title>
+    <title>Transfers Monitor</title>
     <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
     <style>
         body {
@@ -126,7 +126,7 @@
                 y: yValues,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'TRC20 Transfers',
+                name: 'Transfers',
                 fill: 'tozeroy',
                 fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
                 line: {
@@ -143,7 +143,7 @@
                 y: priceValues,
                 type: 'scatter',
                 mode: 'lines',
-                name: 'TRX Price',
+                name: 'Price',
                 line: {
                     color: 'rgba(255, 215, 0, 0.6)',
                     width: 2,
@@ -176,7 +176,7 @@
                     side: 'left'
                 },
                 yaxis2: {
-                    title: 'TRX Price (USDT)',
+                    title: 'Price (USDT)',
                     titlefont: { color: '#ffd700' },
                     tickfont: { color: '#ffd700' },
                     overlaying: 'y',
