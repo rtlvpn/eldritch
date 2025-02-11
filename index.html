@@ -97,18 +97,34 @@
 
         function aggregateData(intervalMinutes) {
             const aggregated = {};
+            const priceAggregated = {};
+            const priceCount = {};  // To keep track of how many prices we're averaging
+            
             rawData.forEach(item => {
                 const date = new Date(item.timestamp);
                 const interval = intervalMinutes * 60 * 1000; // milliseconds
                 const rounded = new Date(Math.floor(date.getTime() / interval) * interval);
                 
                 const key = rounded.toISOString();
+                // Aggregate counts
                 aggregated[key] = (aggregated[key] || 0) + item.count;
+                
+                // Aggregate prices
+                if (item.trx_price) {
+                    priceAggregated[key] = (priceAggregated[key] || 0) + item.trx_price;
+                    priceCount[key] = (priceCount[key] || 0) + 1;
+                }
             });
+
+            // Calculate average prices
+            const avgPrices = Object.keys(priceAggregated).map(key => 
+                priceAggregated[key] / priceCount[key]
+            );
 
             return {
                 timestamps: Object.keys(aggregated).map(k => new Date(k)),
-                counts: Object.values(aggregated)
+                counts: Object.values(aggregated),
+                prices: avgPrices
             };
         }
 
@@ -116,10 +132,9 @@
             const data = interval === 1 ? rawData : aggregateData(interval);
             const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
             const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
-            const priceValues = interval === 1 ? data.map(d => d.trx_price) : data.timestamps.map(t => {
-                const matchingData = rawData.find(d => new Date(d.timestamp).getTime() === t.getTime());
-                return matchingData ? matchingData.trx_price : null;
-            });
+            const priceValues = interval === 1 
+                ? data.map(d => d.trx_price) 
+                : data.prices;
 
             const transferTrace = {
                 x: xValues,
