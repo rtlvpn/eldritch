@@ -54,30 +54,30 @@
     </div>
 
     <script>
+        // Mobile detection (skip divergence computation on mobile devices)
+        const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+
         let rawData = [];
         let isLoading = false;
         let hasMoreData = true;
         let currentPage = 1;
         const RECORDS_PER_PAGE = 1000;
+        let aggregatedCache = {};
 
         async function fetchTransferData() {
             if (isLoading || !hasMoreData) return rawData;
-            
             try {
                 isLoading = true;
                 const response = await fetch(`https://eldritch.gleeze.com:3000/transfers/paginated?page=${currentPage}&limit=${RECORDS_PER_PAGE}`);
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                
                 const result = await response.json();
                 const newData = result.data;
-                
-                // Add new data to existing data
+                // Merge incoming data and sort by timestamp
                 rawData = [...rawData, ...newData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-                
-                // Check if we have more pages to load
                 hasMoreData = currentPage < result.total_pages;
                 currentPage++;
-                
+                // Invalidate the cache when new data is added.
+                aggregatedCache = {};
                 return rawData;
             } catch (error) {
                 console.error('Fetch error:', error);
@@ -87,7 +87,6 @@
             }
         }
 
-        // Add a function to load all data recursively
         async function loadAllData() {
             while (hasMoreData) {
                 await fetchTransferData();
@@ -96,49 +95,39 @@
         }
 
         function aggregateData(intervalMinutes) {
+            if (aggregatedCache[intervalMinutes]) return aggregatedCache[intervalMinutes];
             const aggregated = {};
             const priceAggregated = {};
-            const priceCount = {};  // To keep track of how many prices we're averaging
-            
-            rawData.forEach(item => {
+            const priceCount = {};
+            const intervalMs = intervalMinutes * 60 * 1000;
+            for (let i = 0; i < rawData.length; i++) {
+                const item = rawData[i];
                 const date = new Date(item.timestamp);
-                const interval = intervalMinutes * 60 * 1000; // milliseconds
-                const rounded = new Date(Math.floor(date.getTime() / interval) * interval);
-                
+                const rounded = new Date(Math.floor(date.getTime() / intervalMs) * intervalMs);
                 const key = rounded.toISOString();
-                // Aggregate counts
                 aggregated[key] = (aggregated[key] || 0) + item.count;
-                
-                // Aggregate prices
                 if (item.trx_price) {
                     priceAggregated[key] = (priceAggregated[key] || 0) + item.trx_price;
                     priceCount[key] = (priceCount[key] || 0) + 1;
                 }
-            });
-
-            // Get sorted timestamps
-            const sortedTimestamps = Object.keys(aggregated).sort();
-            
-            // Calculate average prices using the same order as timestamps
-            const avgPrices = sortedTimestamps.map(key => 
-                priceCount[key] ? priceAggregated[key] / priceCount[key] : null
-            );
-
-            return {
-                timestamps: sortedTimestamps.map(k => new Date(k)),
-                counts: sortedTimestamps.map(k => aggregated[k]),
-                prices: avgPrices
-            };
+            }
+            const keys = Object.keys(aggregated).sort();
+            const timestamps = new Array(keys.length);
+            const counts = new Array(keys.length);
+            const prices = new Array(keys.length);
+            for (let i = 0; i < keys.length; i++) {
+                timestamps[i] = new Date(keys[i]);
+                counts[i] = aggregated[keys[i]];
+                prices[i] = priceCount[keys[i]] ? priceAggregated[keys[i]] / priceCount[keys[i]] : null;
+            }
+            const aggregatedData = { timestamps, counts, prices };
+            aggregatedCache[intervalMinutes] = aggregatedData;
+            return aggregatedData;
         }
 
-        /* 
+        /*
          * Computes a Price-Transfer Divergence indicator.
-         * For each time interval (except the first) where the price is valid:
-         *   - Calculate the first difference (delta) for transfer count and price.
-         *   - Normalize the differences separately using the min and max among valid points.
-         *   - The divergence at that timestamp is: normalized(Δtransfers) – normalized(Δprice).
-         *
-         * If the price is missing for a timestamp (or the previous timestamp), then the divergence value is null.
+         * It only considers intervals where valid price data exists.
          */
         function computePriceTransferDivergence(aggregated) {
             const { timestamps, counts, prices } = aggregated;
@@ -147,7 +136,6 @@
             const priceDiff = new Array(n).fill(null);
             const validIndices = [];
 
-            // Compute the first-difference for transfers and price, but only if price data exists.
             for (let i = 1; i < n; i++) {
                 if (prices[i] !== null && prices[i - 1] !== null) {
                     transferDiff[i] = counts[i] - counts[i - 1];
@@ -156,18 +144,14 @@
                 }
             }
 
-            // Gather all valid differences for transfer and price.
             const validTransferDiff = validIndices.map(i => transferDiff[i]);
             const validPriceDiff = validIndices.map(i => priceDiff[i]);
-
-            // Determine the min/max among valid points for normalization.
             const minTransfer = Math.min(...validTransferDiff);
             const maxTransfer = Math.max(...validTransferDiff);
             const minPrice = Math.min(...validPriceDiff);
             const maxPrice = Math.max(...validPriceDiff);
-
-            // Compute the divergence only at indices where price differences are valid.
             const divergence = new Array(n).fill(null);
+
             for (const i of validIndices) {
                 const normTransfer = (maxTransfer === minTransfer)
                     ? 0 
@@ -180,8 +164,11 @@
             return { timestamps, divergence };
         }
 
+        /*
+         * Renders the Plotly chart.
+         * The divergence trace is only computed and added if the browser is not mobile.
+         */
         async function renderChart(interval = 1) {
-            // Use raw data for 1-minute intervals and aggregated data for others.
             let chartData, aggregated;
             if (interval === 1) {
                 chartData = rawData;
@@ -208,9 +195,7 @@
                 mode: 'lines',
                 name: 'Transfers',
                 fill: 'tozeroy',
-                fillcolor: interval === 1 
-                    ? 'rgba(78, 205, 196, 0.2)' 
-                    : 'rgba(255, 107, 107, 0.2)',
+                fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
                 line: {
                     color: interval === 1 ? '#4ecdc4' : '#ff6b6b',
                     width: 2,
@@ -235,27 +220,30 @@
                 yaxis: 'y2'
             };
 
-            // Compute and create the divergence trace.
-            const divergenceData = computePriceTransferDivergence(aggregated);
-            const divergenceTrace = {
-                x: divergenceData.timestamps,
-                y: divergenceData.divergence,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Price-Transfer Divergence',
-                line: {
-                    color: '#rgba(255, 215, 0, 0.2)', // Orange color for divergence
-                    width: 1,
-                    dash: 'spline'
-                },
-                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Divergence: %{y:.2f}<extra></extra>`,
-                yaxis: 'y3'
-            };
+            // Build the traces array; if not on mobile, add the divergence trace.
+            const traces = [transferTrace, priceTrace];
+            if (!isMobile) {
+                const divergenceData = computePriceTransferDivergence(aggregated);
+                const divergenceTrace = {
+                    x: divergenceData.timestamps,
+                    y: divergenceData.divergence,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Price-Transfer Divergence',
+                    line: {
+                        color: '#FFA500',
+                        width: 2,
+                        dash: 'dash'
+                    },
+                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Divergence: %{y:.2f}<extra></extra>`,
+                    yaxis: 'y3'
+                };
+                traces.push(divergenceTrace);
+            }
 
-            // Plotly layout with three y-axes.
             const layout = {
                 title: {
-                    text: `Transfer & Price Divergence (${interval} Minute Intervals)`,
+                    text: `Transfer & Price Analytics (${interval} Minute Intervals)`,
                     font: { color: '#fff', size: 22 }
                 },
                 plot_bgcolor: '#121212',
@@ -290,7 +278,7 @@
                     tickfont: { color: '#FFA500' },
                     overlaying: 'y',
                     side: 'right',
-                    position: 0.85, // Moves the divergence axis a bit to the left
+                    position: 0.85,
                     gridcolor: 'rgba(255, 165, 0, 0.2)'
                 },
                 font: { color: '#fff' },
@@ -306,25 +294,22 @@
                 }
             };
 
-            Plotly.newPlot('chart', [transferTrace, priceTrace, divergenceTrace], layout, { responsive: true });
+            Plotly.newPlot('chart', traces, layout, { responsive: true });
         }
 
-        // Button handlers
+        // Button handlers.
         document.getElementById('btn-1m').addEventListener('click', () => {
-            currentAggregation = 1;
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-1m').classList.add('active');
             renderChart(1);
         });
 
         document.getElementById('btn-5m').addEventListener('click', () => {
-            currentAggregation = 5;
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-5m').classList.add('active');
             renderChart(5);
         });
 
-        // Modify the initial load to use loadAllData
         loadAllData().then(() => renderChart(1));
     </script>
 </body>
