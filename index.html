@@ -131,13 +131,75 @@
             };
         }
 
+        /* 
+         * Computes a Price-Transfer Divergence indicator.
+         * For each time interval (except the first) where the price is valid:
+         *   - Calculate the first difference (delta) for transfer count and price.
+         *   - Normalize the differences separately using the min and max among valid points.
+         *   - The divergence at that timestamp is: normalized(Δtransfers) – normalized(Δprice).
+         *
+         * If the price is missing for a timestamp (or the previous timestamp), then the divergence value is null.
+         */
+        function computePriceTransferDivergence(aggregated) {
+            const { timestamps, counts, prices } = aggregated;
+            const n = timestamps.length;
+            const transferDiff = new Array(n).fill(null);
+            const priceDiff = new Array(n).fill(null);
+            const validIndices = [];
+
+            // Compute the first-difference for transfers and price, but only if price data exists.
+            for (let i = 1; i < n; i++) {
+                if (prices[i] !== null && prices[i - 1] !== null) {
+                    transferDiff[i] = counts[i] - counts[i - 1];
+                    priceDiff[i] = prices[i] - prices[i - 1];
+                    validIndices.push(i);
+                }
+            }
+
+            // Gather all valid differences for transfer and price.
+            const validTransferDiff = validIndices.map(i => transferDiff[i]);
+            const validPriceDiff = validIndices.map(i => priceDiff[i]);
+
+            // Determine the min/max among valid points for normalization.
+            const minTransfer = Math.min(...validTransferDiff);
+            const maxTransfer = Math.max(...validTransferDiff);
+            const minPrice = Math.min(...validPriceDiff);
+            const maxPrice = Math.max(...validPriceDiff);
+
+            // Compute the divergence only at indices where price differences are valid.
+            const divergence = new Array(n).fill(null);
+            for (const i of validIndices) {
+                const normTransfer = (maxTransfer === minTransfer)
+                    ? 0 
+                    : (transferDiff[i] - minTransfer) / (maxTransfer - minTransfer);
+                const normPrice = (maxPrice === minPrice)
+                    ? 0 
+                    : (priceDiff[i] - minPrice) / (maxPrice - minPrice);
+                divergence[i] = normTransfer - normPrice;
+            }
+            return { timestamps, divergence };
+        }
+
         async function renderChart(interval = 1) {
-            const data = interval === 1 ? rawData : aggregateData(interval);
-            const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
-            const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
+            // Use raw data for 1-minute intervals and aggregated data for others.
+            let chartData, aggregated;
+            if (interval === 1) {
+                chartData = rawData;
+                aggregated = aggregateData(1);
+            } else {
+                aggregated = aggregateData(interval);
+                chartData = aggregated;
+            }
+            
+            const xValues = interval === 1 
+                ? rawData.map(d => new Date(d.timestamp)) 
+                : aggregated.timestamps;
+            const yValues = interval === 1 
+                ? rawData.map(d => d.count) 
+                : aggregated.counts;
             const priceValues = interval === 1 
-                ? data.map(d => d.trx_price) 
-                : data.prices;
+                ? rawData.map(d => d.trx_price) 
+                : aggregated.prices;
 
             const transferTrace = {
                 x: xValues,
@@ -146,7 +208,9 @@
                 mode: 'lines',
                 name: 'Transfers',
                 fill: 'tozeroy',
-                fillcolor: interval === 1 ? 'rgba(78, 205, 196, 0.2)' : 'rgba(255, 107, 107, 0.2)',
+                fillcolor: interval === 1 
+                    ? 'rgba(78, 205, 196, 0.2)' 
+                    : 'rgba(255, 107, 107, 0.2)',
                 line: {
                     color: interval === 1 ? '#4ecdc4' : '#ff6b6b',
                     width: 2,
@@ -171,9 +235,27 @@
                 yaxis: 'y2'
             };
 
+            // Compute and create the divergence trace.
+            const divergenceData = computePriceTransferDivergence(aggregated);
+            const divergenceTrace = {
+                x: divergenceData.timestamps,
+                y: divergenceData.divergence,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Price-Transfer Divergence',
+                line: {
+                    color: '#FFA500', // Orange color for divergence
+                    width: 2,
+                    dash: 'dash'
+                },
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Divergence: %{y:.2f}<extra></extra>`,
+                yaxis: 'y3'
+            };
+
+            // Plotly layout with three y-axes.
             const layout = {
                 title: {
-                    text: `Transfer Frequency (${interval} Minute Intervals)`,
+                    text: `Transfer & Price Divergence (${interval} Minute Intervals)`,
                     font: { color: '#fff', size: 22 }
                 },
                 plot_bgcolor: '#121212',
@@ -182,7 +264,7 @@
                     title: 'Time',
                     gridcolor: '#2a2a2a',
                     color: '#fff',
-                    tickformat: interval === 1 ? '%H:%M' : '%H:%M'
+                    tickformat: '%H:%M'
                 },
                 yaxis: {
                     title: interval === 1 ? 'Transfer Count' : 'Aggregated Count',
@@ -202,12 +284,18 @@
                     gridcolor: 'rgba(255, 215, 0, 0.1)',
                     zerolinecolor: '#2a2a2a'
                 },
+                yaxis3: {
+                    title: 'Divergence',
+                    titlefont: { color: '#FFA500' },
+                    tickfont: { color: '#FFA500' },
+                    overlaying: 'y',
+                    side: 'right',
+                    position: 0.85, // Moves the divergence axis a bit to the left
+                    gridcolor: 'rgba(255, 165, 0, 0.2)'
+                },
                 font: { color: '#fff' },
                 margin: { t: 60, l: 60, r: 60, b: 60 },
-                hoverlabel: {
-                    bgcolor: '#121212',
-                    font: { color: '#fff' }
-                },
+                hoverlabel: { bgcolor: '#121212', font: { color: '#fff' } },
                 showlegend: true,
                 legend: {
                     x: 0.5,
@@ -218,7 +306,7 @@
                 }
             };
 
-            Plotly.newPlot('chart', [transferTrace, priceTrace], layout, { responsive: true });
+            Plotly.newPlot('chart', [transferTrace, priceTrace, divergenceTrace], layout, { responsive: true });
         }
 
         // Button handlers
