@@ -60,6 +60,9 @@
         let currentPage = 1;
         const RECORDS_PER_PAGE = 1000;
 
+        // Cache aggregated results by interval minutes to avoid repeated computation.
+        let aggregatedCache = {};
+
         async function fetchTransferData() {
             if (isLoading || !hasMoreData) return rawData;
             
@@ -71,13 +74,15 @@
                 const result = await response.json();
                 const newData = result.data;
                 
-                // Add new data to existing data
+                // Merge new data into rawData and sort by timestamp
                 rawData = [...rawData, ...newData].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
                 
-                // Check if we have more pages to load
+                // Check for more pages.
                 hasMoreData = currentPage < result.total_pages;
                 currentPage++;
                 
+                // Invalidate cache when new rawData is added.
+                aggregatedCache = {};
                 return rawData;
             } catch (error) {
                 console.error('Fetch error:', error);
@@ -87,7 +92,7 @@
             }
         }
 
-        // Add a function to load all data recursively
+        // Recursively load all pages.
         async function loadAllData() {
             while (hasMoreData) {
                 await fetchTransferData();
@@ -95,49 +100,114 @@
             return rawData;
         }
 
+        /*
+         * Optimized data aggregation:
+         * - Uses a single pass over the raw data.
+         * - Caches the aggregated result based on the interval.
+         */
         function aggregateData(intervalMinutes) {
+            if (aggregatedCache[intervalMinutes]) return aggregatedCache[intervalMinutes];
+
             const aggregated = {};
             const priceAggregated = {};
-            const priceCount = {};  // To keep track of how many prices we're averaging
-            
-            rawData.forEach(item => {
+            const priceCount = {};
+
+            const intervalMs = intervalMinutes * 60 * 1000;
+            for (let i = 0; i < rawData.length; i++) {
+                const item = rawData[i];
                 const date = new Date(item.timestamp);
-                const interval = intervalMinutes * 60 * 1000; // milliseconds
-                const rounded = new Date(Math.floor(date.getTime() / interval) * interval);
-                
+                const rounded = new Date(Math.floor(date.getTime() / intervalMs) * intervalMs);
                 const key = rounded.toISOString();
-                // Aggregate counts
-                aggregated[key] = (aggregated[key] || 0) + item.count;
                 
-                // Aggregate prices
+                aggregated[key] = (aggregated[key] || 0) + item.count;
                 if (item.trx_price) {
                     priceAggregated[key] = (priceAggregated[key] || 0) + item.trx_price;
                     priceCount[key] = (priceCount[key] || 0) + 1;
                 }
-            });
+            }
 
-            // Get sorted timestamps
-            const sortedTimestamps = Object.keys(aggregated).sort();
-            
-            // Calculate average prices using the same order as timestamps
-            const avgPrices = sortedTimestamps.map(key => 
-                priceCount[key] ? priceAggregated[key] / priceCount[key] : null
-            );
-
-            return {
-                timestamps: sortedTimestamps.map(k => new Date(k)),
-                counts: sortedTimestamps.map(k => aggregated[k]),
-                prices: avgPrices
-            };
+            const keys = Object.keys(aggregated).sort();
+            const timestamps = new Array(keys.length);
+            const counts = new Array(keys.length);
+            const prices = new Array(keys.length);
+            for (let i = 0; i < keys.length; i++) {
+                timestamps[i] = new Date(keys[i]);
+                counts[i] = aggregated[keys[i]];
+                prices[i] = priceCount[keys[i]] ? priceAggregated[keys[i]] / priceCount[keys[i]] : null;
+            }
+            const aggregatedData = { timestamps, counts, prices };
+            aggregatedCache[intervalMinutes] = aggregatedData;
+            return aggregatedData;
         }
 
+        /*
+         * Compute the composite indicator in one pass:
+         * Composite = α * (Normalized Transfer Frequency) + β * (Normalized Price Change)
+         * - Price change is computed as the first-difference.
+         * - Both counts and price changes are normalized in a single loop where possible.
+         */
+        function computeCompositeIndicator(aggregated, alpha, beta) {
+            const { timestamps, counts, prices } = aggregated;
+            const n = counts.length;
+            const composite = new Array(n);
+            const priceChanges = new Array(n);
+            
+            // Compute price change (first difference)
+            priceChanges[0] = 0;
+            for (let i = 1; i < n; i++) {
+                const prev = prices[i - 1] || 0;
+                const curr = prices[i] || 0;
+                priceChanges[i] = curr - prev;
+            }
+            
+            // Calculate min and max in one loop.
+            let minCount = counts[0],
+                maxCount = counts[0],
+                minPriceChange = priceChanges[0],
+                maxPriceChange = priceChanges[0];
+            for (let i = 1; i < n; i++) {
+                if (counts[i] < minCount) minCount = counts[i];
+                if (counts[i] > maxCount) maxCount = counts[i];
+                if (priceChanges[i] < minPriceChange) minPriceChange = priceChanges[i];
+                if (priceChanges[i] > maxPriceChange) maxPriceChange = priceChanges[i];
+            }
+            
+            // Compute the composite indicator.
+            for (let i = 0; i < n; i++) {
+                const normCount = (maxCount - minCount === 0) ? 0 : (counts[i] - minCount) / (maxCount - minCount);
+                const normPriceChange = (maxPriceChange - minPriceChange === 0) ? 0 : (priceChanges[i] - minPriceChange) / (maxPriceChange - minPriceChange);
+                composite[i] = alpha * normCount + beta * normPriceChange;
+            }
+            
+            return { timestamps, composite };
+        }
+
+        /*
+         * Render the chart.
+         * Uses the raw data when interval===1, otherwise the aggregated data.
+         * The composite indicator is always calculated from aggregated data.
+         */
         async function renderChart(interval = 1) {
-            const data = interval === 1 ? rawData : aggregateData(interval);
-            const xValues = interval === 1 ? data.map(d => new Date(d.timestamp)) : data.timestamps;
-            const yValues = interval === 1 ? data.map(d => d.count) : data.counts;
+            let chartData, aggregated;
+            
+            if (interval === 1) {
+                chartData = rawData;
+                // Also get a 1-minute aggregation for the composite indicator.
+                aggregated = aggregateData(1);
+            } else {
+                aggregated = aggregateData(interval);
+                chartData = aggregated;
+            }
+            
+            const xValues = interval === 1 
+                ? rawData.map(d => new Date(d.timestamp)) 
+                : aggregated.timestamps;
+            const yValues = interval === 1 
+                ? rawData.map(d => d.count) 
+                : aggregated.counts;
             const priceValues = interval === 1 
-                ? data.map(d => d.trx_price) 
-                : data.prices;
+                ? rawData.map(d => d.trx_price) 
+                : aggregated.prices;
 
             const transferTrace = {
                 x: xValues,
@@ -171,6 +241,24 @@
                 yaxis: 'y2'
             };
 
+            // Compute composite indicator with weights: α = 0.7 and β = 0.3.
+            const compositeData = computeCompositeIndicator(aggregated, 0.7, 0.3);
+            const compositeTrace = {
+                x: compositeData.timestamps,
+                y: compositeData.composite,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Composite Indicator',
+                line: {
+                    color: '#6a4c93',
+                    width: 2,
+                    dash: 'dash'
+                },
+                hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Composite: %{y:.2f}<extra></extra>`,
+                yaxis: 'y3'
+            };
+
+            // Configure layout with three y-axes.
             const layout = {
                 title: {
                     text: `Transfer Frequency (${interval} Minute Intervals)`,
@@ -182,7 +270,7 @@
                     title: 'Time',
                     gridcolor: '#2a2a2a',
                     color: '#fff',
-                    tickformat: interval === 1 ? '%H:%M' : '%H:%M'
+                    tickformat: '%H:%M'
                 },
                 yaxis: {
                     title: interval === 1 ? 'Transfer Count' : 'Aggregated Count',
@@ -202,12 +290,18 @@
                     gridcolor: 'rgba(255, 215, 0, 0.1)',
                     zerolinecolor: '#2a2a2a'
                 },
+                yaxis3: {
+                    title: 'Composite Indicator',
+                    titlefont: { color: '#6a4c93' },
+                    tickfont: { color: '#6a4c93' },
+                    overlaying: 'y',
+                    side: 'right',
+                    position: 0.85,
+                    gridcolor: 'rgba(106, 76, 147, 0.2)'
+                },
                 font: { color: '#fff' },
                 margin: { t: 60, l: 60, r: 60, b: 60 },
-                hoverlabel: {
-                    bgcolor: '#121212',
-                    font: { color: '#fff' }
-                },
+                hoverlabel: { bgcolor: '#121212', font: { color: '#fff' } },
                 showlegend: true,
                 legend: {
                     x: 0.5,
@@ -218,25 +312,23 @@
                 }
             };
 
-            Plotly.newPlot('chart', [transferTrace, priceTrace], layout, { responsive: true });
+            Plotly.newPlot('chart', [transferTrace, priceTrace, compositeTrace], layout, { responsive: true });
         }
 
-        // Button handlers
+        // Button handlers.
         document.getElementById('btn-1m').addEventListener('click', () => {
-            currentAggregation = 1;
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-1m').classList.add('active');
             renderChart(1);
         });
 
         document.getElementById('btn-5m').addEventListener('click', () => {
-            currentAggregation = 5;
             document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
             document.getElementById('btn-5m').classList.add('active');
             renderChart(5);
         });
 
-        // Modify the initial load to use loadAllData
+        // Load data and render the initial chart.
         loadAllData().then(() => renderChart(1));
     </script>
 </body>
