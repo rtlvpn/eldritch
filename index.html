@@ -165,6 +165,50 @@
         }
 
         /*
+         * Computes the relationship between transfer count and price using the least action principle.
+         * The principle suggests the path of least resistance between the two variables.
+         */
+        function computeLeastActionRelationship(aggregated) {
+            const { timestamps, counts, prices } = aggregated;
+            const n = timestamps.length;
+            const leastAction = new Array(n).fill(null);
+            const validIndices = [];
+
+            // Identify valid data points (where both price and count exist)
+            for (let i = 1; i < n; i++) {
+                if (prices[i] !== null && prices[i-1] !== null && 
+                    counts[i] !== null && counts[i-1] !== null) {
+                    validIndices.push(i);
+                }
+            }
+
+            if (validIndices.length < 2) return { timestamps, leastAction };
+
+            // Normalize count and price sequences for comparison
+            const validCounts = validIndices.map(i => counts[i]);
+            const validPrices = validIndices.map(i => prices[i]);
+            
+            const countMean = validCounts.reduce((a, b) => a + b, 0) / validCounts.length;
+            const priceMean = validPrices.reduce((a, b) => a + b, 0) / validPrices.length;
+            
+            const countStd = Math.sqrt(validCounts.reduce((a, b) => a + Math.pow(b - countMean, 2), 0) / validCounts.length) || 1;
+            const priceStd = Math.sqrt(validPrices.reduce((a, b) => a + Math.pow(b - priceMean, 2), 0) / validPrices.length) || 1;
+
+            // Calculate least action path - minimizing potential energy between normalized variables
+            for (let j = 0; j < validIndices.length; j++) {
+                const i = validIndices[j];
+                const normCount = (counts[i] - countMean) / countStd;
+                const normPrice = (prices[i] - priceMean) / priceStd;
+                
+                // Calculate "action" as potential energy between the variables
+                // Lower values indicate stronger correlation/harmony between variables
+                leastAction[i] = Math.exp(-Math.pow(normCount - normPrice, 2) / 2);
+            }
+
+            return { timestamps, leastAction };
+        }
+
+        /*
          * Renders the Plotly chart.
          * The divergence trace is only computed and added if the browser is not mobile.
          */
@@ -239,6 +283,24 @@
                     yaxis: 'y3'
                 };
                 traces.push(divergenceTrace);
+                
+                // Add Least Action Principle trace
+                const leastActionData = computeLeastActionRelationship(aggregated);
+                const leastActionTrace = {
+                    x: leastActionData.timestamps,
+                    y: leastActionData.leastAction,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Least Action Principle',
+                    line: {
+                        color: 'rgba(147, 112, 219, 0.8)', // Purple
+                        width: 2,
+                        dash: 'spline'
+                    },
+                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Harmony Index: %{y:.2f}<extra></extra>`,
+                    yaxis: 'y4'
+                };
+                traces.push(leastActionTrace);
             }
 
             const layout = {
@@ -280,6 +342,16 @@
                     side: 'right',
                     position: 0.85,
                     gridcolor: 'rgba(255, 165, 0, 0.2)'
+                },
+                yaxis4: {
+                    title: 'Least Action',
+                    titlefont: { color: 'rgba(147, 112, 219, 0.8)' },
+                    tickfont: { color: 'rgba(147, 112, 219, 0.8)' },
+                    overlaying: 'y',
+                    side: 'right',
+                    position: 0.95,
+                    range: [0, 1],
+                    gridcolor: 'rgba(147, 112, 219, 0.2)'
                 },
                 font: { color: '#fff' },
                 margin: { t: 60, l: 60, r: 60, b: 60 },
