@@ -165,126 +165,8 @@
         }
 
         /*
-         * Advanced implementation of the Least Action Principle for market prediction.
-         * Uses phase space dynamics and calculates potential future trajectories.
-         */
-        function computePredictiveLeastAction(aggregated) {
-            const { timestamps, counts, prices } = aggregated;
-            const n = timestamps.length;
-            const leastAction = new Array(n).fill(null);
-            const prediction = new Array(n).fill(null);
-            const momentum = new Array(n).fill(null);
-            const validIndices = [];
-            const lookback = 5; // Window size for momentum calculation
-            
-            // Identify valid data points and compute phase space coordinates
-            for (let i = lookback; i < n; i++) {
-                if (prices[i] !== null && counts[i] !== null) {
-                    validIndices.push(i);
-                }
-            }
-
-            if (validIndices.length < lookback + 2) return { timestamps, leastAction, prediction, momentum };
-
-            // Calculate phase space coordinates (price, transfer count, price velocity, transfer velocity)
-            const phaseSpace = validIndices.map(i => {
-                const priceVelocity = (prices[i] - prices[i-1]) || 0;
-                const countVelocity = (counts[i] - counts[i-1]) || 0;
-                
-                // Calculate momentum as moving average of velocities
-                let priceMomentum = 0, countMomentum = 0;
-                for (let j = 0; j < lookback; j++) {
-                    if (i-j > 0 && prices[i-j] !== null && prices[i-j-1] !== null) {
-                        priceMomentum += (prices[i-j] - prices[i-j-1]);
-                        countMomentum += (counts[i-j] - counts[i-j-1]);
-                    }
-                }
-                priceMomentum /= lookback;
-                countMomentum /= lookback;
-                
-                return {
-                    index: i,
-                    price: prices[i],
-                    count: counts[i],
-                    priceVelocity,
-                    countVelocity,
-                    priceMomentum,
-                    countMomentum
-                };
-            });
-
-            // Normalize phase space coordinates
-            const priceValues = phaseSpace.map(p => p.price);
-            const countValues = phaseSpace.map(p => p.count);
-            const priceVelocities = phaseSpace.map(p => p.priceVelocity);
-            const countVelocities = phaseSpace.map(p => p.countVelocity);
-            
-            const priceMean = priceValues.reduce((a, b) => a + b, 0) / priceValues.length;
-            const countMean = countValues.reduce((a, b) => a + b, 0) / countValues.length;
-            const priceVelMean = priceVelocities.reduce((a, b) => a + b, 0) / priceVelocities.length;
-            const countVelMean = countVelocities.reduce((a, b) => a + b, 0) / countVelocities.length;
-            
-            const priceStd = Math.sqrt(priceValues.reduce((a, b) => a + Math.pow(b - priceMean, 2), 0) / priceValues.length) || 1;
-            const countStd = Math.sqrt(countValues.reduce((a, b) => a + Math.pow(b - countMean, 2), 0) / countValues.length) || 1;
-            const priceVelStd = Math.sqrt(priceVelocities.reduce((a, b) => a + Math.pow(b - priceVelMean, 2), 0) / priceVelocities.length) || 1;
-            const countVelStd = Math.sqrt(countVelocities.reduce((a, b) => a + Math.pow(b - countVelMean, 2), 0) / countVelocities.length) || 1;
-            
-            // Calculate action as potential and kinetic energy in phase space
-            for (const point of phaseSpace) {
-                const i = point.index;
-                const normPrice = (point.price - priceMean) / priceStd;
-                const normCount = (point.count - countMean) / countStd;
-                const normPriceVel = (point.priceVelocity - priceVelMean) / priceVelStd;
-                const normCountVel = (point.countVelocity - countVelMean) / countVelStd;
-                
-                // Potential energy component (position mismatch)
-                const potentialEnergy = Math.pow(normPrice - normCount, 2);
-                
-                // Kinetic energy component (velocity mismatch)
-                const kineticEnergy = Math.pow(normPriceVel - normCountVel, 2);
-                
-                // Total action = potential + kinetic energy
-                const action = potentialEnergy + kineticEnergy;
-                
-                // Least action (inverted, normalized between 0-1)
-                leastAction[i] = Math.exp(-action / 2);
-                
-                // Calculate momentum signal for trend direction
-                momentum[i] = Math.sign(point.priceMomentum) * Math.sign(point.countMomentum) * 
-                             (Math.abs(point.priceMomentum) / priceVelStd) * 
-                             (Math.abs(point.countMomentum) / countVelStd);
-            }
-            
-            // Generate price prediction based on least action principle
-            // When markets are in harmony (high least action), momentum continues
-            // When markets are in disharmony (low least action), expect reversion
-            for (let j = 0; j < validIndices.length; j++) {
-                const i = validIndices[j];
-                if (j >= 3 && j < validIndices.length - 1) {
-                    const harmony = leastAction[i];
-                    const momentumStrength = momentum[i];
-                    
-                    // Calculate predicted price movement
-                    // High harmony → follow momentum
-                    // Low harmony → expect reversion
-                    if (harmony > 0.7) {
-                        // In harmony state - expect trend continuation
-                        prediction[i] = prices[i] * (1 + 0.005 * momentumStrength);
-                    } else if (harmony < 0.3) {
-                        // In disharmony state - expect reversion
-                        prediction[i] = prices[i] * (1 - 0.003 * momentumStrength);
-                    } else {
-                        // Neutral state - slight bias toward momentum
-                        prediction[i] = prices[i] * (1 + 0.001 * momentumStrength);
-                    }
-                }
-            }
-            
-            return { timestamps, leastAction, prediction, momentum };
-        }
-
-        /*
          * Renders the Plotly chart.
+         * The divergence trace is only computed and added if the browser is not mobile.
          */
         async function renderChart(interval = 1) {
             let chartData, aggregated;
@@ -351,65 +233,12 @@
                     line: {
                         color: 'rgba(255, 215, 0, 0.2)',
                         width: 1,
-                        dash: 'dot'
+                        dash: 'spline'
                     },
                     hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Divergence: %{y:.2f}<extra></extra>`,
                     yaxis: 'y3'
                 };
                 traces.push(divergenceTrace);
-                
-                // Add advanced Least Action analysis
-                const leastActionData = computePredictiveLeastAction(aggregated);
-                
-                // Harmony index trace
-                const leastActionTrace = {
-                    x: leastActionData.timestamps,
-                    y: leastActionData.leastAction,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Quantum Harmony Index',
-                    line: {
-                        color: 'rgba(147, 112, 219, 0.8)', // Purple
-                        width: 2
-                    },
-                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Harmony: %{y:.2f}<extra></extra>`,
-                    yaxis: 'y4'
-                };
-                traces.push(leastActionTrace);
-                
-                // Price prediction trace
-                const predictionTrace = {
-                    x: leastActionData.timestamps,
-                    y: leastActionData.prediction,
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: 'Price Prediction',
-                    marker: {
-                        color: 'rgba(255, 80, 80, 0.9)',
-                        size: 4,
-                        symbol: 'diamond'
-                    },
-                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Predicted: $%{y:.4f}<extra></extra>`,
-                    yaxis: 'y2'
-                };
-                traces.push(predictionTrace);
-                
-                // Momentum component trace
-                const momentumTrace = {
-                    x: leastActionData.timestamps,
-                    y: leastActionData.momentum,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'Phase Momentum',
-                    line: {
-                        color: 'rgba(0, 255, 127, 0.6)', // Spring green
-                        width: 1,
-                        dash: 'dot'
-                    },
-                    hovertemplate: `<b>%{x|%H:%M:%S}</b><br>Momentum: %{y:.2f}<extra></extra>`,
-                    yaxis: 'y5'
-                };
-                traces.push(momentumTrace);
             }
 
             const layout = {
@@ -451,25 +280,6 @@
                     side: 'right',
                     position: 0.85,
                     gridcolor: 'rgba(255, 165, 0, 0.2)'
-                },
-                yaxis4: {
-                    title: 'Quantum Harmony',
-                    titlefont: { color: 'rgba(147, 112, 219, 0.8)' },
-                    tickfont: { color: 'rgba(147, 112, 219, 0.8)' },
-                    overlaying: 'y',
-                    side: 'right',
-                    position: 0.9,
-                    range: [0, 1],
-                    gridcolor: 'rgba(147, 112, 219, 0.2)'
-                },
-                yaxis5: {
-                    title: 'Momentum',
-                    titlefont: { color: 'rgba(0, 255, 127, 0.6)' },
-                    tickfont: { color: 'rgba(0, 255, 127, 0.6)' },
-                    overlaying: 'y',
-                    side: 'right',
-                    position: 0.95,
-                    gridcolor: 'rgba(0, 255, 127, 0.2)'
                 },
                 font: { color: '#fff' },
                 margin: { t: 60, l: 60, r: 60, b: 60 },
