@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TRXUSDT Order Book Heatmap</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        #chart { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        // Fetch order book data from Binance API
+        async function fetchOrderBook(symbol, limit = 100) {
+            const url = `https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=${limit}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Error fetching order book:', error);
+                return null;
+            }
+        }
+
+        // Process the data for the heatmap
+        function processOrderBook(data) {
+            if (!data) return { prices: [], quantities: [] };
+
+            // Combine bids and asks, sort by price
+            const bids = data.bids.map(bid => [parseFloat(bid[0]), parseFloat(bid[1])]);
+            const asks = data.asks.map(ask => [parseFloat(ask[0]), parseFloat(ask[1])]);
+            const allOrders = [...bids, ...asks].sort((a, b) => a[0] - b[0]);
+
+            const prices = allOrders.map(order => order[0]); // Y-axis
+            const quantities = allOrders.map(order => order[1]); // Color intensity
+
+            return { prices, quantities };
+        }
+
+        // Plot the heatmap
+        function plotHeatmap(prices, quantities) {
+            const trace = {
+                y: prices,
+                z: quantities.map(q => [q]), // 2D array for heatmap
+                type: 'heatmap',
+                colorscale: 'Viridis', // Color scheme
+                showscale: true // Show colorbar
+            };
+            const layout = {
+                title: 'TRXUSDT Order Book Heatmap',
+                yaxis: { title: 'Price (USDT)' },
+                xaxis: { showticklabels: false } // No x-axis for static snapshot
+            };
+            Plotly.newPlot('chart', [trace], layout);
+        }
+
+        // Update the heatmap
+        async function updateHeatmap() {
+            const data = await fetchOrderBook('TRXUSDT');
+            const { prices, quantities } = processOrderBook(data);
+            plotHeatmap(prices, quantities);
+        }
+
+        // Initial plot and update every 5 seconds
+        updateHeatmap();
+        setInterval(updateHeatmap, 5000);
+    </script>
+</body>
+</html>
