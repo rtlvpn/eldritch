@@ -1,243 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>TRXUSDT Bookmap‑Style Order Overlay</title>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-        }
-        /* The container holds both canvases */
-        #container {
-            position: relative;
-            width: 100%;
-            height: 500px;
-            background: #fff;
-        }
-        /* Both canvases occupy the same position so the heat overlay can be drawn on top */
-        canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Binance Order Book Heatmap</title>
+  <style>
+    /* Basic reset and dark theme */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #121212;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    /* Fullscreen canvas */
+    canvas {
+      display: block;
+    }
+    /* Optional overlay showing last update time */
+    #overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 5px 10px;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
-    <div id="container">
-        <!-- Price chart will be drawn here -->
-        <canvas id="priceCanvas"></canvas>
-        <!-- Heat overlay (order squares) will be drawn here -->
-        <canvas id="heatCanvas"></canvas>
-    </div>
-    <script>
-        /*************************************
-         * Global variables and settings
-         *************************************/
-        let priceCanvas, priceCtx, heatCanvas, heatCtx;
-        let canvasWidth, canvasHeight;
-        let candlestickData = [];
-        let minPrice = Infinity, maxPrice = -Infinity;
-        // We'll keep a history of order book snapshots to simulate the time axis.
-        let heatHistory = [];
-        const maxHeatHistory = 200;    // Maximum number of snapshots (columns)
-        const updateInterval = 1000;   // Update order book every 1 second
+  <div id="container">
+    <canvas id="heatmapCanvas"></canvas>
+    <div id="overlay">Last update: <span id="lastUpdate">N/A</span></div>
+  </div>
+  
+  <script>
+    // Get references to DOM elements.
+    const canvas = document.getElementById('heatmapCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlayLastUpdate = document.getElementById('lastUpdate');
 
-        /*************************************
-         * Initialization and Resize Handling
-         *************************************/
-        function init() {
-            priceCanvas = document.getElementById('priceCanvas');
-            priceCtx = priceCanvas.getContext('2d');
-            heatCanvas = document.getElementById('heatCanvas');
-            heatCtx = heatCanvas.getContext('2d');
-            resizeCanvases();
-            window.addEventListener('resize', resizeCanvases);
-            
-            // Get initial candlestick data and draw the price chart
-            fetchCandlesticks();
-            // Update candlestick chart every 5 minutes (300,000ms)
-            setInterval(fetchCandlesticks, 5 * 60 * 1000);
-            // Begin updating the heat overlay (order squares)
-            setInterval(updateHeatOverlay, updateInterval);
+    // Adjust canvas dimensions to fill the window.
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (currentData) drawHeatmap(currentData);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    // Global variable to store the latest heatmap data.
+    let currentData = null;
+
+    // Fetch the heatmap data from our API endpoint.
+    async function fetchHeatmap() {
+      try {
+        const response = await fetch('/api/orderbook/heatmap');
+        const data = await response.json();
+        currentData = data;
+        overlayLastUpdate.textContent = new Date().toLocaleTimeString();
+        drawHeatmap(data);
+      } catch (error) {
+        console.error('Error fetching heatmap data:', error);
+      }
+    }
+
+    // Draw the heatmap on the canvas.
+    function drawHeatmap(data) {
+      if (!data || !data.times || data.times.length === 0) {
+        // No data available; clear the canvas and show a message.
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Arial";
+        ctx.fillText("No heatmap data available", 50, 50);
+        return;
+      }
+
+      const times = data.times;      // Array of tick timestamps.
+      const buckets = data.buckets;  // Price bucket boundaries.
+      const bidHeat = data.bidHeat;  // 2D array: each row corresponds to a tick's bid volumes.
+      const askHeat = data.askHeat;  // 2D array: each row corresponds to a tick's ask volumes.
+      
+      // Determine grid dimensions.
+      const numTicks = times.length;
+      const numBuckets = buckets.length;
+      const cellWidth = canvas.width / numTicks;
+      const cellHeight = canvas.height / numBuckets;
+
+      // Compute global maximum volume (for normalization) from both bid and ask cells.
+      let maxVolume = 0;
+      for (let i = 0; i < numTicks; i++) {
+        for (let j = 0; j < numBuckets; j++) {
+          const vol = (bidHeat[i][j] || 0) + (askHeat[i][j] || 0);
+          if (vol > maxVolume) maxVolume = vol;
         }
+      }
 
-        function resizeCanvases() {
-            const container = document.getElementById('container');
-            canvasWidth = container.clientWidth;
-            canvasHeight = container.clientHeight;
-            priceCanvas.width = canvasWidth;
-            priceCanvas.height = canvasHeight;
-            heatCanvas.width = canvasWidth;
-            heatCanvas.height = canvasHeight;
-            // Redraw both layers on resize
-            drawCandlesticks();
-            drawHeatOverlay();
+      // Clear the canvas.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw heatmap cells.
+      for (let i = 0; i < numTicks; i++) {
+        for (let j = 0; j < numBuckets; j++) {
+          const bidVol = bidHeat[i][j] || 0;
+          const askVol = askHeat[i][j] || 0;
+          const totalVol = bidVol + askVol;
+          
+          // Normalize the volumes. A square-root scale helps with visualization.
+          const bidIntensity = Math.sqrt(bidVol / maxVolume);
+          const askIntensity = Math.sqrt(askVol / maxVolume);
+
+          // Build a color with red for asks and blue for bids.
+          // When both orders exist, the combination produces a purple hue.
+          const red = Math.min(255, Math.floor(askIntensity * 255));
+          const blue = Math.min(255, Math.floor(bidIntensity * 255));
+          const cellColor = `rgb(${red}, 0, ${blue})`;
+
+          // Calculate cell position.
+          const x = i * cellWidth;
+          // Invert the y-axis so that higher price buckets (higher indices) appear at the top.
+          const y = canvas.height - (j + 1) * cellHeight;
+
+          ctx.fillStyle = cellColor;
+          ctx.fillRect(x, y, cellWidth, cellHeight);
         }
+      }
 
-        /*************************************
-         * Candlestick Chart Functions
-         *************************************/
-        // Fetch candlestick (k-line) data from Binance and process it.
-        async function fetchCandlesticks() {
-            try {
-                // Use Binance API to get 5‑minute candles (limit can be adjusted)
-                const response = await fetch('https://api.binance.com/api/v3/klines?symbol=TRXUSDT&interval=5m&limit=50');
-                const data = await response.json();
-                candlestickData = data.map(d => {
-                    return {
-                        openTime: d[0],
-                        open: parseFloat(d[1]),
-                        high: parseFloat(d[2]),
-                        low: parseFloat(d[3]),
-                        close: parseFloat(d[4]),
-                    };
-                });
-                updatePriceRange();
-                drawCandlesticks();
-            } catch (error) {
-                console.error("Error fetching candlestick data:", error);
-            }
-        }
+      // Optionally, draw price axis labels along the left side.
+      ctx.fillStyle = "#fff";
+      ctx.font = "12px Arial";
+      const priceStep = Math.max(1, Math.floor(numBuckets / 10));
+      for (let j = 0; j < numBuckets; j += priceStep) {
+        const priceLabel = Number(buckets[j]).toFixed(4);
+        // Center the text within the cell.
+        const y = canvas.height - (j + 0.5) * cellHeight;
+        ctx.fillText(priceLabel, 5, y);
+      }
 
-        // Update the min and max price range from candlestick data (with a small margin)
-        function updatePriceRange() {
-            minPrice = Math.min(...candlestickData.map(c => c.low));
-            maxPrice = Math.max(...candlestickData.map(c => c.high));
-            const margin = (maxPrice - minPrice) * 0.02;
-            minPrice -= margin;
-            maxPrice += margin;
-        }
+      // Optionally, draw time axis labels along the bottom.
+      const timeStep = Math.max(1, Math.floor(numTicks / 10));
+      for (let i = 0; i < numTicks; i += timeStep) {
+        const timeLabel = new Date(times[i]).toLocaleTimeString();
+        const x = i * cellWidth;
+        ctx.fillText(timeLabel, x, canvas.height - 5);
+      }
+    }
 
-        // Map a price value to a y coordinate on the canvas
-        function priceToY(price) {
-            // Linear mapping:  minPrice -> bottom, maxPrice -> top
-            return canvasHeight - ((price - minPrice) / (maxPrice - minPrice)) * canvasHeight;
-        }
+    // Initial fetch and schedule auto-refresh.
+    fetchHeatmap();
+    setInterval(fetchHeatmap, 5000); // refresh every 5 seconds
 
-        // Draw the candlestick chart on the priceCanvas.
-        function drawCandlesticks() {
-            if (candlestickData.length === 0) return;
-            // Clear the canvas
-            priceCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-            const candleCount = candlestickData.length;
-            // Let each candle occupy a fraction of the canvas width; leave gaps for separation.
-            const fullCandleWidth = canvasWidth / candleCount;
-            const candleWidth = fullCandleWidth * 0.8;
-            const gap = fullCandleWidth * 0.2;
-
-            candlestickData.forEach((candle, index) => {
-                const x = index * fullCandleWidth + gap / 2;
-                const openY = priceToY(candle.open);
-                const closeY = priceToY(candle.close);
-                const highY = priceToY(candle.high);
-                const lowY = priceToY(candle.low);
-
-                // Draw the vertical line (wick)
-                priceCtx.beginPath();
-                priceCtx.moveTo(x + candleWidth / 2, highY);
-                priceCtx.lineTo(x + candleWidth / 2, lowY);
-                priceCtx.strokeStyle = '#000';
-                priceCtx.stroke();
-
-                // Draw the candle body
-                const bodyTop = Math.min(openY, closeY);
-                const bodyHeight = Math.abs(openY - closeY) || 1;  // ensure visibility even if very small
-                priceCtx.fillStyle = candle.close >= candle.open ? 'green' : 'red';
-                priceCtx.fillRect(x, bodyTop, candleWidth, bodyHeight);
-            });
-
-            // Optionally, draw horizontal grid lines for reference.
-            priceCtx.strokeStyle = '#ccc';
-            priceCtx.lineWidth = 0.5;
-            for (let i = 0; i <= 5; i++) {
-                const price = minPrice + (i / 5) * (maxPrice - minPrice);
-                const y = priceToY(price);
-                priceCtx.beginPath();
-                priceCtx.moveTo(0, y);
-                priceCtx.lineTo(canvasWidth, y);
-                priceCtx.stroke();
-                // Draw price text (with 4 decimal places)
-                priceCtx.fillStyle = '#000';
-                priceCtx.font = '10px Arial';
-                priceCtx.fillText(price.toFixed(4), 5, y - 2);
-            }
-        }
-
-        /*************************************
-         * Order Book Heatmap Overlay Functions
-         *************************************/
-        // Fetch depth (order book) data from Binance.
-        async function fetchOrderBook() {
-            try {
-                const response = await fetch('https://api.binance.com/api/v3/depth?symbol=TRXUSDT&limit=50');
-                const data = await response.json();
-                const orders = [];
-                // Process bids (buy orders)
-                data.bids.forEach(bid => {
-                    orders.push({ price: parseFloat(bid[0]), volume: parseFloat(bid[1]), side: 'bid' });
-                });
-                // Process asks (sell orders)
-                data.asks.forEach(ask => {
-                    orders.push({ price: parseFloat(ask[0]), volume: parseFloat(ask[1]), side: 'ask' });
-                });
-                return orders;
-            } catch (error) {
-                console.error("Error fetching order book:", error);
-                return [];
-            }
-        }
-
-        // Update the heat overlay by adding a new order book snapshot.
-        async function updateHeatOverlay() {
-            const orders = await fetchOrderBook();
-            heatHistory.push(orders);
-            // Limit the history so we only display the most recent snapshots.
-            if (heatHistory.length > maxHeatHistory) {
-                heatHistory.shift();
-            }
-            drawHeatOverlay();
-        }
-
-        // Draw the heatmap overlay (order squares) on the heatCanvas.
-        function drawHeatOverlay() {
-            // Clear the overlay—using clearRect so the underlying candlesticks remain visible.
-            heatCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-            if (heatHistory.length === 0) return;
-            // Each snapshot is drawn as a vertical column.
-            const colWidth = canvasWidth / maxHeatHistory;
-            // For square-like blocks, we use the column width as the height too.
-            const squareSize = colWidth;
-            // If the history is not full, we offset so that the newest column is always at the right edge.
-            const offset = (maxHeatHistory - heatHistory.length) * colWidth;
-            
-            // Iterate over each snapshot in the history.
-            heatHistory.forEach((snapshot, idx) => {
-                const x = offset + idx * colWidth;
-                if (snapshot.length === 0) return;
-                // Find the maximum volume in the current snapshot for normalization.
-                const maxVol = Math.max(...snapshot.map(order => order.volume));
-                snapshot.forEach(order => {
-                    // Map the order price to a y coordinate.
-                    const y = priceToY(order.price);
-                    // Normalize volume into an opacity value.
-                    let alpha = maxVol > 0 ? 0.2 + 0.6 * (order.volume / maxVol) : 0.2;
-                    if (alpha > 0.8) alpha = 0.8;
-                    // Choose color by side: blue for bids and red for asks.
-                    if (order.side === 'bid') {
-                        heatCtx.fillStyle = `rgba(0, 0, 255, ${alpha})`;
-                    } else {
-                        heatCtx.fillStyle = `rgba(255, 0, 0, ${alpha})`;
-                    }
-                    // Draw a square at the corresponding (x, y) position.
-                    heatCtx.fillRect(x, y - squareSize / 2, colWidth, squareSize);
-                });
-            });
-        }
-
-        // Start the application when the window loads.
-        window.onload = init;
-    </script>
+    // Resize the canvas on load.
+    resizeCanvas();
+  </script>
 </body>
 </html>
