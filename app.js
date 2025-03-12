@@ -53,7 +53,7 @@ const db = new sqlite3.Database('database.db', (err) => {
 });
 
 // Create the snapshots table if not exists.
-// We'll store: id, symbol, timestamp, bids, asks
+// We'll store: id, symbol, timestamp, bids, asks, price
 // The timestamp is stored in SQLite's TEXT format ("YYYY-MM-DD HH:MM:SS")
 db.serialize(() => {
   db.run(
@@ -62,7 +62,8 @@ db.serialize(() => {
       symbol TEXT,
       timestamp TEXT,
       bids TEXT,
-      asks TEXT
+      asks TEXT,
+      price REAL
     )`,
     (err) => {
       if (err) console.error("Error creating table:", err);
@@ -70,8 +71,8 @@ db.serialize(() => {
   );
 });
 
-// Helper: Format Date as "YYYY-MM-DD HH:MM:SS"
-function formatDate(date) {
+// Helper: Format Date as "YYYY-MM-DD HH:MM:SS" in UTC
+function formatUTCDate(date) {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
@@ -161,6 +162,20 @@ function connectWebSocket() {
 }
 
 /**
+ * Fetch current price from Binance API
+ */
+async function fetchCurrentPrice(symbol) {
+  try {
+    const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
+    const data = await response.json();
+    return parseFloat(data.price);
+  } catch (err) {
+    console.error("Error fetching current price:", err);
+    return null;
+  }
+}
+
+/**
  * Save a snapshot of the current order book into SQLite.
  */
 async function saveSnapshot() {
@@ -175,10 +190,20 @@ async function saveSnapshot() {
       .map(price => ({ price: parseFloat(price), volume: orderBook.asks[price] }))
       .sort((a, b) => a.price - b.price);
 
+    // Fetch current price from Binance
+    const currentPrice = await fetchCurrentPrice(orderBook.symbol);
+
+    // Use UTC time consistently
     const now = new Date();
-    const nowStr = formatDate(now);
-    const sql = `INSERT INTO snapshots (symbol, timestamp, bids, asks) VALUES (?, ?, ?, ?)`;
-    db.run(sql, [orderBook.symbol, nowStr, JSON.stringify(bidsArray), JSON.stringify(asksArray)], function(err) {
+    const nowStr = formatUTCDate(now);
+    const sql = `INSERT INTO snapshots (symbol, timestamp, bids, asks, price) VALUES (?, ?, ?, ?, ?)`;
+    db.run(sql, [
+      orderBook.symbol, 
+      nowStr, 
+      JSON.stringify(bidsArray), 
+      JSON.stringify(asksArray),
+      currentPrice
+    ], function(err) {
       if (err) {
         console.error("Error saving snapshot:", err);
       }
@@ -193,7 +218,7 @@ async function saveSnapshot() {
  */
 function deleteOldSnapshots() {
   const cutoffDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-  const cutoffStr = formatDate(cutoffDate);
+  const cutoffStr = formatUTCDate(cutoffDate);
   const sql = `DELETE FROM snapshots WHERE timestamp < ?`;
   db.run(sql, [cutoffStr], function(err) {
     if (err) {
@@ -233,7 +258,8 @@ function getSnapshots(symbol, startStr, endStr) {
         symbol: row.symbol,
         timestamp: row.timestamp,
         bids: JSON.parse(row.bids),
-        asks: JSON.parse(row.asks)
+        asks: JSON.parse(row.asks),
+        price: row.price
       }));
       resolve(snapshots);
     });
@@ -252,10 +278,11 @@ function getSnapshots(symbol, startStr, endStr) {
 app.get('/api/orderbook/ticks', async (req, res) => {
   try {
     const symbol = req.query.symbol || "TRXUSDT";
+    // Ensure all date handling uses UTC consistently
     const end = req.query.end ? new Date(req.query.end) : new Date();
     const start = req.query.start ? new Date(req.query.start) : new Date(end.getTime() - 60 * 60 * 1000);
-    const startStr = formatDate(start);
-    const endStr = formatDate(end);
+    const startStr = formatUTCDate(start);
+    const endStr = formatUTCDate(end);
 
     const snapshots = await getSnapshots(symbol, startStr, endStr);
     // Group snapshots by minute (using the first 16 characters e.g. "YYYY-MM-DD HH:MM")
@@ -270,19 +297,11 @@ app.get('/api/orderbook/ticks', async (req, res) => {
     const sortedMinutes = Object.keys(groups).sort();
     const ticks = sortedMinutes.map(minKey => {
       const tick = groups[minKey];
-      const bestBid = (tick.bids && tick.bids.length > 0) ? tick.bids[0] : null;
-      const bestAsk = (tick.asks && tick.asks.length > 0) ? tick.asks[0] : null;
-      let price = null;
-      if (bestBid && bestAsk) {
-        price = (bestBid.price + bestAsk.price) / 2;
-      } else {
-        price = bestBid ? bestBid.price : (bestAsk ? bestAsk.price : null);
-      }
       return {
         timestamp: tick.timestamp,
         bids: tick.bids,
         asks: tick.asks,
-        price
+        price: tick.price
       };
     });
     res.json(ticks);
@@ -307,10 +326,11 @@ app.get('/api/orderbook/heatmap', async (req, res) => {
   try {
     const symbol = req.query.symbol || "TRXUSDT";
     const bucketSize = parseFloat(req.query.bucketSize) || 0.001;
+    // Ensure all date handling uses UTC consistently
     const end = req.query.end ? new Date(req.query.end) : new Date();
     const start = req.query.start ? new Date(req.query.start) : new Date(end.getTime() - 60 * 60 * 1000);
-    const startStr = formatDate(start);
-    const endStr = formatDate(end);
+    const startStr = formatUTCDate(start);
+    const endStr = formatUTCDate(end);
 
     const snapshots = await getSnapshots(symbol, startStr, endStr);
     // Group snapshots by minute.

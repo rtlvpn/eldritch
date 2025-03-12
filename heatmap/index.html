@@ -212,8 +212,8 @@
       if (maxVolume === 0) maxVolume = 1;
       
       // We want the highest price at the top
-      const totalMatrix = [];
-      const diffMatrix = [];
+      const bidMatrix = [];  // Separate matrix for bids only
+      const askMatrix = [];  // Separate matrix for asks only
       const hoverText = [];
       
       // Prepare y-axis labels (price) in reversed order.
@@ -230,30 +230,21 @@
         // Format the price for the label with dynamic precision
         yLabels.push(Number(buckets[bucketIndex]).toFixed(priceDecimals));
         
-        totalMatrix[r] = [];
-        diffMatrix[r] = [];
+        bidMatrix[r] = [];
+        askMatrix[r] = [];
         hoverText[r] = [];
         
         for (let i = 0; i < numTicks; i++) {
           const bid = (bidHeat[i] && bidHeat[i][bucketIndex]) ? bidHeat[i][bucketIndex] : 0;
           const ask = (askHeat[i] && askHeat[i][bucketIndex]) ? askHeat[i][bucketIndex] : 0;
           
-          // Skip rendering cells where both bid and ask are 0
-          if (bid === 0 && ask === 0) {
-            // Use null to tell Plotly to skip rendering this cell
-            totalMatrix[r][i] = null;
-            diffMatrix[r][i] = null;
-            hoverText[r][i] = null;
-            continue;
-          }
-          
           // Use a cube-root scale for better visual dynamics with large volume variations
           const I_bid = Math.cbrt(bid / maxVolume);
           const I_ask = Math.cbrt(ask / maxVolume);
           
-          // Total intensity and imbalance
-          totalMatrix[r][i] = I_bid + I_ask;
-          diffMatrix[r][i] = I_ask - I_bid;
+          // Separate bid and ask matrices for Bookmap style
+          bidMatrix[r][i] = bid > 0 ? I_bid : null;
+          askMatrix[r][i] = ask > 0 ? I_ask : null;
           
           // Enhanced hover text
           const bidColor = bid > ask ? "<span style='color:#8af'>↑</span>" : "";
@@ -271,44 +262,44 @@
       // Get the selected color scheme
       const colorScheme = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
       
-      // Trace 1: Overall intensity
-      const traceTotal = {
-        z: totalMatrix,
+      // Trace 1: Bid heatmap (more Bookmap-like representation)
+      const traceBid = {
+        z: bidMatrix,
         x: xLabels,
         y: yLabels,
         type: 'heatmap',
-        colorscale: colorScheme.intensity,
-        zmin: 0,
-        zmax: 2,
+        colorscale: [
+          [0, 'rgba(0,0,0,0)'],  // Transparent for null values
+          [0.001, 'rgba(0,100,200,0.7)'],  // Start color for very low values
+          [1, 'rgba(0,200,255,0.9)']  // End color for high values
+        ],
         showscale: false,
-        hoverinfo: 'skip',
-        connectgaps: false,  // This ensures gaps are preserved
+        hoverinfo: 'text',
+        text: hoverText,
+        connectgaps: false,
         showlegend: false
       };
       
-      // Trace 2: Bid/Ask imbalance
-      const traceDiff = {
-        z: diffMatrix,
+      // Trace 2: Ask heatmap
+      const traceAsk = {
+        z: askMatrix,
         x: xLabels,
         y: yLabels,
         type: 'heatmap',
-        colorscale: colorScheme.imbalance,
-        zmin: -1,
-        zmax: 1,
+        colorscale: [
+          [0, 'rgba(0,0,0,0)'],  // Transparent for null values
+          [0.001, 'rgba(200,0,100,0.7)'],  // Start color for very low values
+          [1, 'rgba(255,50,50,0.9)']  // End color for high values
+        ],
         opacity: 0.8,
         showscale: false,
-        text: hoverText,
         hoverinfo: 'text',
-        hoverlabel: {
-          bgcolor: 'rgba(0,0,0,0.8)',
-          bordercolor: '#444',
-          font: {size: 12, color: 'white'}
-        },
-        connectgaps: false,  // This ensures gaps are preserved
+        text: hoverText,
+        connectgaps: false,
         showlegend: false
       };
       
-      // Trace 3: Price line
+      // Trace 3: Price line with enhanced visibility
       const priceLine = {
         x: [],
         y: [],
@@ -316,10 +307,9 @@
         mode: 'lines',
         line: {
           color: '#00ffaa',
-          width: 2,
+          width: 2.5,
           shape: 'spline',
-          smoothing: 1.3,
-          dash: 'solid'
+          smoothing: 1.3
         },
         name: 'Price',
         hoverinfo: 'y+name',
@@ -340,28 +330,34 @@
         }
       }
       
-      // If we have price data, adjust the y-axis range to show the price line
-      let yaxis = {
-        title: 'Price',
-        tickfont: { size: 11, color: '#ddd' },
-        titlefont: { color: '#fff', size: 14 },
-        gridcolor: '#222',
-        zeroline: false
-      };
+      // Calculate min and max price for setting consistent y-axis range
+      let minPrice = Infinity;
+      let maxPrice = -Infinity;
       
+      // Get range from price data
       if (priceData.length > 0) {
-        // Calculate buffer zone (10% of price range)
-        const minPrice = Math.min(...priceLine.y);
-        const maxPrice = Math.max(...priceLine.y);
-        const priceRange = maxPrice - minPrice;
-        const buffer = priceRange * 0.1;
-        
-        // Set the y-axis range to include the price line with buffer
-        yaxis.range = [minPrice - buffer, maxPrice + buffer];
-        yaxis.autorange = false;
+        const priceValues = priceLine.y;
+        const localMin = Math.min(...priceValues);
+        const localMax = Math.max(...priceValues);
+        if (localMin < minPrice) minPrice = localMin;
+        if (localMax > maxPrice) maxPrice = localMax;
       }
       
-      // Layout with better readability and formatting
+      // Also consider bucket range
+      if (buckets.length > 0) {
+        const minBucket = Math.min(...buckets.map(b => Number(b)));
+        const maxBucket = Math.max(...buckets.map(b => Number(b)));
+        if (minBucket < minPrice) minPrice = minBucket;
+        if (maxBucket > maxPrice) maxPrice = maxBucket;
+      }
+      
+      // Add buffer (5% of price range)
+      const range = maxPrice - minPrice;
+      const buffer = range * 0.05;
+      minPrice -= buffer;
+      maxPrice += buffer;
+      
+      // Layout with better Bookmap-style visualization
       currentLayout = {
         margin: { l: 70, r: 20, t: 30, b: 60 },
         paper_bgcolor: '#0a0a0a',
@@ -375,7 +371,16 @@
           zeroline: false,
           nticks: 10
         },
-        yaxis: yaxis,
+        yaxis: {
+          title: 'Price',
+          tickfont: { size: 11, color: '#ddd' },
+          titlefont: { color: '#fff', size: 14 },
+          gridcolor: '#222',
+          zeroline: false,
+          range: [minPrice, maxPrice],
+          autorange: false
+        },
+        shapes: [],  // We'll add a midpoint line if needed
         dragmode: 'zoom',
         modebar: {
           orientation: 'v',
@@ -384,6 +389,24 @@
           activecolor: '#80ccff'
         }
       };
+      
+      // Add a reference line at the last price
+      if (lastPrice !== null) {
+        currentLayout.shapes.push({
+          type: 'line',
+          x0: 0,
+          x1: 1,
+          y0: lastPrice,
+          y1: lastPrice,
+          xref: 'paper',
+          yref: 'y',
+          line: {
+            color: 'rgba(255, 255, 255, 0.3)',
+            width: 1,
+            dash: 'dot'
+          }
+        });
+      }
       
       // Configuration for better interactivity
       const config = {
@@ -402,7 +425,7 @@
         scrollZoom: true
       };
       
-      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff, priceLine], currentLayout, config);
+      Plotly.newPlot('heatmapPlot', [traceBid, traceAsk, priceLine], currentLayout, config);
     }
     
     // Event handlers for controls
