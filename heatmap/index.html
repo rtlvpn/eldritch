@@ -2,70 +2,135 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TRXUSDT Order Book Heatmap</title>
+    <title>TRXUSDT Trading Charts</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
-        #chart { width: 100%; height: 100vh; }
+        #candlestick, #heatmap { width: 100%; height: 400px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
-    <div id="chart"></div>
+    <div id="candlestick"></div>
+    <div id="heatmap"></div>
+
     <script>
-        // Fetch order book data from Binance API
-        async function fetchOrderBook(symbol, limit = 100) {
+        // Store heatmap history
+        let heatmapHistory = [];
+        const maxHistory = 60; // Last 60 snapshots (~5 minutes at 5s intervals)
+
+        // Fetch k-line data for candlestick chart
+        async function fetchKlines(symbol, interval, limit) {
+            const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+            const response = await fetch(url);
+            return await response.json();
+        }
+
+        // Fetch order book data for heatmap
+        async function fetchDepth(symbol, limit) {
             const url = `https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=${limit}`;
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error('Error fetching order book:', error);
-                return null;
-            }
+            const response = await fetch(url);
+            return await response.json();
         }
 
-        // Process the data for the heatmap
-        function processOrderBook(data) {
-            if (!data) return { prices: [], quantities: [] };
-
-            // Combine bids and asks, sort by price
-            const bids = data.bids.map(bid => [parseFloat(bid[0]), parseFloat(bid[1])]);
-            const asks = data.asks.map(ask => [parseFloat(ask[0]), parseFloat(ask[1])]);
-            const allOrders = [...bids, ...asks].sort((a, b) => a[0] - b[0]);
-
-            const prices = allOrders.map(order => order[0]); // Y-axis
-            const quantities = allOrders.map(order => order[1]); // Color intensity
-
-            return { prices, quantities };
+        // Process k-line data
+        function processKlines(klines) {
+            const timestamps = [], opens = [], highs = [], lows = [], closes = [];
+            klines.forEach(kline => {
+                timestamps.push(new Date(kline[0]));
+                opens.push(parseFloat(kline[1]));
+                highs.push(parseFloat(kline[2]));
+                lows.push(parseFloat(kline[3]));
+                closes.push(parseFloat(kline[4]));
+            });
+            return { timestamps, opens, highs, lows, closes };
         }
 
-        // Plot the heatmap
-        function plotHeatmap(prices, quantities) {
+        // Process order book data
+        function processDepth(depth) {
+            const bids = depth.bids.map(b => [parseFloat(b[0]), parseFloat(b[1])]);
+            const asks = depth.asks.map(a => [parseFloat(a[0]), parseFloat(a[1])]);
+            const allPrices = [...new Set([...bids.map(b => b[0]), ...asks.map(a => a[0])])].sort((a, b) => a - b);
+            const bidMap = new Map(bids);
+            const askMap = new Map(asks);
+            const z = allPrices.map(price => [
+                bidMap.has(price) ? bidMap.get(price) : 0,
+                askMap.has(price) ? askMap.get(price) : 0
+            ]);
+            return { prices: allPrices, z };
+        }
+
+        // Plot candlestick chart
+        function plotCandlestick(data) {
             const trace = {
-                y: prices,
-                z: quantities.map(q => [q]), // 2D array for heatmap
-                type: 'heatmap',
-                colorscale: 'Viridis', // Color scheme
-                showscale: true // Show colorbar
+                x: data.timestamps,
+                open: data.opens,
+                high: data.highs,
+                low: data.lows,
+                close: data.closes,
+                type: 'candlestick',
+                increasing: { line: { color: 'green' } },
+                decreasing: { line: { color: 'red' } },
             };
             const layout = {
-                title: 'TRXUSDT Order Book Heatmap',
+                title: 'TRXUSDT 5-Minute Candlestick Chart',
+                xaxis: { title: 'Time' },
                 yaxis: { title: 'Price (USDT)' },
-                xaxis: { showticklabels: false } // No x-axis for static snapshot
             };
-            Plotly.newPlot('chart', [trace], layout);
+            Plotly.newPlot('candlestick', [trace], layout);
         }
 
-        // Update the heatmap
+        // Plot heatmap
+        function plotHeatmap(times, prices, z) {
+            const trace = {
+                x: times,
+                y: prices,
+                z: z.map((row, i) => row),
+                type: 'heatmap',
+                colorscale: 'Viridis',
+                showscale: true,
+            };
+            const layout = {
+                title: 'TRXUSDT Order Book Heatmap Over Time',
+                xaxis: { title: 'Time' },
+                yaxis: { title: 'Price (USDT)' },
+            };
+            Plotly.newPlot('heatmap', [trace], layout);
+        }
+
+        // Update candlestick chart every 5 minutes
+        async function updateCandlestick() {
+            const klines = await fetchKlines('TRXUSDT', '5m', 100);
+            const data = processKlines(klines);
+            plotCandlestick(data);
+        }
+
+        // Update heatmap every 5 seconds
         async function updateHeatmap() {
-            const data = await fetchOrderBook('TRXUSDT');
-            const { prices, quantities } = processOrderBook(data);
-            plotHeatmap(prices, quantities);
+            const depth = await fetchDepth('TRXUSDT', 100);
+            const data = processDepth(depth);
+            const prices = data.prices;
+            const zHistory = heatmapHistory.map(oldData => {
+                const oldMap = new Map(oldData.z.map((row, i) => [oldData.prices[i], row[0] + row[1]]));
+                return prices.map(price => oldMap.has(price) ? oldMap.get(price) : 0);
+            });
+            const latestZ = data.z.map(row => row[0] + row[1]); // Total volume (bids + asks)
+            zHistory.push(latestZ);
+            if (zHistory.length > maxHistory) zHistory.shift();
+            heatmapHistory.push({ prices, z: data.z });
+            if (heatmapHistory.length > maxHistory) heatmapHistory.shift();
+            const times = Array.from({ length: zHistory.length }, (_, i) => 
+                new Date(Date.now() - (zHistory.length - i - 1) * 5000)
+            );
+            const zTransposed = prices.map((price, pIdx) => zHistory.map(timeData => timeData[pIdx]));
+            plotHeatmap(times, prices, zTransposed);
         }
 
-        // Initial plot and update every 5 seconds
+        // Initial plots
+        updateCandlestick();
         updateHeatmap();
-        setInterval(updateHeatmap, 5000);
+
+        // Set up real-time updates
+        setInterval(updateCandlestick, 5 * 60 * 1000); // Every 5 minutes
+        setInterval(updateHeatmap, 5000);              // Every 5 seconds
     </script>
 </body>
 </html>
