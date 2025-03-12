@@ -10,7 +10,7 @@
     html, body {
       margin: 0;
       padding: 0;
-      background-color: #121212;
+      background-color: #0a0a0a;
       color: #fff;
       font-family: Arial, sans-serif;
       overflow: hidden;
@@ -30,11 +30,36 @@
       position: absolute;
       top: 10px;
       left: 10px;
-      background: rgba(0, 0, 0, 0.5);
-      padding: 5px 10px;
-      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 4px;
       font-size: 14px;
       z-index: 10;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    }
+    /* Control panel */
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      z-index: 10;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    }
+    button {
+      background: #333;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      margin: 2px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #555;
     }
   </style>
 </head>
@@ -43,11 +68,55 @@
     <!-- Plotly will use this div for the heatmap -->
     <div id="heatmapPlot"></div>
     <div id="overlay">Last update: <span id="lastUpdate">N/A</span></div>
+    <div id="controls">
+      <button id="resetZoom">Reset View</button>
+      <button id="toggleColorScale">Toggle Colorscale</button>
+    </div>
   </div>
   
   <script>
-    // Reference to the overlay text element.
+    // References to DOM elements
     const overlayLastUpdate = document.getElementById('lastUpdate');
+    const resetZoomBtn = document.getElementById('resetZoom');
+    const toggleColorScaleBtn = document.getElementById('toggleColorScale');
+    
+    // Global state
+    let useAlternateColorScale = false;
+    let currentLayout = {};
+    
+    // Color schemes
+    const colorSchemes = {
+      default: {
+        intensity: [
+          [0, 'rgb(0,0,0)'],
+          [0.3, 'rgb(40,40,40)'],
+          [0.7, 'rgb(120,120,120)'],
+          [1, 'rgb(200,200,200)']
+        ],
+        imbalance: [
+          [0, 'rgb(0,100,255)'],    // Strong blue for bid dominance
+          [0.4, 'rgb(100,180,255)'], // Light blue for slight bid
+          [0.5, 'rgb(140,0,140)'],  // Purple for balance
+          [0.6, 'rgb(255,100,100)'], // Light red for slight ask
+          [1, 'rgb(255,30,0)']      // Strong red for ask dominance
+        ]
+      },
+      alternate: {
+        intensity: [
+          [0, 'rgb(0,0,0)'],
+          [0.4, 'rgb(20,50,20)'],
+          [0.8, 'rgb(40,100,40)'],
+          [1, 'rgb(80,150,80)']
+        ],
+        imbalance: [
+          [0, 'rgb(0,0,180)'],
+          [0.4, 'rgb(70,70,220)'],
+          [0.5, 'rgb(100,0,100)'],
+          [0.6, 'rgb(220,70,70)'],
+          [1, 'rgb(180,0,0)']
+        ]
+      }
+    };
     
     // Fetch and update our Plotly heatmap.
     async function fetchHeatmap() {
@@ -61,6 +130,14 @@
       }
     }
     
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const seconds = date.getSeconds().toString().padStart(2, '0');
+      return `${hours}:${minutes}:${seconds}`;
+    }
+    
     function drawHeatmap(data) {
       if (!data || !data.times || data.times.length === 0) {
         document.getElementById('heatmapPlot').innerHTML =
@@ -69,9 +146,6 @@
       }
       
       // Unpack the API data.
-      // times: array of tick timestamps.
-      // buckets: array of price bucket boundaries.
-      // bidHeat and askHeat: 2D arrays where each row corresponds to a tick.
       const times = data.times;
       const buckets = data.buckets;
       const bidHeat = data.bidHeat;
@@ -79,6 +153,9 @@
       
       const numTicks = times.length;
       const numBuckets = buckets.length;
+      
+      // Format x-axis labels (time)
+      const xLabels = times.map(formatTime);
       
       // Calculate the global maximum volume for normalization.
       let maxVolume = 0;
@@ -90,114 +167,162 @@
           if (vol > maxVolume) maxVolume = vol;
         }
       }
-      // avoid division by zero
       if (maxVolume === 0) maxVolume = 1;
       
-      // We want the highest price at the top. Plotly’s heatmap expects z[row][col]
-      // where y is the row label. So we create matrices by “flipping” the buckets.
-      const totalMatrix = []; // for overall intensity
-      const diffMatrix = [];  // for imbalance (ask minus bid)
-      const hoverText = [];   // custom hover string for each cell
+      // We want the highest price at the top
+      const totalMatrix = [];
+      const diffMatrix = [];
+      const hoverText = [];
       
       // Prepare y-axis labels (price) in reversed order.
       const yLabels = [];
+      
+      // Calculate the price format precision based on the values
+      let priceDecimals = 4;
+      const firstPrice = Number(buckets[0]);
+      if (firstPrice >= 1000) priceDecimals = 2;
+      else if (firstPrice >= 100) priceDecimals = 3;
+      
       for (let r = 0; r < numBuckets; r++) {
-        // bucketIndex: from highest (numBuckets-1) to lowest (0)
         const bucketIndex = numBuckets - 1 - r;
-        yLabels.push(Number(buckets[bucketIndex]).toFixed(4));
+        // Format the price for the label with dynamic precision
+        yLabels.push(Number(buckets[bucketIndex]).toFixed(priceDecimals));
+        
         totalMatrix[r] = [];
         diffMatrix[r] = [];
         hoverText[r] = [];
+        
         for (let i = 0; i < numTicks; i++) {
           const bid = (bidHeat[i] && bidHeat[i][bucketIndex]) ? bidHeat[i][bucketIndex] : 0;
           const ask = (askHeat[i] && askHeat[i][bucketIndex]) ? askHeat[i][bucketIndex] : 0;
-          // Use a square-root scale for normalization (helps with visualization).
-          const I_bid = Math.sqrt(bid / maxVolume);
-          const I_ask = Math.sqrt(ask / maxVolume);
-          // Total intensity: higher values mean more orders
-          totalMatrix[r][i] = I_bid + I_ask;  // Range: 0 to 2.
-          // Imbalance: positive if asks dominate; negative if bids dominate.
-          diffMatrix[r][i] = I_ask - I_bid;   // Range: -1 to 1.
-      
+          
+          // Use a cube-root scale for better visual dynamics with large volume variations
+          const I_bid = Math.cbrt(bid / maxVolume);
+          const I_ask = Math.cbrt(ask / maxVolume);
+          
+          // Total intensity and imbalance
+          totalMatrix[r][i] = I_bid + I_ask;
+          diffMatrix[r][i] = I_ask - I_bid;
+          
+          // Enhanced hover text
+          const bidColor = bid > ask ? "<span style='color:#8af'>↑</span>" : "";
+          const askColor = ask > bid ? "<span style='color:#f88'>↓</span>" : "";
+          
           hoverText[r][i] = 
-            `Time: ${new Date(times[i]).toLocaleTimeString()}<br>` +
-            `Price: ${Number(buckets[bucketIndex]).toFixed(4)}<br>` +
-            `Bid: ${bid}<br>` +
-            `Ask: ${ask}`;
+            `<b>Time:</b> ${formatTime(times[i])}<br>` +
+            `<b>Price:</b> ${Number(buckets[bucketIndex]).toFixed(priceDecimals)}<br>` +
+            `<b>Bid:</b> ${bid.toLocaleString()} ${bidColor}<br>` +
+            `<b>Ask:</b> ${ask.toLocaleString()} ${askColor}<br>` +
+            `<b>Ratio:</b> ${bid+ask > 0 ? (bid/(bid+ask)*100).toFixed(1) + '%' : 'N/A'} bid`;
         }
       }
       
-      // We'll build the Plotly figure using two overlaid heatmap traces.
-      // Trace 1 (bottom): Shows overall intensity in a grayscale.
+      // Get the selected color scheme
+      const colorScheme = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
+      
+      // Trace 1: Overall intensity
       const traceTotal = {
         z: totalMatrix,
-        x: times,
+        x: xLabels,
         y: yLabels,
         type: 'heatmap',
-        colorscale: [
-          [0, 'rgb(0,0,0)'],
-          [0.5, 'rgb(128,128,128)'],
-          [1, 'rgb(255,255,255)']
-        ],
-        // Since intensity can be between 0 and 2, set zmax accordingly.
+        colorscale: colorScheme.intensity,
         zmin: 0,
         zmax: 2,
         showscale: false,
-        // Let the top layer handle hover.
         hoverinfo: 'skip'
       };
       
-      // Trace 2 (top): Shows the imbalance with a diverging (red–purple–blue) colorscale.
-      // When ask and bid are equal (diff = 0) the color is a purple tint.
+      // Trace 2: Bid/Ask imbalance
       const traceDiff = {
         z: diffMatrix,
-        x: times,
+        x: xLabels,
         y: yLabels,
         type: 'heatmap',
-        colorscale: [
-          [0, 'rgb(0,0,255)'],      // Blue: bid-dominant.
-          [0.5, 'rgb(128,0,128)'],  // Purple: balanced orders.
-          [1, 'rgb(255,0,0)']       // Red: ask-dominant.
-        ],
+        colorscale: colorScheme.imbalance,
         zmin: -1,
         zmax: 1,
-        opacity: 0.7,
+        opacity: 0.8,
         showscale: false,
         text: hoverText,
-        hoverinfo: 'text'
-      };
-      
-      const layout = {
-        margin: { l: 50, r: 10, t: 30, b: 50 },
-        paper_bgcolor: '#121212',
-        plot_bgcolor: '#121212',
-        xaxis: {
-          title: 'Time',
-          type: 'category', 
-          tickangle: -45,
-          tickfont: { color: '#fff' },
-          titlefont: { color: '#fff' },
-          gridcolor: '#333'
-        },
-        yaxis: {
-          title: 'Price',
-          tickfont: { color: '#fff' },
-          titlefont: { color: '#fff' },
-          gridcolor: '#333'
+        hoverinfo: 'text',
+        hoverlabel: {
+          bgcolor: 'rgba(0,0,0,0.8)',
+          bordercolor: '#444',
+          font: {size: 12, color: 'white'}
         }
       };
       
-      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], layout, {responsive: true});
+      // Layout with better readability and formatting
+      currentLayout = {
+        margin: { l: 70, r: 20, t: 30, b: 60 },
+        paper_bgcolor: '#0a0a0a',
+        plot_bgcolor: '#0a0a0a',
+        xaxis: {
+          title: 'Time',
+          tickangle: -45,
+          tickfont: { size: 10, color: '#ddd' },
+          titlefont: { color: '#fff', size: 14 },
+          gridcolor: '#222',
+          zeroline: false,
+          nticks: 10
+        },
+        yaxis: {
+          title: 'Price',
+          tickfont: { size: 11, color: '#ddd' },
+          titlefont: { color: '#fff', size: 14 },
+          gridcolor: '#222',
+          zeroline: false
+        },
+        dragmode: 'zoom',
+        modebar: {
+          orientation: 'v',
+          bgcolor: 'rgba(0,0,0,0.7)',
+          color: '#fff',
+          activecolor: '#80ccff'
+        }
+      };
+      
+      // Configuration for better interactivity
+      const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToAdd: [
+          'zoom2d',
+          'pan2d',
+          'zoomIn2d',
+          'zoomOut2d',
+          'autoScale2d',
+          'resetScale2d'
+        ],
+        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+        displaylogo: false,
+        scrollZoom: true
+      };
+      
+      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], currentLayout, config);
     }
     
-    // Perform the initial fetch and set up auto-refresh every 5 seconds.
-    fetchHeatmap();
-    setInterval(fetchHeatmap, 5000);
+    // Event handlers for controls
+    resetZoomBtn.addEventListener('click', () => {
+      Plotly.relayout('heatmapPlot', {
+        'xaxis.autorange': true,
+        'yaxis.autorange': true
+      });
+    });
     
-    // Resize the Plotly plot when the window is resized.
+    toggleColorScaleBtn.addEventListener('click', () => {
+      useAlternateColorScale = !useAlternateColorScale;
+      fetchHeatmap(); // Redraw with new color scheme
+    });
+    
+    // Initial fetch and auto-refresh
+    fetchHeatmap();
+    const refreshInterval = setInterval(fetchHeatmap, 5000);
+    
+    // Resize handler
     window.addEventListener('resize', () => {
-      const plotDiv = document.getElementById('heatmapPlot');
-      Plotly.Plots.resize(plotDiv);
+      Plotly.Plots.resize('heatmapPlot');
     });
   </script>
 </body>
