@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRX/USDT Orderbook Heatmap & CVD Chart</title>
+    <title>TRX/USDT Orderbook Heatmap, CVD Chart & Bookmap</title>
     <style>
         body {
             margin: 0;
@@ -21,27 +21,28 @@
             color: #333;
             margin-bottom: 10px;
         }
-        /* Styles for both visualizations */
-        #heatmap, #cvdchart {
+        /* Styles for visualizations */
+        #heatmap, #cvdchart, #bookmap {
             background: white;
             border: 1px solid #ccc;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
-        #heatmap svg, #cvdchart svg {
+        #heatmap svg, #cvdchart svg, #bookmap svg {
             border: 1px solid black; /* For debugging SVG boundaries */
         }
     </style>
 </head>
 <body>
     <div id="container">
-        <div id="title">TRX/USDT Orderbook Heatmap & CVD Chart</div>
+        <div id="title">TRX/USDT Orderbook Heatmap, CVD Chart & Bookmap</div>
         <div id="heatmap"></div>
         <div id="cvdchart"></div>
+        <div id="bookmap"></div>
     </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        // Constants for Heatmap
+        // --- Constants for Heatmap ---
         const binSize = 0.0001;
         const rangeFactor = 100; // Might tweak this later
         const width = 800;
@@ -50,22 +51,32 @@
         const innerWidth = width - margin.left - margin.right;
         const innerHeight = height - margin.top - margin.bottom;
 
-        // Global Orderbook storage
+        // --- Global Orderbook storage ---
         let bids = {};
         let asks = {};
 
-        // D3.js elements for heatmap
+        // --- D3.js elements for heatmap ---
         let svg, g, yScale, yAxis, bidRects, askRects, bidColor, askColor;
 
-        // Global D3.js elements for CVD Chart
+        // --- Global D3.js elements for CVD Chart ---
         let cvdSvg, cvdG, cvdXScale, cvdYScale, cvdXAxis, cvdYAxis;
         const cvdWidth = 800, cvdHeight = 300;
         const cvdMargin = { top: 20, right: 20, bottom: 30, left: 50 };
         const cvdInnerWidth = cvdWidth - cvdMargin.left - cvdMargin.right;
         const cvdInnerHeight = cvdHeight - cvdMargin.top - cvdMargin.bottom;
 
+        // --- Global variables for Bookmap ---
+        // We will record snapshots (bins) over time and render as columns.
+        let bookmapHistory = [];
+        const maxHistory = 60; // e.g. 60 snapshots (seconds)
+        let bookmapSvg, bookmapG, bookmapXScale, bookmapYScale;
+        const bookmapWidth = 800, bookmapHeight = 300;
+        const bookmapMargin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const bookmapInnerWidth = bookmapWidth - bookmapMargin.left - bookmapMargin.right;
+        const bookmapInnerHeight = bookmapHeight - bookmapMargin.top - bookmapMargin.bottom;
+
         function initializeVisualization() {
-            // Heatmap SVG setup
+            // --- Heatmap SVG setup ---
             svg = d3.select('#heatmap')
                 .append('svg')
                 .attr('width', width)
@@ -74,7 +85,7 @@
             g = svg.append('g')
                 .attr('transform', `translate(${margin.left},${margin.top})`);
 
-            // Add background for heatmap SVG
+            // Background for heatmap SVG
             g.append('rect')
                 .attr('x', 0)
                 .attr('y', 0)
@@ -94,7 +105,7 @@
             askColor = d3.scaleLinear()
                 .range(['#ffe6e6', '#8b0000']); // Light to dark red
 
-            // CVD Chart SVG setup
+            // --- CVD Chart SVG setup ---
             cvdSvg = d3.select('#cvdchart')
                 .append('svg')
                 .attr('width', cvdWidth)
@@ -123,9 +134,29 @@
 
             cvdYAxis = cvdG.append('g')
                 .attr('class', 'y-axis');
+
+            // --- Bookmap SVG setup ---
+            bookmapSvg = d3.select('#bookmap')
+                .append('svg')
+                .attr('width', bookmapWidth)
+                .attr('height', bookmapHeight);
+
+            bookmapG = bookmapSvg.append('g')
+                .attr('transform', `translate(${bookmapMargin.left},${bookmapMargin.top})`);
+
+            // Background for Bookmap chart
+            bookmapG.append('rect')
+                .attr('width', bookmapInnerWidth)
+                .attr('height', bookmapInnerHeight)
+                .attr('fill', 'lightgray');
+
+            // X scale for Bookmap (time axis)
+            bookmapXScale = d3.scaleLinear()
+                .domain([0, maxHistory])
+                .range([0, bookmapInnerWidth]);
         }
 
-        // Fetch initial orderbook data
+        // --- Initialize orderbook and visualizations ---
         fetch('https://api.binance.com/api/v3/depth?symbol=TRXUSDT&limit=1000')
             .then(response => response.json())
             .then(data => {
@@ -210,7 +241,7 @@
             bidColor.domain([0, maxBidVolume]);
             askColor.domain([0, maxAskVolume]);
 
-            // Update rectangles for bid heatmap
+            // Update rectangles for bid heatmap in the primary heatmap
             bidRects = g.selectAll('.bid-rect')
                 .data(bins)
                 .join('rect')
@@ -221,7 +252,7 @@
                 .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
                 .attr('fill', d => bidColor(d.bidVolume));
 
-            // Update rectangles for ask heatmap
+            // Update rectangles for ask heatmap in the primary heatmap
             askRects = g.selectAll('.ask-rect')
                 .data(bins)
                 .join('rect')
@@ -259,33 +290,28 @@
                 .attr('stroke-dasharray', '4');
 
             // --- CVD Chart Update ---
-            // Compute cumulative volume delta (CVD) across bins
             let cumulative = 0;
             const cvdData = bins.map(bin => {
                 cumulative += (bin.bidVolume - bin.askVolume);
                 return { price: bin.price, cvd: cumulative };
             });
 
-            // Update CVD chart scales
             cvdXScale.domain([priceMin, priceMax]);
             const minCvd = d3.min(cvdData, d => d.cvd);
             const maxCvd = d3.max(cvdData, d => d.cvd);
             cvdYScale.domain([Math.min(minCvd, 0), Math.max(maxCvd, 0)]);
 
-            // Create CVD area generator (mountain shape)
             const cvdArea = d3.area()
                 .x(d => cvdXScale(d.price))
                 .y0(cvdYScale(0))
                 .y1(d => cvdYScale(d.cvd))
                 .curve(d3.curveBasis);
 
-            // Create CVD line generator
             const cvdLine = d3.line()
                 .x(d => cvdXScale(d.price))
                 .y(d => cvdYScale(d.cvd))
                 .curve(d3.curveBasis);
 
-            // Render the CVD area
             cvdG.selectAll(".cvd-area")
                 .data([cvdData])
                 .join("path")
@@ -293,8 +319,7 @@
                 .attr("fill", "steelblue")
                 .attr("opacity", 0.3)
                 .attr("d", cvdArea);
-            
-            // Render the CVD line on top of the area
+
             cvdG.selectAll(".cvd-line")
                 .data([cvdData])
                 .join("path")
@@ -304,10 +329,71 @@
                 .attr("stroke-width", 2)
                 .attr("d", cvdLine);
 
-            // Update CVD chart axes
             cvdXAxis.call(d3.axisBottom(cvdXScale)
                 .tickFormat(d3.format('.6f')));
             cvdYAxis.call(d3.axisLeft(cvdYScale));
+
+            // --- Bookmap Update ---
+            // Save current bins snapshot in history.
+            bookmapHistory.push(bins);
+            if (bookmapHistory.length > maxHistory) {
+                bookmapHistory.shift();
+            }
+            updateBookmap();
+        }
+
+        function updateBookmap() {
+            // Update the Bookmap Y scale using the current price range
+            // (same as in the primary heatmap)
+            bookmapYScale = d3.scaleLinear()
+                .domain(yScale.domain())
+                .range([0, bookmapInnerHeight]);
+
+            const columnWidth = bookmapInnerWidth / maxHistory;
+
+            // Bind the history data (each snapshot is one column)
+            const snapshots = bookmapG.selectAll('.snapshot')
+                .data(bookmapHistory);
+
+            const snapshotsEnter = snapshots.enter()
+                .append('g')
+                .attr('class', 'snapshot');
+
+            snapshotsEnter.merge(snapshots)
+                .attr('transform', (d, i) => `translate(${i * columnWidth},0)`);
+
+            snapshots.exit().remove();
+
+            // For each snapshot, draw bid and ask rectangles.
+            snapshotsEnter.merge(snapshots).each(function(snapshot) {
+                const group = d3.select(this);
+
+                // Draw bid rectangles (left half of the column)
+                const bidRects = group.selectAll('.bid-rect')
+                    .data(snapshot, d => d.price);
+                bidRects.enter().append('rect')
+                    .attr('class', 'bid-rect')
+                    .merge(bidRects)
+                    .attr('x', 0)
+                    .attr('width', columnWidth / 2)
+                    .attr('y', d => bookmapYScale(d.price + binSize))
+                    .attr('height', d => bookmapYScale(d.price) - bookmapYScale(d.price + binSize))
+                    .attr('fill', d => bidColor(d.bidVolume));
+                bidRects.exit().remove();
+
+                // Draw ask rectangles (right half of the column)
+                const askRects = group.selectAll('.ask-rect')
+                    .data(snapshot, d => d.price);
+                askRects.enter().append('rect')
+                    .attr('class', 'ask-rect')
+                    .merge(askRects)
+                    .attr('x', columnWidth / 2)
+                    .attr('width', columnWidth / 2)
+                    .attr('y', d => bookmapYScale(d.price + binSize))
+                    .attr('height', d => bookmapYScale(d.price) - bookmapYScale(d.price + binSize))
+                    .attr('fill', d => askColor(d.askVolume));
+                askRects.exit().remove();
+            });
         }
     </script>
 </body>
