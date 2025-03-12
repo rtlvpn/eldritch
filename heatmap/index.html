@@ -206,6 +206,15 @@
           const bid = (bidHeat[i] && bidHeat[i][bucketIndex]) ? bidHeat[i][bucketIndex] : 0;
           const ask = (askHeat[i] && askHeat[i][bucketIndex]) ? askHeat[i][bucketIndex] : 0;
           
+          // Skip rendering cells where both bid and ask are 0
+          if (bid === 0 && ask === 0) {
+            // Use null to tell Plotly to skip rendering this cell
+            totalMatrix[r][i] = null;
+            diffMatrix[r][i] = null;
+            hoverText[r][i] = null;
+            continue;
+          }
+          
           // Use a cube-root scale for better visual dynamics with large volume variations
           const I_bid = Math.cbrt(bid / maxVolume);
           const I_ask = Math.cbrt(ask / maxVolume);
@@ -240,7 +249,9 @@
         zmin: 0,
         zmax: 2,
         showscale: false,
-        hoverinfo: 'skip'
+        hoverinfo: 'skip',
+        connectgaps: false,  // This ensures gaps are preserved
+        showlegend: false
       };
       
       // Trace 2: Bid/Ask imbalance
@@ -260,7 +271,9 @@
           bgcolor: 'rgba(0,0,0,0.8)',
           bordercolor: '#444',
           font: {size: 12, color: 'white'}
-        }
+        },
+        connectgaps: false,  // This ensures gaps are preserved
+        showlegend: false
       };
       
       // Layout with better readability and formatting
