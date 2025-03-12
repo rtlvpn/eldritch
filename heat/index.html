@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRX/USDT Orderbook Heatmap</title>
+    <title>TRX/USDT Orderbook Heatmap & CVD Chart</title>
     <style>
         body {
             margin: 0;
@@ -21,24 +21,27 @@
             color: #333;
             margin-bottom: 10px;
         }
-        #heatmap {
+        /* Styles for both visualizations */
+        #heatmap, #cvdchart {
             background: white;
             border: 1px solid #ccc;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
-        #heatmap svg {
-            border: 1px solid black; /* So we can see the SVG */
+        #heatmap svg, #cvdchart svg {
+            border: 1px solid black; /* For debugging SVG boundaries */
         }
     </style>
 </head>
 <body>
     <div id="container">
-        <div id="title">TRX/USDT Orderbook Heatmap</div>
+        <div id="title">TRX/USDT Orderbook Heatmap & CVD Chart</div>
         <div id="heatmap"></div>
+        <div id="cvdchart"></div>
     </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-        // Constants
+        // Constants for Heatmap
         const binSize = 0.0001;
         const rangeFactor = 100; // Might tweak this later
         const width = 800;
@@ -47,14 +50,22 @@
         const innerWidth = width - margin.left - margin.right;
         const innerHeight = height - margin.top - margin.bottom;
 
-        // Orderbook storage
+        // Global Orderbook storage
         let bids = {};
         let asks = {};
 
-        // D3.js elements
+        // D3.js elements for heatmap
         let svg, g, yScale, yAxis, bidRects, askRects, bidColor, askColor;
 
+        // Global D3.js elements for CVD Chart
+        let cvdSvg, cvdG, cvdXScale, cvdYScale, cvdXAxis, cvdYAxis;
+        const cvdWidth = 800, cvdHeight = 300;
+        const cvdMargin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const cvdInnerWidth = cvdWidth - cvdMargin.left - cvdMargin.right;
+        const cvdInnerHeight = cvdHeight - cvdMargin.top - cvdMargin.bottom;
+
         function initializeVisualization() {
+            // Heatmap SVG setup
             svg = d3.select('#heatmap')
                 .append('svg')
                 .attr('width', width)
@@ -63,7 +74,7 @@
             g = svg.append('g')
                 .attr('transform', `translate(${margin.left},${margin.top})`);
 
-            // Add a background so we know the SVG is there
+            // Add background for heatmap SVG
             g.append('rect')
                 .attr('x', 0)
                 .attr('y', 0)
@@ -82,9 +93,39 @@
 
             askColor = d3.scaleLinear()
                 .range(['#ffe6e6', '#8b0000']); // Light to dark red
+
+            // CVD Chart SVG setup
+            cvdSvg = d3.select('#cvdchart')
+                .append('svg')
+                .attr('width', cvdWidth)
+                .attr('height', cvdHeight);
+
+            cvdG = cvdSvg.append('g')
+                .attr('transform', `translate(${cvdMargin.left},${cvdMargin.top})`);
+
+            // Background for CVD chart
+            cvdG.append('rect')
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('width', cvdInnerWidth)
+                .attr('height', cvdInnerHeight)
+                .attr('fill', 'lightgray');
+
+            cvdXScale = d3.scaleLinear()
+                .range([0, cvdInnerWidth]);
+
+            cvdYScale = d3.scaleLinear()
+                .range([cvdInnerHeight, 0]);
+
+            cvdXAxis = cvdG.append('g')
+                .attr('class', 'x-axis')
+                .attr('transform', `translate(0, ${cvdInnerHeight})`);
+
+            cvdYAxis = cvdG.append('g')
+                .attr('class', 'y-axis');
         }
 
-        // Fetch initial data
+        // Fetch initial orderbook data
         fetch('https://api.binance.com/api/v3/depth?symbol=TRXUSDT&limit=1000')
             .then(response => response.json())
             .then(data => {
@@ -135,12 +176,14 @@
             const priceMax = midPrice + rangeFactor * binSize;
             console.log('Price Min:', priceMin, 'Price Max:', priceMax);
 
+            // Update heatmap yScale (price axis)
             yScale.domain([priceMax, priceMin]);
 
             yAxis.call(d3.axisLeft(yScale)
                 .ticks(10)
                 .tickFormat(d3.format('.6f')));
 
+            // Create bins for orderbook data
             const bins = d3.range(priceMin, priceMax, binSize)
                 .map(price => ({ price, bidVolume: 0, askVolume: 0 }));
 
@@ -167,6 +210,7 @@
             bidColor.domain([0, maxBidVolume]);
             askColor.domain([0, maxAskVolume]);
 
+            // Update rectangles for bid heatmap
             bidRects = g.selectAll('.bid-rect')
                 .data(bins)
                 .join('rect')
@@ -177,6 +221,7 @@
                 .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
                 .attr('fill', d => bidColor(d.bidVolume));
 
+            // Update rectangles for ask heatmap
             askRects = g.selectAll('.ask-rect')
                 .data(bins)
                 .join('rect')
@@ -187,6 +232,7 @@
                 .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
                 .attr('fill', d => askColor(d.askVolume));
 
+            // Draw best bid line
             g.selectAll('.best-bid')
                 .data([bestBid])
                 .join('line')
@@ -199,6 +245,7 @@
                 .attr('stroke-width', 1)
                 .attr('stroke-dasharray', '4');
 
+            // Draw best ask line
             g.selectAll('.best-ask')
                 .data([bestAsk])
                 .join('line')
@@ -210,6 +257,57 @@
                 .attr('stroke', 'orange')
                 .attr('stroke-width', 1)
                 .attr('stroke-dasharray', '4');
+
+            // --- CVD Chart Update ---
+            // Compute cumulative volume delta (CVD) across bins
+            let cumulative = 0;
+            const cvdData = bins.map(bin => {
+                cumulative += (bin.bidVolume - bin.askVolume);
+                return { price: bin.price, cvd: cumulative };
+            });
+
+            // Update CVD chart scales
+            cvdXScale.domain([priceMin, priceMax]);
+            const minCvd = d3.min(cvdData, d => d.cvd);
+            const maxCvd = d3.max(cvdData, d => d.cvd);
+            cvdYScale.domain([Math.min(minCvd, 0), Math.max(maxCvd, 0)]);
+
+            // Create CVD area generator (mountain shape)
+            const cvdArea = d3.area()
+                .x(d => cvdXScale(d.price))
+                .y0(cvdYScale(0))
+                .y1(d => cvdYScale(d.cvd))
+                .curve(d3.curveBasis);
+
+            // Create CVD line generator
+            const cvdLine = d3.line()
+                .x(d => cvdXScale(d.price))
+                .y(d => cvdYScale(d.cvd))
+                .curve(d3.curveBasis);
+
+            // Render the CVD area
+            cvdG.selectAll(".cvd-area")
+                .data([cvdData])
+                .join("path")
+                .attr("class", "cvd-area")
+                .attr("fill", "steelblue")
+                .attr("opacity", 0.3)
+                .attr("d", cvdArea);
+            
+            // Render the CVD line on top of the area
+            cvdG.selectAll(".cvd-line")
+                .data([cvdData])
+                .join("path")
+                .attr("class", "cvd-line")
+                .attr("fill", "none")
+                .attr("stroke", "steelblue")
+                .attr("stroke-width", 2)
+                .attr("d", cvdLine);
+
+            // Update CVD chart axes
+            cvdXAxis.call(d3.axisBottom(cvdXScale)
+                .tickFormat(d3.format('.6f')));
+            cvdYAxis.call(d3.axisLeft(cvdYScale));
         }
     </script>
 </body>
