@@ -36,12 +36,6 @@
       font-size: 14px;
       z-index: 10;
       box-shadow: 0 0 10px rgba(0,0,0,0.5);
-      line-height: 1.5;
-    }
-    #currentPrice {
-      font-weight: bold;
-      color: #8af;
-      font-size: 16px;
     }
     /* Control panel */
     #controls {
@@ -86,7 +80,6 @@
   <script>
     // References to DOM elements
     const overlayLastUpdate = document.getElementById('lastUpdate');
-    const currentPriceElement = document.getElementById('currentPrice');
     const resetZoomBtn = document.getElementById('resetZoom');
     const toggleColorScaleBtn = document.getElementById('toggleColorScale');
     
@@ -138,39 +131,13 @@
       }
     };
     
-    // Fetch price data from the ticks endpoint
-    async function fetchPrice() {
-      try {
-        const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks');
-        const data = await response.json();
-        
-        // Get the most recent tick with a price
-        if (data && data.length > 0) {
-          const latestTick = data[data.length - 1];
-          if (latestTick.price !== null) {
-            // Format the price with appropriate decimals
-            let priceDecimals = 4;
-            if (latestTick.price >= 1000) priceDecimals = 2;
-            else if (latestTick.price >= 100) priceDecimals = 3;
-            
-            currentPriceElement.textContent = latestTick.price.toFixed(priceDecimals);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching price data:', error);
-      }
-    }
-    
-    // Update the fetchHeatmap function to also fetch price
+    // Fetch and update our Plotly heatmap.
     async function fetchHeatmap() {
       try {
         const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
         const data = await response.json();
         overlayLastUpdate.textContent = new Date().toLocaleTimeString();
         drawHeatmap(data);
-        
-        // Also fetch the current price
-        fetchPrice();
       } catch (error) {
         console.error('Error fetching heatmap data:', error);
       }
@@ -275,46 +242,6 @@
       // Get the selected color scheme
       const colorScheme = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
       
-      // Create price line trace
-      async function createPriceTrace() {
-        try {
-          const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks');
-          const data = await response.json();
-          
-          if (!data || data.length === 0) return null;
-          
-          // Extract price data points
-          const priceX = [];
-          const priceY = [];
-          
-          for (const tick of data) {
-            if (tick.price !== null) {
-              priceX.push(formatTime(tick.timestamp));
-              priceY.push(tick.price);
-            }
-          }
-          
-          return {
-            x: priceX,
-            y: priceY,
-            type: 'scatter',
-            mode: 'lines',
-            line: {
-              color: '#00ffff',
-              width: 1,
-              shape: 'spline',
-              smoothing: 1.3
-            },
-            name: 'Price',
-            hoverinfo: 'y',
-            showlegend: false
-          };
-        } catch (error) {
-          console.error('Error fetching price data for line:', error);
-          return null;
-        }
-      }
-      
       // Trace 1: Overall intensity
       const traceTotal = {
         z: totalMatrix,
@@ -399,16 +326,7 @@
         scrollZoom: true
       };
       
-      // Plot with all traces including price line
-      createPriceTrace().then(priceTrace => {
-        const traces = [traceTotal, traceDiff];
-        
-        if (priceTrace) {
-          traces.push(priceTrace);
-        }
-        
-        Plotly.newPlot('heatmapPlot', traces, currentLayout, config);
-      });
+      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], currentLayout, config);
     }
     
     // Event handlers for controls
