@@ -26,6 +26,9 @@
             border: 1px solid #ccc;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
+        #heatmap svg {
+            border: 1px solid black; /* So we can see the SVG */
+        }
     </style>
 </head>
 <body>
@@ -36,8 +39,8 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
         // Constants
-        const binSize = 0.0001;         // Price bin size in USDT
-        const rangeFactor = 100;        // Number of bins on each side of mid price
+        const binSize = 0.0001;
+        const rangeFactor = 100; // Might tweak this later
         const width = 800;
         const height = 600;
         const margin = { top: 20, right: 20, bottom: 30, left: 50 };
@@ -51,7 +54,6 @@
         // D3.js elements
         let svg, g, yScale, yAxis, bidRects, askRects, bidColor, askColor;
 
-        // Initialize visualization
         function initializeVisualization() {
             svg = d3.select('#heatmap')
                 .append('svg')
@@ -61,34 +63,40 @@
             g = svg.append('g')
                 .attr('transform', `translate(${margin.left},${margin.top})`);
 
+            // Add a background so we know the SVG is there
+            g.append('rect')
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('width', innerWidth)
+                .attr('height', innerHeight)
+                .attr('fill', 'lightgray');
+
             yScale = d3.scaleLinear()
-                .range([0, innerHeight]); // Price increases upwards
+                .range([0, innerHeight]);
 
             yAxis = g.append('g')
                 .attr('class', 'y-axis');
 
             bidColor = d3.scaleLinear()
-                .range(['#e6ffe6', '#006400']); // Light green to dark green
+                .range(['#e6ffe6', '#006400']); // Light to dark green
 
             askColor = d3.scaleLinear()
-                .range(['#ffe6e6', '#8b0000']); // Light red to dark red
-
-            // Initial rectangles will be added after data is fetched
+                .range(['#ffe6e6', '#8b0000']); // Light to dark red
         }
 
-        // Fetch initial orderbook snapshot
+        // Fetch initial data
         fetch('https://api.binance.com/api/v3/depth?symbol=TRXUSDT&limit=1000')
             .then(response => response.json())
             .then(data => {
                 bids = Object.fromEntries(data.bids.map(([p, q]) => [p, parseFloat(q)]));
                 asks = Object.fromEntries(data.asks.map(([p, q]) => [p, parseFloat(q)]));
+                console.log('Initial bids:', Object.keys(bids).length, 'asks:', Object.keys(asks).length);
                 initializeVisualization();
                 connectWebSocket();
-                setInterval(updateHeatmap, 1000); // Update every second
+                setInterval(updateHeatmap, 1000);
             })
             .catch(error => console.error('Error fetching initial orderbook:', error));
 
-        // Connect to WebSocket for real-time updates
         function connectWebSocket() {
             const ws = new WebSocket('wss://stream.binance.com:9443/ws/trxusdt@depth');
             ws.onmessage = event => {
@@ -96,10 +104,9 @@
                 applyDiff(message);
             };
             ws.onerror = () => console.error('WebSocket error');
-            ws.onclose = () => setTimeout(connectWebSocket, 1000); // Reconnect on close
+            ws.onclose = () => setTimeout(connectWebSocket, 1000);
         }
 
-        // Apply orderbook diff updates
         function applyDiff(message) {
             message.b.forEach(([price, qty]) => {
                 qty = parseFloat(qty);
@@ -113,33 +120,30 @@
             });
         }
 
-        // Update heatmap visualization
         function updateHeatmap() {
-            const bidPrices = Object.keys(bids).map(parseFloat).filter(p => bids[p] > 0);
-            const askPrices = Object.keys(asks).map(parseFloat).filter(p => asks[p] > 0);
+            const bidPrices = Object.keys(bids).filter(p => bids[p] > 0).map(parseFloat);
+            const askPrices = Object.keys(asks).filter(p => asks[p] > 0).map(parseFloat);
+            console.log('Filtered bidPrices:', bidPrices.length, 'askPrices:', askPrices.length);
             if (bidPrices.length === 0 || askPrices.length === 0) return;
 
             const bestBid = Math.max(...bidPrices);
             const bestAsk = Math.min(...askPrices);
             const midPrice = (bestBid + bestAsk) / 2;
+            console.log('Best Bid:', bestBid, 'Best Ask:', bestAsk, 'Mid Price:', midPrice);
 
-            // Define price range
             const priceMin = midPrice - rangeFactor * binSize;
             const priceMax = midPrice + rangeFactor * binSize;
+            console.log('Price Min:', priceMin, 'Price Max:', priceMax);
 
-            // Update y-scale (price increases upwards)
             yScale.domain([priceMax, priceMin]);
 
-            // Update y-axis
             yAxis.call(d3.axisLeft(yScale)
                 .ticks(10)
                 .tickFormat(d3.format('.6f')));
 
-            // Create price bins
             const bins = d3.range(priceMin, priceMax, binSize)
                 .map(price => ({ price, bidVolume: 0, askVolume: 0 }));
 
-            // Aggregate volumes into bins
             for (const p in bids) {
                 const price = parseFloat(p);
                 if (price >= priceMin && price < priceMax) {
@@ -155,13 +159,14 @@
                 }
             }
 
-            // Update color scales
+            console.log('Bins with bidVolume > 0:', bins.filter(d => d.bidVolume > 0).length);
+            console.log('Bins with askVolume > 0:', bins.filter(d => d.askVolume > 0).length);
+
             const maxBidVolume = d3.max(bins, d => d.bidVolume) || 1;
             const maxAskVolume = d3.max(bins, d => d.askVolume) || 1;
             bidColor.domain([0, maxBidVolume]);
             askColor.domain([0, maxAskVolume]);
 
-            // Bind data to bid rectangles
             bidRects = g.selectAll('.bid-rect')
                 .data(bins)
                 .join('rect')
@@ -172,7 +177,6 @@
                 .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
                 .attr('fill', d => bidColor(d.bidVolume));
 
-            // Bind data to ask rectangles
             askRects = g.selectAll('.ask-rect')
                 .data(bins)
                 .join('rect')
@@ -183,7 +187,6 @@
                 .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
                 .attr('fill', d => askColor(d.askVolume));
 
-            // Update best bid and ask markers
             g.selectAll('.best-bid')
                 .data([bestBid])
                 .join('line')
