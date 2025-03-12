@@ -60,7 +60,7 @@
     // Fetch the heatmap data from our API endpoint.
     async function fetchHeatmap() {
       try {
-        const response = await fetch('/api/orderbook/heatmap');
+        const response = await fetch('http://62.60.251.230:3500/api/orderbook/heatmap');
         const data = await response.json();
         currentData = data;
         overlayLastUpdate.textContent = new Date().toLocaleTimeString();
