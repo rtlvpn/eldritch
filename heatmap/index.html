@@ -80,12 +80,15 @@
   <script>
     // References to DOM elements
     const overlayLastUpdate = document.getElementById('lastUpdate');
+    const currentPriceElement = document.getElementById('currentPrice');
     const resetZoomBtn = document.getElementById('resetZoom');
     const toggleColorScaleBtn = document.getElementById('toggleColorScale');
     
     // Global state
     let useAlternateColorScale = false;
     let currentLayout = {};
+    let priceData = [];
+    let lastPrice = null;
     
     // Cyberpunk-inspired color schemes with neon glow effect
     const colorSchemes = {
@@ -137,9 +140,35 @@
         const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
         const data = await response.json();
         overlayLastUpdate.textContent = new Date().toLocaleTimeString();
+        
+        // Also fetch the price data
+        await fetchPriceData();
+        
         drawHeatmap(data);
       } catch (error) {
         console.error('Error fetching heatmap data:', error);
+      }
+    }
+    
+    // Fetch price data from the ticks endpoint
+    async function fetchPriceData() {
+      try {
+        const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks');
+        const data = await response.json();
+        
+        // Extract timestamps and prices
+        priceData = data.map(tick => ({
+          timestamp: tick.timestamp,
+          price: tick.price
+        })).filter(item => item.price !== null);
+        
+        // Update the current price display if we have price data
+        if (priceData.length > 0) {
+          lastPrice = priceData[priceData.length - 1].price;
+          currentPriceElement.textContent = lastPrice.toFixed(2);
+        }
+      } catch (error) {
+        console.error('Error fetching price data:', error);
       }
     }
     
@@ -279,6 +308,59 @@
         showlegend: false
       };
       
+      // Trace 3: Price line
+      const priceLine = {
+        x: [],
+        y: [],
+        type: 'scatter',
+        mode: 'lines',
+        line: {
+          color: '#00ffaa',
+          width: 2,
+          shape: 'spline',
+          smoothing: 1.3,
+          dash: 'solid'
+        },
+        name: 'Price',
+        hoverinfo: 'y+name',
+        showlegend: false
+      };
+      
+      // Add price data to the line trace if available
+      if (priceData.length > 0) {
+        // Match price data with time labels
+        const timeMap = new Map(times.map((time, i) => [time, i]));
+        
+        for (const point of priceData) {
+          if (timeMap.has(point.timestamp)) {
+            const index = timeMap.get(point.timestamp);
+            priceLine.x.push(xLabels[index]);
+            priceLine.y.push(point.price);
+          }
+        }
+      }
+      
+      // If we have price data, adjust the y-axis range to show the price line
+      let yaxis = {
+        title: 'Price',
+        tickfont: { size: 11, color: '#ddd' },
+        titlefont: { color: '#fff', size: 14 },
+        gridcolor: '#222',
+        zeroline: false
+      };
+      
+      if (priceData.length > 0) {
+        // Calculate buffer zone (10% of price range)
+        const minPrice = Math.min(...priceLine.y);
+        const maxPrice = Math.max(...priceLine.y);
+        const priceRange = maxPrice - minPrice;
+        const buffer = priceRange * 0.1;
+        
+        // Set the y-axis range to include the price line with buffer
+        yaxis.range = [minPrice - buffer, maxPrice + buffer];
+        yaxis.autorange = false;
+      }
+      
       // Layout with better readability and formatting
       currentLayout = {
         margin: { l: 70, r: 20, t: 30, b: 60 },
@@ -293,13 +375,7 @@
           zeroline: false,
           nticks: 10
         },
-        yaxis: {
-          title: 'Price',
-          tickfont: { size: 11, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
-          gridcolor: '#222',
-          zeroline: false
-        },
+        yaxis: yaxis,
         dragmode: 'zoom',
         modebar: {
           orientation: 'v',
@@ -326,7 +402,7 @@
         scrollZoom: true
       };
       
-      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], currentLayout, config);
+      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff, priceLine], currentLayout, config);
     }
     
     // Event handlers for controls
