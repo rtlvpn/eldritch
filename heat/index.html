@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TRX/USDT Orderbook Heatmap</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        #container {
+            width: 800px;
+            margin: 20px auto;
+            text-align: center;
+        }
+        #title {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        #heatmap {
+            background: white;
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="title">TRX/USDT Orderbook Heatmap</div>
+        <div id="heatmap"></div>
+    </div>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        // Constants
+        const binSize = 0.0001;         // Price bin size in USDT
+        const rangeFactor = 100;        // Number of bins on each side of mid price
+        const width = 800;
+        const height = 600;
+        const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const innerWidth = width - margin.left - margin.right;
+        const innerHeight = height - margin.top - margin.bottom;
+
+        // Orderbook storage
+        let bids = {};
+        let asks = {};
+
+        // D3.js elements
+        let svg, g, yScale, yAxis, bidRects, askRects, bidColor, askColor;
+
+        // Initialize visualization
+        function initializeVisualization() {
+            svg = d3.select('#heatmap')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            yScale = d3.scaleLinear()
+                .range([0, innerHeight]); // Price increases upwards
+
+            yAxis = g.append('g')
+                .attr('class', 'y-axis');
+
+            bidColor = d3.scaleLinear()
+                .range(['#e6ffe6', '#006400']); // Light green to dark green
+
+            askColor = d3.scaleLinear()
+                .range(['#ffe6e6', '#8b0000']); // Light red to dark red
+
+            // Initial rectangles will be added after data is fetched
+        }
+
+        // Fetch initial orderbook snapshot
+        fetch('https://api.binance.com/api/v3/depth?symbol=TRXUSDT&limit=1000')
+            .then(response => response.json())
+            .then(data => {
+                bids = Object.fromEntries(data.bids.map(([p, q]) => [p, parseFloat(q)]));
+                asks = Object.fromEntries(data.asks.map(([p, q]) => [p, parseFloat(q)]));
+                initializeVisualization();
+                connectWebSocket();
+                setInterval(updateHeatmap, 1000); // Update every second
+            })
+            .catch(error => console.error('Error fetching initial orderbook:', error));
+
+        // Connect to WebSocket for real-time updates
+        function connectWebSocket() {
+            const ws = new WebSocket('wss://stream.binance.com:9443/ws/trxusdt@depth');
+            ws.onmessage = event => {
+                const message = JSON.parse(event.data);
+                applyDiff(message);
+            };
+            ws.onerror = () => console.error('WebSocket error');
+            ws.onclose = () => setTimeout(connectWebSocket, 1000); // Reconnect on close
+        }
+
+        // Apply orderbook diff updates
+        function applyDiff(message) {
+            message.b.forEach(([price, qty]) => {
+                qty = parseFloat(qty);
+                if (qty === 0) delete bids[price];
+                else bids[price] = qty;
+            });
+            message.a.forEach(([price, qty]) => {
+                qty = parseFloat(qty);
+                if (qty === 0) delete asks[price];
+                else asks[price] = qty;
+            });
+        }
+
+        // Update heatmap visualization
+        function updateHeatmap() {
+            const bidPrices = Object.keys(bids).map(parseFloat).filter(p => bids[p] > 0);
+            const askPrices = Object.keys(asks).map(parseFloat).filter(p => asks[p] > 0);
+            if (bidPrices.length === 0 || askPrices.length === 0) return;
+
+            const bestBid = Math.max(...bidPrices);
+            const bestAsk = Math.min(...askPrices);
+            const midPrice = (bestBid + bestAsk) / 2;
+
+            // Define price range
+            const priceMin = midPrice - rangeFactor * binSize;
+            const priceMax = midPrice + rangeFactor * binSize;
+
+            // Update y-scale (price increases upwards)
+            yScale.domain([priceMax, priceMin]);
+
+            // Update y-axis
+            yAxis.call(d3.axisLeft(yScale)
+                .ticks(10)
+                .tickFormat(d3.format('.6f')));
+
+            // Create price bins
+            const bins = d3.range(priceMin, priceMax, binSize)
+                .map(price => ({ price, bidVolume: 0, askVolume: 0 }));
+
+            // Aggregate volumes into bins
+            for (const p in bids) {
+                const price = parseFloat(p);
+                if (price >= priceMin && price < priceMax) {
+                    const index = Math.floor((price - priceMin) / binSize);
+                    if (index >= 0 && index < bins.length) bins[index].bidVolume += bids[p];
+                }
+            }
+            for (const p in asks) {
+                const price = parseFloat(p);
+                if (price >= priceMin && price < priceMax) {
+                    const index = Math.floor((price - priceMin) / binSize);
+                    if (index >= 0 && index < bins.length) bins[index].askVolume += asks[p];
+                }
+            }
+
+            // Update color scales
+            const maxBidVolume = d3.max(bins, d => d.bidVolume) || 1;
+            const maxAskVolume = d3.max(bins, d => d.askVolume) || 1;
+            bidColor.domain([0, maxBidVolume]);
+            askColor.domain([0, maxAskVolume]);
+
+            // Bind data to bid rectangles
+            bidRects = g.selectAll('.bid-rect')
+                .data(bins)
+                .join('rect')
+                .attr('class', 'bid-rect')
+                .attr('x', 0)
+                .attr('width', innerWidth / 2)
+                .attr('y', d => yScale(d.price + binSize))
+                .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
+                .attr('fill', d => bidColor(d.bidVolume));
+
+            // Bind data to ask rectangles
+            askRects = g.selectAll('.ask-rect')
+                .data(bins)
+                .join('rect')
+                .attr('class', 'ask-rect')
+                .attr('x', innerWidth / 2)
+                .attr('width', innerWidth / 2)
+                .attr('y', d => yScale(d.price + binSize))
+                .attr('height', d => yScale(d.price) - yScale(d.price + binSize))
+                .attr('fill', d => askColor(d.askVolume));
+
+            // Update best bid and ask markers
+            g.selectAll('.best-bid')
+                .data([bestBid])
+                .join('line')
+                .attr('class', 'best-bid')
+                .attr('x1', 0)
+                .attr('x2', innerWidth)
+                .attr('y1', d => yScale(d))
+                .attr('y2', d => yScale(d))
+                .attr('stroke', 'blue')
+                .attr('stroke-width', 1)
+                .attr('stroke-dasharray', '4');
+
+            g.selectAll('.best-ask')
+                .data([bestAsk])
+                .join('line')
+                .attr('class', 'best-ask')
+                .attr('x1', 0)
+                .attr('x2', innerWidth)
+                .attr('y1', d => yScale(d))
+                .attr('y2', d => yScale(d))
+                .attr('stroke', 'orange')
+                .attr('stroke-width', 1)
+                .attr('stroke-dasharray', '4');
+        }
+    </script>
+</body>
+</html>
