@@ -89,31 +89,31 @@
       default: {
         intensity: [
           [0, 'rgb(0,0,0)'],
-          [0.3, 'rgb(40,40,40)'],
-          [0.7, 'rgb(120,120,120)'],
-          [1, 'rgb(200,200,200)']
+          [0.3, 'rgb(25,25,35)'],
+          [0.7, 'rgb(60,60,80)'],
+          [1, 'rgb(130,130,160)']
         ],
         imbalance: [
-          [0, 'rgb(0,100,255)'],    // Strong blue for bid dominance
-          [0.4, 'rgb(100,180,255)'], // Light blue for slight bid
-          [0.5, 'rgb(140,0,140)'],  // Purple for balance
-          [0.6, 'rgb(255,100,100)'], // Light red for slight ask
-          [1, 'rgb(255,30,0)']      // Strong red for ask dominance
+          [0, 'rgb(0,80,180)'],     // Deep blue for bid dominance
+          [0.4, 'rgb(40,100,160)'], // Subtle blue for slight bid
+          [0.5, 'rgb(40,40,60)'],   // Dark neutral for balance (not purple)
+          [0.6, 'rgb(160,80,80)'],  // Subtle red for slight ask
+          [1, 'rgb(180,50,40)']     // Deep red for ask dominance
         ]
       },
       alternate: {
         intensity: [
           [0, 'rgb(0,0,0)'],
-          [0.4, 'rgb(20,50,20)'],
-          [0.8, 'rgb(40,100,40)'],
-          [1, 'rgb(80,150,80)']
+          [0.4, 'rgb(15,25,25)'],
+          [0.8, 'rgb(30,50,60)'],
+          [1, 'rgb(60,100,110)']
         ],
         imbalance: [
-          [0, 'rgb(0,0,180)'],
-          [0.4, 'rgb(70,70,220)'],
-          [0.5, 'rgb(100,0,100)'],
-          [0.6, 'rgb(220,70,70)'],
-          [1, 'rgb(180,0,0)']
+          [0, 'rgb(0,60,120)'],     // Darker blue
+          [0.4, 'rgb(40,90,120)'],  // Muted blue-teal
+          [0.5, 'rgb(30,40,50)'],   // Very dark neutral
+          [0.6, 'rgb(100,60,60)'],  // Muted red-brown
+          [1, 'rgb(120,40,30)']     // Darker red
         ]
       }
     };
@@ -318,7 +318,7 @@
     
     // Initial fetch and auto-refresh
     fetchHeatmap();
-    const refreshInterval = setInterval(fetchHeatmap, 5000);
+    const refreshInterval = setInterval(fetchHeatmap, 60000);
     
     // Resize handler
     window.addEventListener('resize', () => {
