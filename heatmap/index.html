@@ -84,36 +84,43 @@
     let useAlternateColorScale = false;
     let currentLayout = {};
     
-    // Color schemes
+    // Color schemes with 3D illusion effects
     const colorSchemes = {
       default: {
         intensity: [
-          [0, 'rgb(0,0,0)'],
-          [0.3, 'rgb(25,25,35)'],
-          [0.7, 'rgb(60,60,80)'],
-          [1, 'rgb(130,130,160)']
+          [0, 'rgb(5,5,10)'],        // Nearly black for deepest "valleys" 
+          [0.2, 'rgb(15,15,30)'],    // Very dark for low areas
+          [0.4, 'rgb(35,35,60)'],    // Mid-dark for medium-low areas
+          [0.7, 'rgb(65,65,95)'],    // Lighter for "rising" areas
+          [0.9, 'rgb(90,90,120)'],   // Even lighter for "peaks"
+          [1, 'rgb(120,120,150)']    // Brightest for highest "peaks"
         ],
         imbalance: [
-          [0, 'rgb(0,80,180)'],     // Deep blue for bid dominance
-          [0.4, 'rgb(40,100,160)'], // Subtle blue for slight bid
-          [0.5, 'rgb(40,40,60)'],   // Dark neutral for balance (not purple)
-          [0.6, 'rgb(160,80,80)'],  // Subtle red for slight ask
-          [1, 'rgb(180,50,40)']     // Deep red for ask dominance
+          [0, 'rgb(15,50,125)'],     // Deep blue (receding) for strong bid
+          [0.25, 'rgb(35,80,150)'],  // Medium blue for moderate bid
+          [0.45, 'rgb(50,60,80)'],   // Dark neutral approaching center
+          [0.5, 'rgb(40,40,55)'],    // Dark neutral for balance
+          [0.55, 'rgb(65,50,55)'],   // Dark neutral leaving center
+          [0.75, 'rgb(130,60,55)'],  // Medium red for moderate ask
+          [1, 'rgb(150,40,35)']      // Deep red (protruding) for strong ask
         ]
       },
       alternate: {
         intensity: [
-          [0, 'rgb(0,0,0)'],
-          [0.4, 'rgb(15,25,25)'],
-          [0.8, 'rgb(30,50,60)'],
-          [1, 'rgb(60,100,110)']
+          [0, 'rgb(3,8,12)'],        // Nearly black deep "valleys"
+          [0.25, 'rgb(12,24,35)'],   // Very dark deep areas
+          [0.5, 'rgb(25,45,60)'],    // Medium depth areas
+          [0.75, 'rgb(40,70,90)'],   // Rising areas
+          [1, 'rgb(55,95,115)']      // "Peak" areas
         ],
         imbalance: [
-          [0, 'rgb(0,60,120)'],     // Darker blue
-          [0.4, 'rgb(40,90,120)'],  // Muted blue-teal
-          [0.5, 'rgb(30,40,50)'],   // Very dark neutral
-          [0.6, 'rgb(100,60,60)'],  // Muted red-brown
-          [1, 'rgb(120,40,30)']     // Darker red
+          [0, 'rgb(10,50,110)'],     // Deep blue (receding) for strong bid
+          [0.25, 'rgb(30,75,125)'],  // Mid blue for moderate bid
+          [0.45, 'rgb(35,50,65)'],   // Nearly neutral approaching center
+          [0.5, 'rgb(30,35,45)'],    // Dark neutral at center
+          [0.55, 'rgb(50,40,45)'],   // Nearly neutral leaving center
+          [0.75, 'rgb(110,50,50)'],  // Mid red for moderate ask
+          [1, 'rgb(130,30,30)']      // Deep red (protruding) for strong ask
         ]
       }
     };
