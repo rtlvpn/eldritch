@@ -1,369 +1,219 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Binance Order Book Heatmap (Bookmap Style)</title>
-  <!-- Include Plotly.js -->
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-  <style>
-    /* Basic reset and dark theme */
-    html, body {
-      margin: 0;
-      padding: 0;
-      background-color: #000000;
-      color: #fff;
-      font-family: Arial, sans-serif;
-      overflow: hidden;
-    }
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-    }
-    /* Fill the container with the Plotly plot */
-    #heatmapPlot {
-      width: 100%;
-      height: 100%;
-    }
-    /* Overlay for last update time. */
-    #overlay {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-    /* Control panel */
-    #controls {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-    button {
-      background: #333;
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      margin: 2px;
-      border-radius: 3px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #555;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Book Heatmap</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .chart-container {
+            width: 100%;
+            height: 800px;
+            background-color: #000;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        select, input, button {
+            padding: 8px;
+            margin-right: 10px;
+            background-color: #333;
+            border: 1px solid #555;
+            color: #f0f0f0;
+            border-radius: 3px;
+        }
+        button {
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #444;
+        }
+    </style>
 </head>
 <body>
-  <div id="container">
-    <!-- Plotly will use this div for the heatmap -->
-    <div id="heatmapPlot"></div>
-    <div id="overlay">
-      Last update: <span id="lastUpdate">N/A</span><br>
-      Current price: <span id="currentPrice">N/A</span>
+    <div class="container">
+        <h1>Order Book Heatmap Visualization</h1>
+        
+        <div class="controls">
+            <select id="symbol">
+                <option value="TRXUSDT">TRXUSDT</option>
+                <option value="BTCUSDT">BTCUSDT</option>
+                <option value="ETHUSDT">ETHUSDT</option>
+            </select>
+            <input type="text" id="bucketSize" placeholder="Bucket Size" value="0.001">
+            <input type="datetime-local" id="startTime">
+            <input type="datetime-local" id="endTime">
+            <button id="fetchData">Update Chart</button>
+        </div>
+        
+        <div id="chart" class="chart-container"></div>
     </div>
-    <div id="controls">
-      <button id="resetZoom">Reset View</button>
-      <button id="toggleView">Toggle View</button>
-    </div>
-  </div>
-  
-  <script>
-    // References to DOM elements
-    const overlayLastUpdate = document.getElementById('lastUpdate');
-    const currentPriceElement = document.getElementById('currentPrice');
-    const resetZoomBtn = document.getElementById('resetZoom');
-    const toggleViewBtn = document.getElementById('toggleView');
-    
-    // Global state
-    let viewMode = 'candlestick'; // 'candlestick' or 'line'
-    let globalHeatmapData = null;
-    let globalPriceData = null;
-    let lastPrice = null;
-    
-    // Format time for display
-    function formatTime(timestamp) {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString();
-    }
-    
-    // Fetch data and update visualization
-    async function fetchData() {
-      try {
-        // Get heatmap data
-        const heatmapResponse = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
-        const heatmapData = await heatmapResponse.json();
-        
-        // Get price tick data
-        const ticksResponse = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks');
-        const ticksData = await ticksResponse.json();
-        
-        // Update the last update time
-        overlayLastUpdate.textContent = new Date().toLocaleTimeString();
-        
-        // Store data globally
-        globalHeatmapData = heatmapData;
-        globalPriceData = ticksData.filter(tick => tick.price !== null);
-        
-        // Update the current price display
-        if (globalPriceData.length > 0) {
-          lastPrice = globalPriceData[globalPriceData.length - 1].price;
-          currentPriceElement.textContent = lastPrice.toFixed(2);
-        }
-        
-        // Draw visualization
-        drawBookmapVisualization();
-        
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      }
-    }
-    
-    // Draw the Bookmap-style visualization
-    function drawBookmapVisualization() {
-      if (!globalHeatmapData || !globalHeatmapData.times || globalHeatmapData.times.length === 0) {
-        document.getElementById('heatmapPlot').innerHTML = 
-          '<div style="color:#fff;font-size:20px;padding:20px;">No data available</div>';
-        return;
-      }
-      
-      // Prepare data for visualization
-      const heatmapData = globalHeatmapData;
-      const priceData = globalPriceData;
-      
-      const times = heatmapData.times;
-      const buckets = heatmapData.buckets.map(b => Number(b));
-      const bidHeat = heatmapData.bidHeat;
-      const askHeat = heatmapData.askHeat;
-      
-      // Format time labels and price labels
-      const timeLabels = times.map(formatTime);
-      
-      // Calculate volume intensity for visualization
-      // Create a single heatmap matrix for visualization
-      // In Bookmap, this would show combined liquidity at each price level
-      const heatmapMatrix = [];
-      
-      // Find max volume for normalization
-      let maxVolume = 0;
-      for (let i = 0; i < times.length; i++) {
-        for (let j = 0; j < buckets.length; j++) {
-          const bidVol = (bidHeat[i] && bidHeat[i][j]) ? bidHeat[i][j] : 0;
-          const askVol = (askHeat[i] && askHeat[i][j]) ? askHeat[i][j] : 0;
-          
-          // In Bookmap, liquidity is often shown as bid-ask imbalance
-          const totalVol = bidVol + askVol;
-          if (totalVol > maxVolume) maxVolume = totalVol;
-        }
-      }
-      if (maxVolume === 0) maxVolume = 1;
-      
-      // Create heatmap data - highest price at the top
-      for (let j = 0; j < buckets.length; j++) {
-        const row = [];
-        const rowIndex = buckets.length - 1 - j; // Invert the y-axis
-        
-        for (let i = 0; i < times.length; i++) {
-          const bidVol = (bidHeat[i] && bidHeat[i][rowIndex]) ? bidHeat[i][rowIndex] : 0;
-          const askVol = (askHeat[i] && askHeat[i][rowIndex]) ? askHeat[i][rowIndex] : 0;
-          
-          // For Bookmap style, we want to show liquidity imbalance
-          // Positive values (blue) for more bids, negative (red) for more asks
-          const imbalance = (bidVol - askVol) / (bidVol + askVol || 1); // Range: -1 to 1
-          
-          row.push(imbalance);
-        }
-        heatmapMatrix.push(row);
-      }
-      
-      // Create the heatmap trace
-      const heatmapTrace = {
-        z: heatmapMatrix,
-        x: timeLabels,
-        y: buckets.slice().reverse(), // Highest price at top
-        type: 'heatmap',
-        colorscale: [
-          [0, 'rgba(100,0,30,0.8)'],    // Strong ask (red)
-          [0.4, 'rgba(50,0,50,0.5)'],   // Weak ask (purple)
-          [0.5, 'rgba(0,0,40,0.3)'],    // Neutral (dark)
-          [0.6, 'rgba(0,50,50,0.5)'],   // Weak bid (teal)
-          [1, 'rgba(0,100,150,0.8)']    // Strong bid (blue)
-        ],
-        showscale: false,
-        hoverinfo: 'none',
-        zsmooth: 'best'
-      };
-      
-      // Create traces for price data
-      let priceTrace;
-      
-      // Map price data to heatmap time points
-      const timeMap = new Map(times.map((time, i) => [time, i]));
-      const xVals = [];
-      const open = [];
-      const high = [];
-      const low = [];
-      const close = [];
-      
-      // Group price data by time slots to create OHLC/candlestick
-      if (priceData.length > 0) {
-        // Group by time index
-        const timeGroups = new Map();
-        
-        for (const point of priceData) {
-          if (timeMap.has(point.timestamp)) {
-            const index = timeMap.get(point.timestamp);
-            const price = point.price;
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set default time range (last 24 hours)
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
             
-            if (!timeGroups.has(index)) {
-              timeGroups.set(index, [price]);
-            } else {
-              timeGroups.get(index).push(price);
+            document.getElementById('endTime').value = now.toISOString().slice(0, 16);
+            document.getElementById('startTime').value = yesterday.toISOString().slice(0, 16);
+            
+            // Initialize the chart
+            fetchDataAndRender();
+            
+            // Add event listener to the button
+            document.getElementById('fetchData').addEventListener('click', fetchDataAndRender);
+        });
+        
+        async function fetchDataAndRender() {
+            const symbol = document.getElementById('symbol').value;
+            const bucketSize = document.getElementById('bucketSize').value;
+            const startTime = new Date(document.getElementById('startTime').value).getTime();
+            const endTime = new Date(document.getElementById('endTime').value).getTime();
+            
+            try {
+                // Fetch heatmap data
+                const heatmapUrl = `/api/orderbook/heatmap?symbol=${symbol}&bucketSize=${bucketSize}&start=${startTime}&end=${endTime}`;
+                const heatmapResponse = await fetch(heatmapUrl);
+                const heatmapData = await heatmapResponse.json();
+                
+                // Fetch price data (ticks)
+                const ticksUrl = `/api/orderbook/ticks?symbol=${symbol}&start=${startTime}&end=${endTime}`;
+                const ticksResponse = await fetch(ticksUrl);
+                const ticksData = await ticksResponse.json();
+                
+                renderChart(heatmapData, ticksData);
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                alert('Failed to fetch data. Please check the console for details.');
             }
-          }
         }
         
-        // Create OHLC data from the groups
-        for (let i = 0; i < timeLabels.length; i++) {
-          const prices = timeGroups.get(i) || [];
-          
-          if (prices.length > 0) {
-            xVals.push(timeLabels[i]);
-            open.push(prices[0]);
-            high.push(Math.max(...prices));
-            low.push(Math.min(...prices));
-            close.push(prices[prices.length - 1]);
-          }
+        function renderChart(heatmapData, ticksData) {
+            // Extract data for candlestick chart
+            const priceTrace = {
+                x: ticksData.map(tick => new Date(tick.timestamp)),
+                y: ticksData.map(tick => tick.price),
+                type: 'scatter',
+                mode: 'lines',
+                line: {
+                    color: 'white',
+                    width: 2
+                },
+                name: 'Price'
+            };
+            
+            // Create bid heatmap
+            const bidHeatmap = {
+                z: heatmapData.bidHeat,
+                x: heatmapData.times.map(time => new Date(time)),
+                y: heatmapData.buckets,
+                type: 'heatmap',
+                colorscale: [
+                    [0, 'rgba(0,0,50,0)'],
+                    [0.2, 'rgba(0,0,100,0.2)'],
+                    [0.5, 'rgba(0,70,200,0.5)'],
+                    [0.8, 'rgba(0,120,255,0.8)'],
+                    [1, 'rgba(100,200,255,1)']
+                ],
+                showscale: false,
+                hoverinfo: 'none',
+                name: 'Bids'
+            };
+            
+            // Create ask heatmap
+            const askHeatmap = {
+                z: heatmapData.askHeat,
+                x: heatmapData.times.map(time => new Date(time)),
+                y: heatmapData.buckets,
+                type: 'heatmap',
+                colorscale: [
+                    [0, 'rgba(50,0,0,0)'],
+                    [0.2, 'rgba(100,50,0,0.2)'],
+                    [0.5, 'rgba(200,100,0,0.5)'],
+                    [0.8, 'rgba(255,150,0,0.8)'],
+                    [1, 'rgba(255,200,50,1)']
+                ],
+                showscale: false,
+                hoverinfo: 'none',
+                name: 'Asks'
+            };
+            
+            // Create optional candlestick view if OHLC data is available
+            const candlestickTrace = ticksData.length > 0 && ticksData[0].open ? {
+                x: ticksData.map(tick => new Date(tick.timestamp)),
+                open: ticksData.map(tick => tick.open),
+                high: ticksData.map(tick => tick.high),
+                low: ticksData.map(tick => tick.low),
+                close: ticksData.map(tick => tick.close),
+                type: 'candlestick',
+                increasing: {line: {color: 'green'}},
+                decreasing: {line: {color: 'red'}},
+                name: 'Price'
+            } : null;
+            
+            // Combine the traces
+            const traces = [bidHeatmap, askHeatmap];
+            if (candlestickTrace) {
+                traces.push(candlestickTrace);
+            } else {
+                traces.push(priceTrace);
+            }
+            
+            // Set layout
+            const layout = {
+                title: `${document.getElementById('symbol').value} Order Book Heatmap`,
+                paper_bgcolor: 'black',
+                plot_bgcolor: 'black',
+                font: {
+                    color: 'white'
+                },
+                xaxis: {
+                    title: 'Time',
+                    type: 'date',
+                    showgrid: true,
+                    gridcolor: 'rgba(80, 80, 80, 0.3)',
+                    gridwidth: 1,
+                    zeroline: false
+                },
+                yaxis: {
+                    title: 'Price',
+                    showgrid: true,
+                    gridcolor: 'rgba(80, 80, 80, 0.3)',
+                    gridwidth: 1,
+                    zeroline: false
+                },
+                margin: {
+                    l: 50,
+                    r: 50,
+                    t: 50,
+                    b: 50
+                },
+                showlegend: true,
+                legend: {
+                    orientation: 'h',
+                    x: 0.5,
+                    xanchor: 'center',
+                    y: 1.05
+                }
+            };
+            
+            // Render the chart
+            Plotly.newPlot('chart', traces, layout);
         }
-      }
-      
-      // Create the price trace
-      if (viewMode === 'candlestick') {
-        // Candlestick chart
-        priceTrace = {
-          x: xVals,
-          open: open,
-          high: high,
-          low: low,
-          close: close,
-          type: 'candlestick',
-          increasing: {line: {color: '#00ff00'}, fillcolor: '#004400'},
-          decreasing: {line: {color: '#ff0000'}, fillcolor: '#440000'},
-          line: {width: 1},
-          name: 'Price',
-          showlegend: false
-        };
-      } else {
-        // Line chart
-        priceTrace = {
-          x: xVals,
-          y: close,
-          type: 'scatter',
-          mode: 'lines',
-          line: {
-            color: '#00ff88',
-            width: 2,
-          },
-          name: 'Price',
-          showlegend: false
-        };
-      }
-      
-      // Calculate y-axis range to include all data
-      let minPrice = Math.min(...buckets);
-      let maxPrice = Math.max(...buckets);
-      
-      if (priceData.length > 0) {
-        const allPrices = [...open, ...high, ...low, ...close];
-        minPrice = Math.min(minPrice, ...allPrices);
-        maxPrice = Math.max(maxPrice, ...allPrices);
-      }
-      
-      // Add a margin to the price range (5%)
-      const priceRange = maxPrice - minPrice;
-      const buffer = priceRange * 0.05;
-      minPrice = minPrice - buffer;
-      maxPrice = maxPrice + buffer;
-      
-      // Layout configuration
-      const layout = {
-        margin: { l: 60, r: 20, t: 30, b: 60 },
-        paper_bgcolor: '#000000',
-        plot_bgcolor: '#000000',
-        xaxis: {
-          title: 'Time',
-          tickangle: -45,
-          tickfont: { size: 10, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
-          gridcolor: '#222',
-          zeroline: false
-        },
-        yaxis: {
-          title: 'Price',
-          tickfont: { size: 11, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
-          gridcolor: '#222',
-          zeroline: false,
-          range: [minPrice, maxPrice],
-          autorange: false
-        },
-        dragmode: 'zoom',
-        modebar: {
-          orientation: 'v',
-          bgcolor: 'rgba(0,0,0,0.7)',
-          color: '#fff'
-        },
-        hovermode: 'closest'
-      };
-      
-      // Plot configuration
-      const config = {
-        responsive: true,
-        displayModeBar: true,
-        modeBarButtonsToAdd: [
-          'zoom2d',
-          'pan2d',
-          'zoomIn2d',
-          'zoomOut2d',
-          'autoScale2d',
-          'resetScale2d'
-        ],
-        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
-        displaylogo: false,
-        scrollZoom: true
-      };
-      
-      // Create the plot - add heatmap first (on bottom) then price data on top
-      Plotly.newPlot('heatmapPlot', [heatmapTrace, priceTrace], layout, config);
-    }
-    
-    // Event handlers for controls
-    resetZoomBtn.addEventListener('click', () => {
-      drawBookmapVisualization();
-    });
-    
-    toggleViewBtn.addEventListener('click', () => {
-      viewMode = viewMode === 'candlestick' ? 'line' : 'candlestick';
-      drawBookmapVisualization();
-    });
-    
-    // Initial fetch and auto-refresh
-    fetchData();
-    const refreshInterval = setInterval(fetchData, 60000);
-    
-    // Resize handler
-    window.addEventListener('resize', () => {
-      Plotly.Plots.resize('heatmapPlot');
-    });
-  </script>
+    </script>
 </body>
 </html>
