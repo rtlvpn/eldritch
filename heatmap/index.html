@@ -1,168 +1,355 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Order Book Heatmap</title>
-    <script src="https://cdn.jsdelivr.net/npm/plotly.js@2.27.1/dist/plotly.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #1a1a1a;
-            color: #f0f0f0;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .chart-container {
-            width: 100%;
-            height: 800px;
-            background-color: #000;
-            border-radius: 5px;
-            overflow: hidden;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Binance Order Book Heatmap (Plotly)</title>
+  <!-- Include Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    /* Basic reset and dark theme */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #0a0a0a;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    /* Fill the container with the Plotly plot */
+    #heatmapPlot {
+      width: 100%;
+      height: 100%;
+    }
+    /* Overlay for last update time. */
+    #overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      z-index: 10;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    }
+    /* Control panel */
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      z-index: 10;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    }
+    button {
+      background: #333;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      margin: 2px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #555;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Order Book Heatmap</h1>
-        <div id="chart" class="chart-container"></div>
+  <div id="container">
+    <!-- Plotly will use this div for the heatmap -->
+    <div id="heatmapPlot"></div>
+    <div id="overlay">
+      Last update: <span id="lastUpdate">N/A</span><br>
+      Current price: <span id="currentPrice">N/A</span>
     </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchDataAndRender();
-        });
-        
-        async function fetchDataAndRender() {
-            try {
-                // Get current time range (last hour)
-                const end = Date.now();
-                const start = end - (60 * 60 * 1000);
-                
-                // Fetch heatmap data for TRXUSDT with default bucket size
-                const heatmapResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/heatmap`);
-                const heatmapData = await heatmapResponse.json();
-                
-                // Fetch tick data
-                const ticksResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/ticks`);
-                const ticksData = await ticksResponse.json();
-                
-                console.log("Heatmap data:", heatmapData);
-                console.log("Ticks data:", ticksData);
-                
-                renderChart(heatmapData, ticksData);
-            } catch (error) {
-                console.error('Error fetching data:', error);
-                document.getElementById('chart').innerHTML = 
-                    '<div style="color:white;text-align:center;padding-top:300px;">Error loading data</div>';
-            }
+    <div id="controls">
+      <button id="resetZoom">Reset View</button>
+      <button id="toggleColorScale">Toggle Colorscale</button>
+    </div>
+  </div>
+  
+  <script>
+    // References to DOM elements
+    const overlayLastUpdate = document.getElementById('lastUpdate');
+    const resetZoomBtn = document.getElementById('resetZoom');
+    const toggleColorScaleBtn = document.getElementById('toggleColorScale');
+    
+    // Global state
+    let useAlternateColorScale = false;
+    let currentLayout = {};
+    
+    // Cyberpunk-inspired color schemes with neon glow effect
+    const colorSchemes = {
+      default: {
+        intensity: [
+          [0, 'rgb(2,3,8)'],          // Deep black for background
+          [0.2, 'rgb(10,12,25)'],     // Very dark indigo for low areas
+          [0.4, 'rgb(25,20,50)'],     // Deep violet for medium areas
+          [0.6, 'rgb(40,25,80)'],     // Purple for rising areas
+          [0.8, 'rgb(60,40,120)'],    // Bright purple for high areas
+          [0.9, 'rgb(100,80,160)'],   // Neon purple for peaks
+          [1, 'rgb(140,120,210)']     // Glowing violet highlight for highest points
+        ],
+        imbalance: [
+          [0, 'rgb(0,80,255)'],       // Neon blue for strong bid
+          [0.25, 'rgb(30,120,210)'],  // Bright cyan-blue for moderate bid
+          [0.4, 'rgb(20,180,180)'],   // Teal for slight bid
+          [0.5, 'rgb(70,30,100)'],    // Deep purple for neutral
+          [0.6, 'rgb(180,50,150)'],   // Magenta for slight ask
+          [0.75, 'rgb(255,50,120)'],  // Hot pink for moderate ask
+          [1, 'rgb(255,30,60)']       // Neon red for strong ask
+        ]
+      },
+      alternate: {
+        intensity: [
+          [0, 'rgb(1,5,10)'],          // Nearly black background
+          [0.2, 'rgb(5,15,30)'],       // Deep cyan-black
+          [0.4, 'rgb(10,35,60)'],      // Dark teal-blue
+          [0.6, 'rgb(20,80,100)'],     // Medium teal
+          [0.8, 'rgb(0,130,140)'],     // Bright teal
+          [0.9, 'rgb(0,180,200)'],     // Neon teal
+          [1, 'rgb(60,230,255)']       // Glowing cyan highlight
+        ],
+        imbalance: [
+          [0, 'rgb(0,100,220)'],       // Neon blue for strong bid
+          [0.25, 'rgb(20,150,255)'],   // Bright blue for moderate bid
+          [0.4, 'rgb(0,210,210)'],     // Cyan for slight bid
+          [0.5, 'rgb(20,20,35)'],      // Very dark neutral
+          [0.6, 'rgb(120,20,120)'],    // Deep magenta for slight ask
+          [0.75, 'rgb(200,0,150)'],    // Vivid magenta for moderate ask
+          [1, 'rgb(255,0,100)']        // Neon pink for strong ask
+        ]
+      }
+    };
+    
+    // Fetch and update our Plotly heatmap.
+    async function fetchHeatmap() {
+      try {
+        const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
+        const data = await response.json();
+        overlayLastUpdate.textContent = new Date().toLocaleTimeString();
+        drawHeatmap(data);
+      } catch (error) {
+        console.error('Error fetching heatmap data:', error);
+      }
+    }
+    
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const seconds = date.getSeconds().toString().padStart(2, '0');
+      return `${hours}:${minutes}:${seconds}`;
+    }
+    
+    function drawHeatmap(data) {
+      if (!data || !data.times || data.times.length === 0) {
+        document.getElementById('heatmapPlot').innerHTML =
+          '<div style="color:#fff;font-size:20px;padding:20px;">No heatmap data available</div>';
+        return;
+      }
+      
+      // Unpack the API data.
+      const times = data.times;
+      const buckets = data.buckets;
+      const bidHeat = data.bidHeat;
+      const askHeat = data.askHeat;
+      
+      const numTicks = times.length;
+      const numBuckets = buckets.length;
+      
+      // Format x-axis labels (time)
+      const xLabels = times.map(formatTime);
+      
+      // Calculate the global maximum volume for normalization.
+      let maxVolume = 0;
+      for (let i = 0; i < numTicks; i++) {
+        for (let j = 0; j < numBuckets; j++) {
+          const bid = (bidHeat[i] && bidHeat[i][j]) ? bidHeat[i][j] : 0;
+          const ask = (askHeat[i] && askHeat[i][j]) ? askHeat[i][j] : 0;
+          const vol = bid + ask;
+          if (vol > maxVolume) maxVolume = vol;
         }
+      }
+      if (maxVolume === 0) maxVolume = 1;
+      
+      // We want the highest price at the top
+      const totalMatrix = [];
+      const diffMatrix = [];
+      const hoverText = [];
+      
+      // Prepare y-axis labels (price) in reversed order.
+      const yLabels = [];
+      
+      // Calculate the price format precision based on the values
+      let priceDecimals = 4;
+      const firstPrice = Number(buckets[0]);
+      if (firstPrice >= 1000) priceDecimals = 2;
+      else if (firstPrice >= 100) priceDecimals = 3;
+      
+      for (let r = 0; r < numBuckets; r++) {
+        const bucketIndex = numBuckets - 1 - r;
+        // Format the price for the label with dynamic precision
+        yLabels.push(Number(buckets[bucketIndex]).toFixed(priceDecimals));
         
-        function renderChart(heatmapData, ticksData) {
-            if (!heatmapData || !heatmapData.times || !heatmapData.buckets || 
-                !heatmapData.bidHeat || !heatmapData.askHeat) {
-                document.getElementById('chart').innerHTML = 
-                    '<div style="color:white;text-align:center;padding-top:300px;">No heatmap data available</div>';
-                return;
-            }
-            
-            // Process timestamps
-            const times = heatmapData.times.map(t => new Date(t));
-            
-            // Create bid heatmap
-            const bidHeatmap = {
-                z: heatmapData.bidHeat,
-                x: times,
-                y: heatmapData.buckets,
-                type: 'heatmap',
-                colorscale: [
-                    [0, 'rgba(0,0,50,0)'],
-                    [0.2, 'rgba(0,0,100,0.2)'],
-                    [0.5, 'rgba(0,70,200,0.5)'],
-                    [0.8, 'rgba(0,120,255,0.8)'],
-                    [1, 'rgba(100,200,255,1)']
-                ],
-                showscale: false,
-                hoverinfo: 'none',
-                name: 'Bids'
-            };
-            
-            // Create ask heatmap
-            const askHeatmap = {
-                z: heatmapData.askHeat,
-                x: times,
-                y: heatmapData.buckets,
-                type: 'heatmap',
-                colorscale: [
-                    [0, 'rgba(50,0,0,0)'],
-                    [0.2, 'rgba(100,50,0,0.2)'],
-                    [0.5, 'rgba(200,100,0,0.5)'],
-                    [0.8, 'rgba(255,150,0,0.8)'],
-                    [1, 'rgba(255,200,50,1)']
-                ],
-                showscale: false,
-                hoverinfo: 'none',
-                name: 'Asks'
-            };
-            
-            // Create price trace if tick data is available
-            let priceTrace = null;
-            if (Array.isArray(ticksData) && ticksData.length > 0) {
-                priceTrace = {
-                    x: ticksData.map(tick => new Date(tick.timestamp)),
-                    y: ticksData.map(tick => tick.price),
-                    type: 'scatter',
-                    mode: 'lines',
-                    line: {
-                        color: 'white',
-                        width: 2
-                    },
-                    name: 'Price'
-                };
-            }
-            
-            // Combine traces
-            const traces = [bidHeatmap, askHeatmap];
-            if (priceTrace) traces.push(priceTrace);
-            
-            // Set layout
-            const layout = {
-                title: 'TRXUSDT Order Book Heatmap',
-                paper_bgcolor: 'black',
-                plot_bgcolor: 'black',
-                font: {
-                    color: 'white'
-                },
-                xaxis: {
-                    title: 'Time',
-                    type: 'date',
-                    showgrid: true,
-                    gridcolor: 'rgba(80, 80, 80, 0.3)',
-                    gridwidth: 1,
-                    zeroline: false
-                },
-                yaxis: {
-                    title: 'Price',
-                    showgrid: true,
-                    gridcolor: 'rgba(80, 80, 80, 0.3)',
-                    gridwidth: 1,
-                    zeroline: false
-                },
-                margin: {
-                    l: 50,
-                    r: 50,
-                    t: 50,
-                    b: 50
-                }
-            };
-            
-            // Render the chart
-            Plotly.newPlot('chart', traces, layout);
+        totalMatrix[r] = [];
+        diffMatrix[r] = [];
+        hoverText[r] = [];
+        
+        for (let i = 0; i < numTicks; i++) {
+          const bid = (bidHeat[i] && bidHeat[i][bucketIndex]) ? bidHeat[i][bucketIndex] : 0;
+          const ask = (askHeat[i] && askHeat[i][bucketIndex]) ? askHeat[i][bucketIndex] : 0;
+          
+          // Skip rendering cells where both bid and ask are 0
+          if (bid === 0 && ask === 0) {
+            // Use null to tell Plotly to skip rendering this cell
+            totalMatrix[r][i] = null;
+            diffMatrix[r][i] = null;
+            hoverText[r][i] = null;
+            continue;
+          }
+          
+          // Use a cube-root scale for better visual dynamics with large volume variations
+          const I_bid = Math.cbrt(bid / maxVolume);
+          const I_ask = Math.cbrt(ask / maxVolume);
+          
+          // Total intensity and imbalance
+          totalMatrix[r][i] = I_bid + I_ask;
+          diffMatrix[r][i] = I_ask - I_bid;
+          
+          // Enhanced hover text
+          const bidColor = bid > ask ? "<span style='color:#8af'>↑</span>" : "";
+          const askColor = ask > bid ? "<span style='color:#f88'>↓</span>" : "";
+          
+          hoverText[r][i] = 
+            `<b>Time:</b> ${formatTime(times[i])}<br>` +
+            `<b>Price:</b> ${Number(buckets[bucketIndex]).toFixed(priceDecimals)}<br>` +
+            `<b>Bid:</b> ${bid.toLocaleString()} ${bidColor}<br>` +
+            `<b>Ask:</b> ${ask.toLocaleString()} ${askColor}<br>` +
+            `<b>Ratio:</b> ${bid+ask > 0 ? (bid/(bid+ask)*100).toFixed(1) + '%' : 'N/A'} bid`;
         }
-    </script>
+      }
+      
+      // Get the selected color scheme
+      const colorScheme = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
+      
+      // Trace 1: Overall intensity
+      const traceTotal = {
+        z: totalMatrix,
+        x: xLabels,
+        y: yLabels,
+        type: 'heatmap',
+        colorscale: colorScheme.intensity,
+        zmin: 0,
+        zmax: 2,
+        showscale: false,
+        hoverinfo: 'skip',
+        connectgaps: false,  // This ensures gaps are preserved
+        showlegend: false
+      };
+      
+      // Trace 2: Bid/Ask imbalance
+      const traceDiff = {
+        z: diffMatrix,
+        x: xLabels,
+        y: yLabels,
+        type: 'heatmap',
+        colorscale: colorScheme.imbalance,
+        zmin: -1,
+        zmax: 1,
+        opacity: 0.8,
+        showscale: false,
+        text: hoverText,
+        hoverinfo: 'text',
+        hoverlabel: {
+          bgcolor: 'rgba(0,0,0,0.8)',
+          bordercolor: '#444',
+          font: {size: 12, color: 'white'}
+        },
+        connectgaps: false,  // This ensures gaps are preserved
+        showlegend: false
+      };
+      
+      // Layout with better readability and formatting
+      currentLayout = {
+        margin: { l: 70, r: 20, t: 30, b: 60 },
+        paper_bgcolor: '#0a0a0a',
+        plot_bgcolor: '#0a0a0a',
+        xaxis: {
+          title: 'Time',
+          tickangle: -45,
+          tickfont: { size: 10, color: '#ddd' },
+          titlefont: { color: '#fff', size: 14 },
+          gridcolor: '#222',
+          zeroline: false,
+          nticks: 10
+        },
+        yaxis: {
+          title: 'Price',
+          tickfont: { size: 11, color: '#ddd' },
+          titlefont: { color: '#fff', size: 14 },
+          gridcolor: '#222',
+          zeroline: false
+        },
+        dragmode: 'zoom',
+        modebar: {
+          orientation: 'v',
+          bgcolor: 'rgba(0,0,0,0.7)',
+          color: '#fff',
+          activecolor: '#80ccff'
+        }
+      };
+      
+      // Configuration for better interactivity
+      const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToAdd: [
+          'zoom2d',
+          'pan2d',
+          'zoomIn2d',
+          'zoomOut2d',
+          'autoScale2d',
+          'resetScale2d'
+        ],
+        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+        displaylogo: false,
+        scrollZoom: true
+      };
+      
+      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], currentLayout, config);
+    }
+    
+    // Event handlers for controls
+    resetZoomBtn.addEventListener('click', () => {
+      Plotly.relayout('heatmapPlot', {
+        'xaxis.autorange': true,
+        'yaxis.autorange': true
+      });
+    });
+    
+    toggleColorScaleBtn.addEventListener('click', () => {
+      useAlternateColorScale = !useAlternateColorScale;
+      fetchHeatmap(); // Redraw with new color scheme
+    });
+    
+    // Initial fetch and auto-refresh
+    fetchHeatmap();
+    const refreshInterval = setInterval(fetchHeatmap, 60000);
+    
+    // Resize handler
+    window.addEventListener('resize', () => {
+      Plotly.Plots.resize('heatmapPlot');
+    });
+  </script>
 </body>
 </html>
