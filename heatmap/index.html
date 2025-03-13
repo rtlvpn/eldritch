@@ -9,15 +9,15 @@
     <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
     <style>
         :root {
-            --bg-color: #121826;
-            --panel-color: #1a2035;
-            --border-color: #2a3349;
+            --bg-color: #0a0a14;
+            --panel-color: #151528;
+            --border-color: #2a2a40;
             --text-color: #c8d3f5;
             --text-dim: #7a88cf;
             --bid-color: rgba(52, 168, 83, 0.8);
             --ask-color: rgba(234, 67, 53, 0.8);
-            --bid-color-light: rgba(52, 168, 83, 0.3);
-            --ask-color-light: rgba(234, 67, 53, 0.3);
+            --bid-bar-color: rgba(35, 117, 57, 0.3);
+            --ask-bar-color: rgba(117, 35, 35, 0.3);
             --grid-color: rgba(122, 136, 207, 0.1);
             --highlight-color: #2d3f76;
         }
@@ -307,7 +307,7 @@
             right: 0;
             width: 180px;
             height: 100%;
-            background-color: var(--panel-color);
+            background-color: rgba(10, 10, 20, 0.7);
             border-left: 1px solid var(--border-color);
             font-size: 12px;
             overflow: hidden;
@@ -376,12 +376,12 @@
             z-index: 0;
         }
 
-        .bid-bar {
-            background-color: var(--bid-color-light);
+        .orderbook-bar.bid-bar {
+            background-color: var(--bid-bar-color);
         }
 
-        .ask-bar {
-            background-color: var(--ask-color-light);
+        .orderbook-bar.ask-bar {
+            background-color: var(--ask-bar-color);
         }
 
         .orderbook-price.bid {
@@ -415,6 +415,21 @@
             padding: 2px 6px;
             font-size: 11px;
             border-radius: 2px;
+        }
+
+        #integrated-container {
+            height: 100%;
+            position: relative;
+        }
+
+        #price-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
         }
     </style>
 </head>
@@ -522,13 +537,7 @@
         </aside>
         
         <main id="main-content">
-            <div id="price-chart" class="chart-container">
-                <svg id="price-chart-svg" width="100%" height="100%"></svg>
-                <div class="loading-overlay" id="price-loading">
-                    <div class="spinner"></div>
-                </div>
-            </div>
-            <div id="heatmap-container" class="chart-container">
+            <div id="integrated-container" class="chart-container">
                 <canvas id="heatmap-canvas"></canvas>
                 <div id="price-overlay"></div>
                 <div id="orderbook-panel">

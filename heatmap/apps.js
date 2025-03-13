@@ -511,6 +511,7 @@ function updateStatistics() {
   document.getElementById('ob-spread-value').textContent = 
     metrics.spread.toFixed(5);
 }
+
 // Render the order book side panel
 function renderOrderBook() {
     if (!state.currentOrderBook) return;
@@ -749,14 +750,36 @@ function renderOrderBook() {
     maxBidVolume = maxBidVolume / state.colorIntensity;
     maxAskVolume = maxAskVolume / state.colorIntensity;
     
-    // Create color scales
+    // Create color scales - update colors to match the image (blue/yellow for bids, red for asks)
     const bidColorScale = d3.scaleSequential()
       .domain([0, maxBidVolume])
-      .interpolator(d3.interpolateBlues);
+      .interpolator(d => d3.interpolate("rgba(0, 30, 60, 0.5)", "rgba(0, 149, 255, 0.9)")(d));
     
     const askColorScale = d3.scaleSequential()
       .domain([0, maxAskVolume])
-      .interpolator(d3.interpolateReds);
+      .interpolator(d => d3.interpolate("rgba(60, 0, 0, 0.5)", "rgba(255, 80, 80, 0.9)")(d));
+    
+    // Add grid lines
+    const gridLineInterval = Math.ceil(height / 20); // About 20 grid lines
+    
+    // Draw horizontal grid lines
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(122, 136, 207, 0.1)';
+    ctx.lineWidth = 1;
+    
+    for (let y = 0; y <= height; y += gridLineInterval) {
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+    }
+    ctx.stroke();
+    
+    // Draw vertical grid lines
+    ctx.beginPath();
+    for (let x = 0; x <= width; x += width / 12) { // 12 vertical lines
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+    }
+    ctx.stroke();
     
     // Render cells
     for (let timeIdx = 0; timeIdx < heatmapData.times.length; timeIdx++) {
@@ -785,6 +808,92 @@ function renderOrderBook() {
       }
     }
     
+    // Draw CVD line if enabled - change to yellow as in the image
+    if (state.showCVD && heatmapData.cvd && heatmapData.cvd.length > 0) {
+      // Find min and max CVD for scaling
+      const minCVD = Math.min(...heatmapData.cvd);
+      const maxCVD = Math.max(...heatmapData.cvd);
+      const range = Math.max(Math.abs(minCVD), Math.abs(maxCVD));
+      
+      const cvdScale = d3.scaleLinear()
+        .domain([-range, range])
+        .range([height * 0.8, height * 0.2]);
+      
+      // Draw CVD line
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
+      ctx.lineWidth = 1.5;
+      
+      // Move to first point
+      ctx.moveTo(timeScale(0), cvdScale(heatmapData.cvd[0]));
+      
+      // Draw line through all points
+      for (let i = 1; i < heatmapData.cvd.length; i++) {
+        ctx.lineTo(timeScale(i), cvdScale(heatmapData.cvd[i]));
+      }
+      
+      ctx.stroke();
+    }
+    
+    // INTEGRATED PRICE CHART (based on the image)
+    if (state.ticksData && state.ticksData.length > 0) {
+      // Initialize path for price line
+      ctx.beginPath();
+      ctx.strokeStyle = 'white'; // White line as shown in the image
+      ctx.lineWidth = 1.5;
+      
+      // Create time scale for price data
+      const timeExtent = d3.extent(state.ticksData, d => new Date(d.timestamp.replace(' ', 'T') + 'Z'));
+      const priceTimeScale = d3.scaleTime()
+        .domain(timeExtent)
+        .range([0, width]);
+      
+      // Create price scale if not already defined
+      const priceExtent = d3.extent(state.ticksData, d => d.midPrice);
+      const padding = (priceExtent[1] - priceExtent[0]) * 0.05; // 5% padding
+      const priceYScale = d3.scaleLinear()
+        .domain([priceExtent[0] - padding, priceExtent[1] + padding])
+        .range([height, 0]);
+      
+      // Draw price line
+      let firstPoint = true;
+      state.ticksData.forEach(tick => {
+        const x = priceTimeScale(new Date(tick.timestamp.replace(' ', 'T') + 'Z'));
+        const y = priceYScale(tick.midPrice);
+        
+        if (firstPoint) {
+          ctx.moveTo(x, y);
+          firstPoint = false;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      
+      ctx.stroke();
+      
+      // Add candles or colored segments
+      let prevPrice = null;
+      let prevX = null;
+      
+      state.ticksData.forEach(tick => {
+        const x = priceTimeScale(new Date(tick.timestamp.replace(' ', 'T') + 'Z'));
+        const y = priceYScale(tick.midPrice);
+        
+        if (prevPrice !== null) {
+          // Draw colored segment based on price movement
+          ctx.beginPath();
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = tick.midPrice > prevPrice ? 'rgba(52, 168, 83, 0.8)' : 'rgba(234, 67, 53, 0.8)';
+          ctx.moveTo(prevX, priceYScale(prevPrice));
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }
+        
+        prevPrice = tick.midPrice;
+        prevX = x;
+      });
+    }
+    
     // Draw current price line if enabled
     if (state.showPriceLine && state.currentOrderBook && state.currentOrderBook.metrics) {
       const currentPrice = state.currentOrderBook.metrics.midPrice;
@@ -800,31 +909,33 @@ function renderOrderBook() {
       ctx.setLineDash([]);
     }
     
-    // Draw CVD line if enabled
-    if (state.showCVD && heatmapData.cvd && heatmapData.cvd.length > 0) {
-      // Find min and max CVD for scaling
-      const minCVD = Math.min(...heatmapData.cvd);
-      const maxCVD = Math.max(...heatmapData.cvd);
-      const range = Math.max(Math.abs(minCVD), Math.abs(maxCVD));
+    // Add price labels on the right side
+    const priceLabelSpacing = height / 10; // 10 price labels
+    
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.font = '10px Inter';
+    ctx.textAlign = 'right';
+    
+    for (let y = 0; y <= height; y += priceLabelSpacing) {
+      const price = priceScale.invert(y);
+      ctx.fillText(price.toFixed(5), width - 5, y + 4);
+    }
+    
+    // Add time labels at the bottom
+    const timeLabelCount = 6; // Number of time labels to show
+    const timeInterval = width / (timeLabelCount - 1);
+    
+    ctx.textAlign = 'center';
+    
+    for (let i = 0; i < timeLabelCount; i++) {
+      const x = i * timeInterval;
+      const timeIdx = Math.floor(timeScale.invert(x));
       
-      const cvdScale = d3.scaleLinear()
-        .domain([-range, range])
-        .range([height * 0.8, height * 0.2]);
-      
-      // Draw CVD line
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
-      ctx.lineWidth = 2;
-      
-      // Move to first point
-      ctx.moveTo(timeScale(0), cvdScale(heatmapData.cvd[0]));
-      
-      // Draw line through all points
-      for (let i = 1; i < heatmapData.cvd.length; i++) {
-        ctx.lineTo(timeScale(i), cvdScale(heatmapData.cvd[i]));
+      if (timeIdx >= 0 && timeIdx < heatmapData.times.length) {
+        const time = heatmapData.times[timeIdx];
+        const dateTime = luxon.DateTime.fromISO(time.replace(' ', 'T') + 'Z');
+        ctx.fillText(dateTime.toFormat('HH:mm'), x, height - 5);
       }
-      
-      ctx.stroke();
     }
   }
   
