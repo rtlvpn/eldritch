@@ -86,12 +86,12 @@
             
             try {
                 // Fetch heatmap data
-                const heatmapUrl = `https://eldritch.gleeze.com:3500//api/orderbook/heatmap?symbol=${symbol}&bucketSize=${bucketSize}&start=${startTime}&end=${endTime}`;
+                const heatmapUrl = `https://eldritch.gleeze.com:3500/api/orderbook/heatmap?symbol=${symbol}&bucketSize=${bucketSize}&start=${startTime}&end=${endTime}`;
                 const heatmapResponse = await fetch(heatmapUrl);
                 const heatmapData = await heatmapResponse.json();
                 
                 // Fetch price data (ticks)
-                const ticksUrl = `https://eldritch.gleeze.com:3500//api/orderbook/ticks?symbol=${symbol}&start=${startTime}&end=${endTime}`;
+                const ticksUrl = `https://eldritch.gleeze.com:3500/api/orderbook/ticks?symbol=${symbol}&start=${startTime}&end=${endTime}`;
                 const ticksResponse = await fetch(ticksUrl);
                 const ticksData = await ticksResponse.json();
                 
