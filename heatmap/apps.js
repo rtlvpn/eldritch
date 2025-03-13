@@ -76,7 +76,7 @@ function initApp() {
 
 // Setup canvas interactions
 function setupCanvasInteractions() {
-  const heatmapContainer = document.getElementById('heatmap-container');
+  const heatmapContainer = document.getElementById('integrated-container');
   const tooltip = document.getElementById('heatmap-tooltip');
   const crosshairX = document.getElementById('crosshair-x');
   const crosshairY = document.getElementById('crosshair-y');
@@ -119,7 +119,7 @@ function setupCanvasInteractions() {
       // Calculate price and time at cursor position
       if (state.timeScale && state.priceScale) {
         const price = state.priceScale.invert(y);
-        const timeIndex = Math.floor(state.timeScale(x));
+        const timeIndex = Math.floor(state.timeScale.invert(x));
         
         // Place price label
         priceLabel.style.display = 'block';
@@ -165,7 +165,7 @@ function showHeatmapTooltip(x, y, effectiveWidth) {
   const tooltip = document.getElementById('heatmap-tooltip');
   
   // Calculate data point indexes
-  const timeIndex = Math.floor(state.timeScale(x));
+  const timeIndex = Math.floor(state.timeScale.invert(x));
   const priceIndex = Math.floor(state.priceScale.invert(y) / state.heatmapData.bucketSize) - 
                      Math.floor(state.heatmapData.minPrice / state.heatmapData.bucketSize);
   
@@ -191,7 +191,7 @@ function showHeatmapTooltip(x, y, effectiveWidth) {
   
   // Position tooltip
   const tooltipRect = tooltip.getBoundingClientRect();
-  const container = document.getElementById('heatmap-container');
+  const container = document.getElementById('integrated-container');
   const containerRect = container.getBoundingClientRect();
   
   let tooltipX = x + 15;
@@ -213,7 +213,7 @@ function showHeatmapTooltip(x, y, effectiveWidth) {
 
 // Handle window resize event
 function handleResize() {
-  const container = document.getElementById('heatmap-container');
+  const container = document.getElementById('integrated-container');
   const canvas = state.heatmapCanvas;
   
   // Set canvas size to match container
