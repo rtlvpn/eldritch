@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Order Book Heatmap</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/plotly.js@2.27.1/dist/plotly.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,102 +24,59 @@
             border-radius: 5px;
             overflow: hidden;
         }
-        .controls {
-            margin-bottom: 20px;
-        }
-        select, input, button {
-            padding: 8px;
-            margin-right: 10px;
-            background-color: #333;
-            border: 1px solid #555;
-            color: #f0f0f0;
-            border-radius: 3px;
-        }
-        button {
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #444;
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Order Book Heatmap Visualization</h1>
-        
-        <div class="controls">
-            <select id="symbol">
-                <option value="TRXUSDT">TRXUSDT</option>
-                <option value="BTCUSDT">BTCUSDT</option>
-                <option value="ETHUSDT">ETHUSDT</option>
-            </select>
-            <input type="text" id="bucketSize" placeholder="Bucket Size" value="0.001">
-            <input type="datetime-local" id="startTime">
-            <input type="datetime-local" id="endTime">
-            <button id="fetchData">Update Chart</button>
-        </div>
-        
+        <h1>Order Book Heatmap</h1>
         <div id="chart" class="chart-container"></div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Set default time range (last 24 hours)
-            const now = new Date();
-            const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-            
-            document.getElementById('endTime').value = now.toISOString().slice(0, 16);
-            document.getElementById('startTime').value = yesterday.toISOString().slice(0, 16);
-            
-            // Initialize the chart
             fetchDataAndRender();
-            
-            // Add event listener to the button
-            document.getElementById('fetchData').addEventListener('click', fetchDataAndRender);
         });
         
         async function fetchDataAndRender() {
-            const symbol = document.getElementById('symbol').value;
-            const bucketSize = document.getElementById('bucketSize').value;
-            const startTime = new Date(document.getElementById('startTime').value).getTime();
-            const endTime = new Date(document.getElementById('endTime').value).getTime();
-            
             try {
-                // Fetch heatmap data
-                const heatmapUrl = `https://eldritch.gleeze.com:3500/api/orderbook/heatmap?symbol=${symbol}&bucketSize=${bucketSize}&start=${startTime}&end=${endTime}`;
-                const heatmapResponse = await fetch(heatmapUrl);
+                // Get current time range (last hour)
+                const end = Date.now();
+                const start = end - (60 * 60 * 1000);
+                
+                // Fetch heatmap data for TRXUSDT with default bucket size
+                const heatmapResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/heatmap?start=${start}&end=${end}`);
                 const heatmapData = await heatmapResponse.json();
                 
-                // Fetch price data (ticks)
-                const ticksUrl = `https://eldritch.gleeze.com:3500/api/orderbook/ticks?symbol=${symbol}&start=${startTime}&end=${endTime}`;
-                const ticksResponse = await fetch(ticksUrl);
+                // Fetch tick data
+                const ticksResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/ticks?start=${start}&end=${end}`);
                 const ticksData = await ticksResponse.json();
+                
+                console.log("Heatmap data:", heatmapData);
+                console.log("Ticks data:", ticksData);
                 
                 renderChart(heatmapData, ticksData);
             } catch (error) {
                 console.error('Error fetching data:', error);
-                alert('Failed to fetch data. Please check the console for details.');
+                document.getElementById('chart').innerHTML = 
+                    '<div style="color:white;text-align:center;padding-top:300px;">Error loading data</div>';
             }
         }
         
         function renderChart(heatmapData, ticksData) {
-            // Extract data for candlestick chart
-            const priceTrace = {
-                x: ticksData.map(tick => new Date(tick.timestamp)),
-                y: ticksData.map(tick => tick.price),
-                type: 'scatter',
-                mode: 'lines',
-                line: {
-                    color: 'white',
-                    width: 2
-                },
-                name: 'Price'
-            };
+            if (!heatmapData || !heatmapData.times || !heatmapData.buckets || 
+                !heatmapData.bidHeat || !heatmapData.askHeat) {
+                document.getElementById('chart').innerHTML = 
+                    '<div style="color:white;text-align:center;padding-top:300px;">No heatmap data available</div>';
+                return;
+            }
+            
+            // Process timestamps
+            const times = heatmapData.times.map(t => new Date(t));
             
             // Create bid heatmap
             const bidHeatmap = {
                 z: heatmapData.bidHeat,
-                x: heatmapData.times.map(time => new Date(time)),
+                x: times,
                 y: heatmapData.buckets,
                 type: 'heatmap',
                 colorscale: [
@@ -137,7 +94,7 @@
             // Create ask heatmap
             const askHeatmap = {
                 z: heatmapData.askHeat,
-                x: heatmapData.times.map(time => new Date(time)),
+                x: times,
                 y: heatmapData.buckets,
                 type: 'heatmap',
                 colorscale: [
@@ -152,30 +109,29 @@
                 name: 'Asks'
             };
             
-            // Create optional candlestick view if OHLC data is available
-            const candlestickTrace = ticksData.length > 0 && ticksData[0].open ? {
-                x: ticksData.map(tick => new Date(tick.timestamp)),
-                open: ticksData.map(tick => tick.open),
-                high: ticksData.map(tick => tick.high),
-                low: ticksData.map(tick => tick.low),
-                close: ticksData.map(tick => tick.close),
-                type: 'candlestick',
-                increasing: {line: {color: 'green'}},
-                decreasing: {line: {color: 'red'}},
-                name: 'Price'
-            } : null;
-            
-            // Combine the traces
-            const traces = [bidHeatmap, askHeatmap];
-            if (candlestickTrace) {
-                traces.push(candlestickTrace);
-            } else {
-                traces.push(priceTrace);
+            // Create price trace if tick data is available
+            let priceTrace = null;
+            if (Array.isArray(ticksData) && ticksData.length > 0) {
+                priceTrace = {
+                    x: ticksData.map(tick => new Date(tick.timestamp)),
+                    y: ticksData.map(tick => tick.price),
+                    type: 'scatter',
+                    mode: 'lines',
+                    line: {
+                        color: 'white',
+                        width: 2
+                    },
+                    name: 'Price'
+                };
             }
+            
+            // Combine traces
+            const traces = [bidHeatmap, askHeatmap];
+            if (priceTrace) traces.push(priceTrace);
             
             // Set layout
             const layout = {
-                title: `${document.getElementById('symbol').value} Order Book Heatmap`,
+                title: 'TRXUSDT Order Book Heatmap',
                 paper_bgcolor: 'black',
                 plot_bgcolor: 'black',
                 font: {
@@ -201,13 +157,6 @@
                     r: 50,
                     t: 50,
                     b: 50
-                },
-                showlegend: true,
-                legend: {
-                    orientation: 'h',
-                    x: 0.5,
-                    xanchor: 'center',
-                    y: 1.05
                 }
             };
             
