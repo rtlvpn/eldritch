@@ -604,17 +604,101 @@ function renderOrderBook() {
       .domain([minPrice, maxPrice])
       .range([height, 0]);
     
-    // Create line generator for price
-    const line = d3.line()
-      .x(d => xScale(d.parsedTime.toJSDate()))
-      .y(d => yScale(d.midPrice))
-      .curve(d3.curveMonotoneX);
+    // Create canvas for heatmap background (for performance)
+    const heatmapCanvas = document.createElement('canvas');
+    heatmapCanvas.width = width;
+    heatmapCanvas.height = height;
+    const ctx = heatmapCanvas.getContext('2d');
     
-    // Create line generator for cumulative volume delta
-    const cvdLine = d3.line()
-      .x(d => xScale(d.parsedTime.toJSDate()))
-      .y(d => yScale(d.midPrice))
-      .curve(d3.curveMonotoneX);
+    // Render heatmap on canvas if we have the data
+    if (state.heatmapData) {
+      // Create time scale that matches our xScale
+      const heatmapTimeScale = d3.scaleLinear()
+        .domain([0, state.heatmapData.times.length - 1])
+        .range([0, width]);
+      
+      // Create price scale that matches our yScale
+      const heatmapPriceScale = d3.scaleLinear()
+        .domain([state.heatmapData.minPrice, state.heatmapData.maxPrice])
+        .range([height, 0]);
+      
+      // Find max volume for color scaling
+      let maxBidVolume = 0;
+      let maxAskVolume = 0;
+      
+      state.heatmapData.bidVolumes.forEach(row => {
+        maxBidVolume = Math.max(maxBidVolume, ...row);
+      });
+      
+      state.heatmapData.askVolumes.forEach(row => {
+        maxAskVolume = Math.max(maxAskVolume, ...row);
+      });
+      
+      // Apply color intensity factor
+      maxBidVolume = maxBidVolume / state.colorIntensity;
+      maxAskVolume = maxAskVolume / state.colorIntensity;
+      
+      // Create color scales - using golden/blue for TensorCharts look
+      const bidColorScale = d3.scaleSequential()
+        .domain([0, maxBidVolume])
+        .interpolator(t => {
+          // Gold/amber glow for bids
+          return t === 0 ? 'rgba(30, 20, 0, 0)' : d3.interpolateRgb(
+            'rgba(50, 40, 0, 0.7)',
+            'rgba(255, 200, 0, 0.8)'
+          )(t);
+        });
+      
+      const askColorScale = d3.scaleSequential()
+        .domain([0, maxAskVolume])
+        .interpolator(t => {
+          // Blue glow for asks
+          return t === 0 ? 'rgba(0, 10, 30, 0)' : d3.interpolateRgb(
+            'rgba(0, 20, 50, 0.7)',
+            'rgba(0, 120, 255, 0.8)'
+          )(t);
+        });
+      
+      // Calculate cell dimensions
+      const cellWidth = width / state.heatmapData.times.length;
+      const cellHeight = height / state.heatmapData.prices.length;
+      
+      // Render cells
+      for (let timeIdx = 0; timeIdx < state.heatmapData.times.length; timeIdx++) {
+        for (let priceIdx = 0; priceIdx < state.heatmapData.prices.length; priceIdx++) {
+          const bidVolume = state.heatmapData.bidVolumes[timeIdx][priceIdx] || 0;
+          const askVolume = state.heatmapData.askVolumes[timeIdx][priceIdx] || 0;
+          
+          // Skip if no volume
+          if (bidVolume === 0 && askVolume === 0) continue;
+          
+          // Determine which side to show based on higher volume
+          let color;
+          if (bidVolume > askVolume) {
+            color = bidColorScale(bidVolume);
+          } else {
+            color = askColorScale(askVolume);
+          }
+          
+          // Calculate position
+          const x = heatmapTimeScale(timeIdx);
+          const y = heatmapPriceScale(state.heatmapData.prices[priceIdx]);
+          
+          // Draw rectangle
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y, cellWidth + 1, cellHeight + 1);
+        }
+      }
+      
+      // Convert canvas to image and add to SVG
+      const canvasUrl = heatmapCanvas.toDataURL();
+      g.append('image')
+        .attr('href', canvasUrl)
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', width)
+        .attr('height', height);
+    }
     
     // Add grid lines
     g.append('g')
@@ -640,34 +724,12 @@ function renderOrderBook() {
     g.append('path')
       .datum(data)
       .attr('fill', 'none')
-      .attr('stroke', 'var(--text-color)')
+      .attr('stroke', 'white')  // Make price line white to stand out against heatmap
       .attr('stroke-width', 2)
-      .attr('d', line);
-    
-    // Add imbalance visualization
-    data.forEach((d, i) => {
-      if (i > 0) {
-        const prev = data[i-1];
-        
-        // Skip if times are the same
-        if (d.parsedTime.equals(prev.parsedTime)) return;
-        
-        // Draw rectangle for imbalance
-        const x = xScale(prev.parsedTime.toJSDate());
-        const width = xScale(d.parsedTime.toJSDate()) - x;
-        
-        // Create gradient based on imbalance
-        const imbalanceColor = d.imbalance > 0 ? 'var(--bid-color-light)' : 'var(--ask-color-light)';
-        
-        g.append('rect')
-          .attr('x', x)
-          .attr('y', 0)
-          .attr('width', width)
-          .attr('height', height)
-          .attr('fill', imbalanceColor)
-          .attr('opacity', Math.min(Math.abs(d.imbalance) * 2, 0.3));
-      }
-    });
+      .attr('d', d3.line()
+        .x(d => xScale(d.parsedTime.toJSDate()))
+        .y(d => yScale(d.midPrice))
+        .curve(d3.curveMonotoneX));
     
     // Add axes
     g.append('g')
@@ -695,149 +757,11 @@ function renderOrderBook() {
       .attr('fill', 'var(--text-dim)');
   }
   
-  // Render the heatmap using Canvas API for performance
+  // Update renderHeatmap to just store the data - actual rendering happens in price chart
   function renderHeatmap() {
-    if (!state.heatmapData) return;
-    
-    const ctx = state.heatmapCtx;
-    const canvas = state.heatmapCanvas;
-    const heatmapData = state.heatmapData;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Get dimensions
-    const width = canvas.width / window.devicePixelRatio;
-    const height = canvas.height / window.devicePixelRatio;
-    
-    // Get orderbook panel width
-    const orderbookWidth = document.getElementById('orderbook-panel').offsetWidth;
-    
-    // Create scale for price (y-axis)
-    const priceRange = [heatmapData.minPrice, heatmapData.maxPrice];
-    const priceScale = d3.scaleLinear()
-      .domain(priceRange)
-      .range([0, height]);
-    
-    // Store scale for interaction
-    state.priceScale = priceScale;
-    
-    // Create scale for time (x-axis)
-    const timeScale = d3.scaleLinear()
-      .domain([0, heatmapData.times.length - 1])
-      .range([0, width]);
-    
-    // Store scale for interaction
-    state.timeScale = timeScale;
-    
-    // Calculate cell dimensions
-    const cellWidth = width / heatmapData.times.length;
-    const cellHeight = height / heatmapData.prices.length;
-    
-    // Find max volume for color scaling
-    let maxBidVolume = 0;
-    let maxAskVolume = 0;
-    
-    heatmapData.bidVolumes.forEach(row => {
-      maxBidVolume = Math.max(maxBidVolume, ...row);
-    });
-    
-    heatmapData.askVolumes.forEach(row => {
-      maxAskVolume = Math.max(maxAskVolume, ...row);
-    });
-    
-    // Apply color intensity factor
-    maxBidVolume = maxBidVolume / state.colorIntensity;
-    maxAskVolume = maxAskVolume / state.colorIntensity;
-    
-    // Create color scales
-    const bidColorScale = d3.scaleSequential()
-      .domain([0, maxBidVolume])
-      .interpolator(t => {
-        // Cyberpunk blue/cyan scale (dark to bright neon)
-        return t === 0 ? 'rgba(0, 24, 55, 0)' : d3.interpolateRgb(
-          'rgba(0, 24, 55, 0.9)', 
-          'rgba(0, 255, 240, 0.9)'
-        )(t);
-      });
-    
-    const askColorScale = d3.scaleSequential()
-      .domain([0, maxAskVolume])
-      .interpolator(t => {
-        // Cyberpunk magenta/purple scale (dark to bright neon)
-        return t === 0 ? 'rgba(55, 0, 55, 0)' : d3.interpolateRgb(
-          'rgba(55, 0, 55, 0.9)', 
-          'rgba(255, 0, 240, 0.9)'
-        )(t);
-      });
-    
-    // Render cells
-    for (let timeIdx = 0; timeIdx < heatmapData.times.length; timeIdx++) {
-      for (let priceIdx = 0; priceIdx < heatmapData.prices.length; priceIdx++) {
-        const bidVolume = heatmapData.bidVolumes[timeIdx][priceIdx] || 0;
-        const askVolume = heatmapData.askVolumes[timeIdx][priceIdx] || 0;
-        
-        // Skip if no volume
-        if (bidVolume === 0 && askVolume === 0) continue;
-        
-        // Determine which side to show based on higher volume
-        let color;
-        if (bidVolume > askVolume) {
-          color = bidColorScale(bidVolume);
-        } else {
-          color = askColorScale(askVolume);
-        }
-        
-        // Calculate position
-        const x = timeScale(timeIdx);
-        const y = priceScale(heatmapData.prices[priceIdx]);
-        
-        // Draw rectangle
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, cellWidth + 1, cellHeight + 1);
-      }
-    }
-    
-    // Draw current price line if enabled
-    if (state.showPriceLine && state.currentOrderBook && state.currentOrderBook.metrics) {
-      const currentPrice = state.currentOrderBook.metrics.midPrice;
-      const y = priceScale(currentPrice);
-      
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.setLineDash([5, 3]);
-      ctx.lineWidth = 1;
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    
-    // Draw CVD line if enabled
-    if (state.showCVD && heatmapData.cvd && heatmapData.cvd.length > 0) {
-      // Find min and max CVD for scaling
-      const minCVD = Math.min(...heatmapData.cvd);
-      const maxCVD = Math.max(...heatmapData.cvd);
-      const range = Math.max(Math.abs(minCVD), Math.abs(maxCVD));
-      
-      const cvdScale = d3.scaleLinear()
-        .domain([-range, range])
-        .range([height * 0.8, height * 0.2]);
-      
-      // Draw CVD line
-      ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 0, 0.8)';
-      ctx.lineWidth = 2;
-      
-      // Move to first point
-      ctx.moveTo(timeScale(0), cvdScale(heatmapData.cvd[0]));
-      
-      // Draw line through all points
-      for (let i = 1; i < heatmapData.cvd.length; i++) {
-        ctx.lineTo(timeScale(i), cvdScale(heatmapData.cvd[i]));
-      }
-      
-      ctx.stroke();
+    // Just make sure heatmap data is available for the price chart integration
+    if (state.heatmapData && state.ticksData) {
+      renderPriceChart(); // Re-render price chart with heatmap overlay
     }
   }
   
