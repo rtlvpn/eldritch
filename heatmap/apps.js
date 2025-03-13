@@ -565,7 +565,7 @@ function renderOrderBook() {
     });
   }
   
-  // Render the price chart using D3.js
+  // Render the price chart using D3.js with heatmap overlay
   function renderPriceChart() {
     if (!state.ticksData || state.ticksData.length === 0) return;
     
@@ -638,24 +638,24 @@ function renderOrderBook() {
       maxBidVolume = maxBidVolume / state.colorIntensity;
       maxAskVolume = maxAskVolume / state.colorIntensity;
       
-      // Create color scales - using golden/blue for TensorCharts look
+      // Create color scales - using cyberpunk theme colors
       const bidColorScale = d3.scaleSequential()
         .domain([0, maxBidVolume])
         .interpolator(t => {
-          // Gold/amber glow for bids
-          return t === 0 ? 'rgba(30, 20, 0, 0)' : d3.interpolateRgb(
-            'rgba(50, 40, 0, 0.7)',
-            'rgba(255, 200, 0, 0.8)'
+          // Cyberpunk blue/cyan scale (dark to bright neon)
+          return t === 0 ? 'rgba(0, 24, 55, 0)' : d3.interpolateRgb(
+            'rgba(0, 24, 55, 0.9)', 
+            'rgba(0, 255, 240, 0.9)'
           )(t);
         });
       
       const askColorScale = d3.scaleSequential()
         .domain([0, maxAskVolume])
         .interpolator(t => {
-          // Blue glow for asks
-          return t === 0 ? 'rgba(0, 10, 30, 0)' : d3.interpolateRgb(
-            'rgba(0, 20, 50, 0.7)',
-            'rgba(0, 120, 255, 0.8)'
+          // Cyberpunk magenta/purple scale (dark to bright neon)
+          return t === 0 ? 'rgba(55, 0, 55, 0)' : d3.interpolateRgb(
+            'rgba(55, 0, 55, 0.9)', 
+            'rgba(255, 0, 240, 0.9)'
           )(t);
         });
       
@@ -757,11 +757,164 @@ function renderOrderBook() {
       .attr('fill', 'var(--text-dim)');
   }
   
-  // Update renderHeatmap to just store the data - actual rendering happens in price chart
+  // Render the standalone heatmap visualization
   function renderHeatmap() {
-    // Just make sure heatmap data is available for the price chart integration
-    if (state.heatmapData && state.ticksData) {
-      renderPriceChart(); // Re-render price chart with heatmap overlay
+    if (!state.heatmapData) return;
+    
+    const canvas = state.heatmapCanvas;
+    const ctx = state.heatmapCtx;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, state.canvasWidth / window.devicePixelRatio, state.canvasHeight / window.devicePixelRatio);
+    
+    // Save context for scaling
+    ctx.save();
+    
+    // Set up scales
+    const orderbookWidth = document.getElementById('orderbook-panel').offsetWidth;
+    const width = (canvas.width / window.devicePixelRatio) - orderbookWidth;
+    const height = canvas.height / window.devicePixelRatio;
+    
+    // Create time scale
+    state.timeScale = d3.scaleLinear()
+      .domain([0, state.heatmapData.times.length - 1])
+      .range([0, width]);
+    
+    // Create price scale
+    state.priceScale = d3.scaleLinear()
+      .domain([state.heatmapData.minPrice, state.heatmapData.maxPrice])
+      .range([height, 0]);
+    
+    // Find max volume for color scaling
+    let maxBidVolume = 0;
+    let maxAskVolume = 0;
+    
+    state.heatmapData.bidVolumes.forEach(row => {
+      maxBidVolume = Math.max(maxBidVolume, ...row);
+    });
+    
+    state.heatmapData.askVolumes.forEach(row => {
+      maxAskVolume = Math.max(maxAskVolume, ...row);
+    });
+    
+    // Apply color intensity factor
+    maxBidVolume = maxBidVolume / state.colorIntensity;
+    maxAskVolume = maxAskVolume / state.colorIntensity;
+    
+    // Create cyberpunk color scales
+    const bidColorScale = d3.scaleSequential()
+      .domain([0, maxBidVolume])
+      .interpolator(t => {
+        // Cyberpunk blue/cyan scale (dark to bright neon)
+        return t === 0 ? 'rgba(0, 24, 55, 0)' : d3.interpolateRgb(
+          'rgba(0, 24, 55, 0.9)', 
+          'rgba(0, 255, 240, 0.9)'
+        )(t);
+      });
+    
+    const askColorScale = d3.scaleSequential()
+      .domain([0, maxAskVolume])
+      .interpolator(t => {
+        // Cyberpunk magenta/purple scale (dark to bright neon)
+        return t === 0 ? 'rgba(55, 0, 55, 0)' : d3.interpolateRgb(
+          'rgba(55, 0, 55, 0.9)', 
+          'rgba(255, 0, 240, 0.9)'
+        )(t);
+      });
+    
+    // Calculate cell dimensions
+    const cellWidth = width / state.heatmapData.times.length;
+    const cellHeight = height / state.heatmapData.prices.length;
+    
+    // Draw grid
+    ctx.lineWidth = 0.1;
+    ctx.strokeStyle = 'rgba(122, 136, 207, 0.1)';
+    
+    // Vertical grid lines (time)
+    for (let i = 0; i <= state.heatmapData.times.length; i += 5) {
+      const x = state.timeScale(i);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    
+    // Horizontal grid lines (price)
+    for (let i = 0; i < state.heatmapData.prices.length; i += 5) {
+      const y = state.priceScale(state.heatmapData.prices[i]);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+    
+    // Render heatmap cells
+    for (let timeIdx = 0; timeIdx < state.heatmapData.times.length; timeIdx++) {
+      for (let priceIdx = 0; priceIdx < state.heatmapData.prices.length; priceIdx++) {
+        const bidVolume = state.heatmapData.bidVolumes[timeIdx][priceIdx] || 0;
+        const askVolume = state.heatmapData.askVolumes[timeIdx][priceIdx] || 0;
+        
+        // Skip if no volume
+        if (bidVolume === 0 && askVolume === 0) continue;
+        
+        // Determine which side to show based on higher volume
+        let color;
+        if (bidVolume > askVolume) {
+          color = bidColorScale(bidVolume);
+        } else {
+          color = askColorScale(askVolume);
+        }
+        
+        // Calculate position
+        const x = state.timeScale(timeIdx);
+        const y = state.priceScale(state.heatmapData.prices[priceIdx]);
+        
+        // Draw rectangle
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, cellWidth + 1, cellHeight + 1);
+      }
+    }
+    
+    // Draw current price line if option is enabled
+    if (state.showPriceLine && state.currentOrderBook && state.currentOrderBook.metrics) {
+      const currentPrice = state.currentOrderBook.metrics.midPrice;
+      const y = state.priceScale(currentPrice);
+      
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'white';
+      ctx.stroke();
+      
+      // Add price label on right side
+      ctx.fillStyle = 'white';
+      ctx.textAlign = 'right';
+      ctx.font = '10px Inter';
+      ctx.fillText(currentPrice.toFixed(5), width - 5, y - 5);
+    }
+    
+    // Draw time labels at bottom
+    ctx.fillStyle = 'var(--text-dim)';
+    ctx.textAlign = 'center';
+    ctx.font = '10px Inter';
+    
+    // Show fewer time labels to avoid crowding
+    const timeStep = Math.ceil(state.heatmapData.times.length / 6);
+    for (let i = 0; i < state.heatmapData.times.length; i += timeStep) {
+      const time = state.heatmapData.times[i];
+      const x = state.timeScale(i);
+      const dateTime = luxon.DateTime.fromISO(time.replace(' ', 'T') + 'Z');
+      
+      ctx.fillText(dateTime.toFormat('HH:mm'), x, height - 5);
+    }
+    
+    // Restore context
+    ctx.restore();
+    
+    // After rendering, also update the price chart which now includes the heatmap overlay
+    if (state.ticksData) {
+      renderPriceChart();
     }
   }
   
