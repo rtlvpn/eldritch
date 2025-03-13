@@ -182,6 +182,40 @@
       }
       if (maxVolume === 0) maxVolume = 1;
       
+      // Fetch current price data to display in the overlay
+      fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks?symbol=TRXUSDT')
+        .then(response => response.json())
+        .then(ticks => {
+          document.getElementById('currentPrice').textContent = 
+            ticks.length > 0 ? '$' + Number(ticks[ticks.length-1].price).toFixed(5) : 'N/A';
+          
+          // Extract price data for the line trace
+          const priceData = ticks.map(tick => ({
+            time: new Date(tick.timestamp),
+            price: tick.price
+          }));
+          
+          // Continue with heatmap rendering...
+          drawHeatmapWithPrice(data, priceData);
+        })
+        .catch(error => {
+          console.error('Error fetching price data:', error);
+          drawHeatmapWithPrice(data, []);
+        });
+    }
+    
+    function drawHeatmapWithPrice(data, priceData) {
+      const times = data.times;
+      const buckets = data.buckets;
+      const bidHeat = data.bidHeat;
+      const askHeat = data.askHeat;
+      
+      const numTicks = times.length;
+      const numBuckets = buckets.length;
+      
+      // Format x-axis labels (time)
+      const xLabels = times.map(formatTime);
+      
       // We want the highest price at the top
       const totalMatrix = [];
       const diffMatrix = [];
@@ -279,6 +313,62 @@
         showlegend: false
       };
       
+      // Create array of traces - we'll add the price line if we have data
+      const traces = [traceTotal, traceDiff];
+      
+      // Trace 3: Price line (if we have price data)
+      if (priceData && priceData.length > 0) {
+        // Match timestamps between price data and heatmap
+        const matchedPrices = [];
+        const matchedTimes = [];
+        
+        // Convert heatmap times to Date objects for comparison
+        const heatmapTimes = times.map(t => new Date(t));
+        
+        // For each time in our heatmap, find the closest price point
+        heatmapTimes.forEach((heatmapTime, index) => {
+          // Find the closest price data point by time
+          let closestPrice = null;
+          let minTimeDiff = Infinity;
+          
+          for (const point of priceData) {
+            const timeDiff = Math.abs(point.time - heatmapTime);
+            if (timeDiff < minTimeDiff) {
+              minTimeDiff = timeDiff;
+              closestPrice = point.price;
+            }
+          }
+          
+          if (closestPrice !== null) {
+            matchedPrices.push(closestPrice);
+            matchedTimes.push(xLabels[index]);
+          }
+        });
+        
+        // Only add price line if we have matches
+        if (matchedPrices.length > 0) {
+          const traceLine = {
+            x: matchedTimes,
+            y: matchedPrices,
+            type: 'scatter',
+            mode: 'lines',
+            line: {
+              color: '#00ff88',
+              width: 2
+            },
+            name: 'Price',
+            hoverinfo: 'y',
+            hoverlabel: {
+              bgcolor: 'rgba(0,0,0,0.8)',
+              bordercolor: '#00ff88',
+              font: {color: '#fff'}
+            }
+          };
+          
+          traces.push(traceLine);
+        }
+      }
+      
       // Layout with better readability and formatting
       currentLayout = {
         margin: { l: 70, r: 20, t: 30, b: 60 },
@@ -326,7 +416,7 @@
         scrollZoom: true
       };
       
-      Plotly.newPlot('heatmapPlot', [traceTotal, traceDiff], currentLayout, config);
+      Plotly.newPlot('heatmapPlot', traces, currentLayout, config);
     }
     
     // Event handlers for controls
