@@ -1,445 +1,559 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Binance Order Book Heatmap (Plotly)</title>
-  <!-- Include Plotly.js -->
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-  <style>
-    /* Basic reset and dark theme */
-    html, body {
-      margin: 0;
-      padding: 0;
-      background-color: #0a0a0a;
-      color: #fff;
-      font-family: Arial, sans-serif;
-      overflow: hidden;
-    }
-    #container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-    }
-    /* Fill the container with the Plotly plot */
-    #heatmapPlot {
-      width: 100%;
-      height: 100%;
-    }
-    /* Overlay for last update time. */
-    #overlay {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-    /* Control panel */
-    #controls {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 8px 12px;
-      border-radius: 4px;
-      font-size: 14px;
-      z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-    button {
-      background: #333;
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      margin: 2px;
-      border-radius: 3px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: #555;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Order Book Heatmap</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121826;
+            --panel-color: #1a2035;
+            --border-color: #2a3349;
+            --text-color: #c8d3f5;
+            --text-dim: #7a88cf;
+            --bid-color: rgba(52, 168, 83, 0.8);
+            --ask-color: rgba(234, 67, 53, 0.8);
+            --bid-color-light: rgba(52, 168, 83, 0.3);
+            --ask-color-light: rgba(234, 67, 53, 0.3);
+            --grid-color: rgba(122, 136, 207, 0.1);
+            --highlight-color: #2d3f76;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #app-container {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            grid-template-rows: 60px 1fr;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #header {
+            grid-column: 1 / 3;
+            grid-row: 1;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--panel-color);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        #sidebar {
+            grid-column: 1;
+            grid-row: 2;
+            background-color: var(--panel-color);
+            border-right: 1px solid var(--border-color);
+            padding: 15px;
+            overflow-y: auto;
+        }
+
+        #main-content {
+            grid-column: 2;
+            grid-row: 2;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-container {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+        }
+
+        #price-chart {
+            height: 40%;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        #heatmap-container {
+            height: 60%;
+            position: relative;
+        }
+
+        #heatmap-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        #price-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .control-group h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-dim);
+        }
+
+        .control-item {
+            margin-bottom: 10px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 4px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            font-size: 13px;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #7a88cf;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .connected {
+            background-color: var(--bid-color);
+        }
+
+        .disconnected {
+            background-color: var(--ask-color);
+        }
+
+        .loading {
+            background-color: #fbbc05;
+        }
+
+        .price-label {
+            position: absolute;
+            right: 10px;
+            padding: 4px 8px;
+            background-color: var(--panel-color);
+            border: 1px solid var(--border-color);
+            font-size: 12px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .bid-label {
+            color: var(--bid-color);
+        }
+
+        .ask-label {
+            color: var(--ask-color);
+        }
+
+        .tooltip {
+            position: absolute;
+            display: none;
+            background-color: var(--panel-color);
+            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            z-index: 100;
+        }
+
+        .stat-value {
+            font-weight: 600;
+            font-size: 16px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .stat-box {
+            display: flex;
+            flex-direction: column;
+            margin-right: 20px;
+        }
+
+        .stats-container {
+            display: flex;
+        }
+
+        #symbol-picker {
+            font-weight: 600;
+            font-size: 18px;
+            background-color: transparent;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+        }
+
+        .time-selector {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .time-button {
+            padding: 4px 8px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-dim);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .time-button.active {
+            background-color: var(--highlight-color);
+            color: var(--text-color);
+            border-color: var(--text-dim);
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border-radius: 2px;
+        }
+
+        /* Loading Spinner */
+        .loading-overlay {
+            position: absolute;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(18, 24, 38, 0.7);
+            z-index: 999;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: var(--text-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Order book side panel */
+        #orderbook-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 180px;
+            height: 100%;
+            background-color: var(--panel-color);
+            border-left: 1px solid var(--border-color);
+            font-size: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .orderbook-header {
+            padding: 8px;
+            background-color: var(--bg-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .spread-info {
+            padding: 6px 8px;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            border-top: 1px solid var(--border-color);
+            font-size: 11px;
+        }
+
+        .orderbook-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .orderbook-side {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .orderbook-asks {
+            flex-direction: column-reverse;
+        }
+
+        .orderbook-level {
+            display: flex;
+            padding: 2px 8px;
+            font-family: monospace;
+            position: relative;
+            height: 18px;
+        }
+
+        .orderbook-price {
+            width: 50%;
+            z-index: 1;
+        }
+
+        .orderbook-volume {
+            width: 50%;
+            text-align: right;
+            z-index: 1;
+        }
+
+        .orderbook-bar {
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
+            z-index: 0;
+        }
+
+        .bid-bar {
+            background-color: var(--bid-color-light);
+        }
+
+        .ask-bar {
+            background-color: var(--ask-color-light);
+        }
+
+        .orderbook-price.bid {
+            color: var(--bid-color);
+        }
+
+        .orderbook-price.ask {
+            color: var(--ask-color);
+        }
+
+        .crosshair {
+            position: absolute;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .crosshair-x {
+            border-top: 1px dashed var(--text-dim);
+            width: 100%;
+        }
+
+        .crosshair-y {
+            border-left: 1px dashed var(--text-dim);
+            height: 100%;
+        }
+
+        .crosshair-label {
+            position: absolute;
+            background-color: var(--panel-color);
+            border: 1px solid var(--border-color);
+            padding: 2px 6px;
+            font-size: 11px;
+            border-radius: 2px;
+        }
+    </style>
 </head>
 <body>
-  <div id="container">
-    <!-- Plotly will use this div for the heatmap -->
-    <div id="heatmapPlot"></div>
-    <div id="overlay">
-      Last update: <span id="lastUpdate">N/A</span><br>
-      Current price: <span id="currentPrice">N/A</span>
+    <div id="app-container">
+        <header id="header">
+            <div class="app-info">
+                <select id="symbol-picker">
+                    <option value="BTCUSDT">BTCUSDT</option>
+                    <option value="ETHUSDT">ETHUSDT</option>
+                    <option value="TRXUSDT" selected>TRXUSDT</option>
+                    <option value="SOLUSDT">SOLUSDT</option>
+                    <option value="BNBUSDT">BNBUSDT</option>
+                </select>
+            </div>
+            <div class="stats-container">
+                <div class="stat-box">
+                    <div class="stat-value" id="price-value">--</div>
+                    <div class="stat-label">Price</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="spread-value">--</div>
+                    <div class="stat-label">Spread</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value" id="imbalance-value">--</div>
+                    <div class="stat-label">Imbalance</div>
+                </div>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot disconnected" id="connection-status"></div>
+                <span id="status-text">Disconnected</span>
+            </div>
+        </header>
+        
+        <aside id="sidebar">
+            <div class="control-group">
+                <h3>Timeframe</h3>
+                <div class="time-selector">
+                    <button class="time-button" data-minutes="5">5m</button>
+                    <button class="time-button" data-minutes="15">15m</button>
+                    <button class="time-button active" data-minutes="60">1h</button>
+                    <button class="time-button" data-minutes="240">4h</button>
+                    <button class="time-button" data-minutes="1440">1d</button>
+                </div>
+                <div class="control-item">
+                    <label for="auto-refresh">Auto Refresh</label>
+                    <select id="auto-refresh">
+                        <option value="none">Off</option>
+                        <option value="2000" selected>2 sec</option>
+                        <option value="5000">5 sec</option>
+                        <option value="10000">10 sec</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Heatmap Settings</h3>
+                <div class="control-item">
+                    <label for="bucket-size">Price Bucket Size</label>
+                    <input type="number" id="bucket-size" min="0.00001" step="0.00001" value="0.001">
+                </div>
+                <div class="control-item">
+                    <label for="max-buckets">Max Buckets</label>
+                    <input type="number" id="max-buckets" min="50" max="500" step="10" value="200">
+                </div>
+                <div class="control-item">
+                    <label for="color-intensity">Color Intensity</label>
+                    <input type="range" id="color-intensity" min="0.1" max="2" step="0.1" value="1">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h3>Display Options</h3>
+                <div class="control-item">
+                    <label>
+                        <input type="checkbox" id="show-price-line" checked>
+                        Show Price Line
+                    </label>
+                </div>
+                <div class="control-item">
+                    <label>
+                        <input type="checkbox" id="show-cvd" checked>
+                        Show CVD
+                    </label>
+                </div>
+                <div class="control-item">
+                    <label>
+                        <input type="checkbox" id="show-crosshair" checked>
+                        Show Crosshair
+                    </label>
+                </div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: var(--bid-color);"></div>
+                    <span>Bids</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: var(--ask-color);"></div>
+                    <span>Asks</span>
+                </div>
+            </div>
+        </aside>
+        
+        <main id="main-content">
+            <div id="price-chart" class="chart-container">
+                <svg id="price-chart-svg" width="100%" height="100%"></svg>
+                <div class="loading-overlay" id="price-loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+            <div id="heatmap-container" class="chart-container">
+                <canvas id="heatmap-canvas"></canvas>
+                <div id="price-overlay"></div>
+                <div id="orderbook-panel">
+                    <div class="orderbook-header">
+                        <span>Price</span>
+                        <span>Volume</span>
+                    </div>
+                    <div class="orderbook-container">
+                        <div class="orderbook-side orderbook-asks" id="orderbook-asks"></div>
+                        <div class="spread-info" id="orderbook-spread">Spread: <span id="ob-spread-value">--</span></div>
+                        <div class="orderbook-side orderbook-bids" id="orderbook-bids"></div>
+                    </div>
+                </div>
+                <div class="tooltip" id="heatmap-tooltip"></div>
+                <div class="loading-overlay" id="heatmap-loading">
+                    <div class="spinner"></div>
+                </div>
+                <div class="crosshair" id="crosshair-x"></div>
+                <div class="crosshair" id="crosshair-y"></div>
+                <div class="crosshair-label" id="crosshair-price-label"></div>
+                <div class="crosshair-label" id="crosshair-time-label"></div>
+            </div>
+        </main>
     </div>
-    <div id="controls">
-      <button id="resetZoom">Reset View</button>
-      <button id="toggleColorScale">Toggle Colorscale</button>
-    </div>
-  </div>
-  
-  <script>
-    // References to DOM elements
-    const overlayLastUpdate = document.getElementById('lastUpdate');
-    const resetZoomBtn = document.getElementById('resetZoom');
-    const toggleColorScaleBtn = document.getElementById('toggleColorScale');
-    
-    // Global state
-    let useAlternateColorScale = false;
-    let currentLayout = {};
-    
-    // Cyberpunk-inspired color schemes with neon glow effect
-    const colorSchemes = {
-      default: {
-        intensity: [
-          [0, 'rgb(2,3,8)'],          // Deep black for background
-          [0.2, 'rgb(10,12,25)'],     // Very dark indigo for low areas
-          [0.4, 'rgb(25,20,50)'],     // Deep violet for medium areas
-          [0.6, 'rgb(40,25,80)'],     // Purple for rising areas
-          [0.8, 'rgb(60,40,120)'],    // Bright purple for high areas
-          [0.9, 'rgb(100,80,160)'],   // Neon purple for peaks
-          [1, 'rgb(140,120,210)']     // Glowing violet highlight for highest points
-        ],
-        imbalance: [
-          [0, 'rgb(0,80,255)'],       // Neon blue for strong bid
-          [0.25, 'rgb(30,120,210)'],  // Bright cyan-blue for moderate bid
-          [0.4, 'rgb(20,180,180)'],   // Teal for slight bid
-          [0.5, 'rgb(70,30,100)'],    // Deep purple for neutral
-          [0.6, 'rgb(180,50,150)'],   // Magenta for slight ask
-          [0.75, 'rgb(255,50,120)'],  // Hot pink for moderate ask
-          [1, 'rgb(255,30,60)']       // Neon red for strong ask
-        ]
-      },
-      alternate: {
-        intensity: [
-          [0, 'rgb(1,5,10)'],          // Nearly black background
-          [0.2, 'rgb(5,15,30)'],       // Deep cyan-black
-          [0.4, 'rgb(10,35,60)'],      // Dark teal-blue
-          [0.6, 'rgb(20,80,100)'],     // Medium teal
-          [0.8, 'rgb(0,130,140)'],     // Bright teal
-          [0.9, 'rgb(0,180,200)'],     // Neon teal
-          [1, 'rgb(60,230,255)']       // Glowing cyan highlight
-        ],
-        imbalance: [
-          [0, 'rgb(0,100,220)'],       // Neon blue for strong bid
-          [0.25, 'rgb(20,150,255)'],   // Bright blue for moderate bid
-          [0.4, 'rgb(0,210,210)'],     // Cyan for slight bid
-          [0.5, 'rgb(20,20,35)'],      // Very dark neutral
-          [0.6, 'rgb(120,20,120)'],    // Deep magenta for slight ask
-          [0.75, 'rgb(200,0,150)'],    // Vivid magenta for moderate ask
-          [1, 'rgb(255,0,100)']        // Neon pink for strong ask
-        ]
-      }
-    };
-    
-    // Fetch and update our Plotly heatmap.
-    async function fetchHeatmap() {
-      try {
-        const response = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
-        const data = await response.json();
-        overlayLastUpdate.textContent = new Date().toLocaleTimeString();
-        drawHeatmap(data);
-      } catch (error) {
-        console.error('Error fetching heatmap data:', error);
-      }
-    }
-    
-    function formatTime(timestamp) {
-      const date = new Date(timestamp);
-      const hours = date.getHours().toString().padStart(2, '0');
-      const minutes = date.getMinutes().toString().padStart(2, '0');
-      const seconds = date.getSeconds().toString().padStart(2, '0');
-      return `${hours}:${minutes}:${seconds}`;
-    }
-    
-    function drawHeatmap(data) {
-      if (!data || !data.times || data.times.length === 0) {
-        document.getElementById('heatmapPlot').innerHTML =
-          '<div style="color:#fff;font-size:20px;padding:20px;">No heatmap data available</div>';
-        return;
-      }
-      
-      // Unpack the API data.
-      const times = data.times;
-      const buckets = data.buckets;
-      const bidHeat = data.bidHeat;
-      const askHeat = data.askHeat;
-      
-      const numTicks = times.length;
-      const numBuckets = buckets.length;
-      
-      // Format x-axis labels (time)
-      const xLabels = times.map(formatTime);
-      
-      // Calculate the global maximum volume for normalization.
-      let maxVolume = 0;
-      for (let i = 0; i < numTicks; i++) {
-        for (let j = 0; j < numBuckets; j++) {
-          const bid = (bidHeat[i] && bidHeat[i][j]) ? bidHeat[i][j] : 0;
-          const ask = (askHeat[i] && askHeat[i][j]) ? askHeat[i][j] : 0;
-          const vol = bid + ask;
-          if (vol > maxVolume) maxVolume = vol;
-        }
-      }
-      if (maxVolume === 0) maxVolume = 1;
-      
-      // Fetch current price data to display in the overlay
-      fetch('https://eldritch.gleeze.com:3500/api/orderbook/ticks?symbol=TRXUSDT')
-        .then(response => response.json())
-        .then(ticks => {
-          document.getElementById('currentPrice').textContent = 
-            ticks.length > 0 ? '$' + Number(ticks[ticks.length-1].price).toFixed(5) : 'N/A';
-          
-          // Extract price data for the line trace
-          const priceData = ticks.map(tick => ({
-            time: new Date(tick.timestamp),
-            price: tick.price
-          }));
-          
-          // Continue with heatmap rendering...
-          drawHeatmapWithPrice(data, priceData);
-        })
-        .catch(error => {
-          console.error('Error fetching price data:', error);
-          drawHeatmapWithPrice(data, []);
-        });
-    }
-    
-    function drawHeatmapWithPrice(data, priceData) {
-      const times = data.times;
-      const buckets = data.buckets;
-      const bidHeat = data.bidHeat;
-      const askHeat = data.askHeat;
-      
-      const numTicks = times.length;
-      const numBuckets = buckets.length;
-      
-      // Format x-axis labels (time)
-      const xLabels = times.map(formatTime);
-      
-      // We want the highest price at the top
-      const totalMatrix = [];
-      const diffMatrix = [];
-      const hoverText = [];
-      
-      // Prepare y-axis labels (price) in reversed order.
-      const yLabels = [];
-      
-      // Calculate the price format precision based on the values
-      let priceDecimals = 4;
-      const firstPrice = Number(buckets[0]);
-      if (firstPrice >= 1000) priceDecimals = 2;
-      else if (firstPrice >= 100) priceDecimals = 3;
-      
-      for (let r = 0; r < numBuckets; r++) {
-        const bucketIndex = numBuckets - 1 - r;
-        // Format the price for the label with dynamic precision
-        yLabels.push(Number(buckets[bucketIndex]).toFixed(priceDecimals));
-        
-        totalMatrix[r] = [];
-        diffMatrix[r] = [];
-        hoverText[r] = [];
-        
-        for (let i = 0; i < numTicks; i++) {
-          const bid = (bidHeat[i] && bidHeat[i][bucketIndex]) ? bidHeat[i][bucketIndex] : 0;
-          const ask = (askHeat[i] && askHeat[i][bucketIndex]) ? askHeat[i][bucketIndex] : 0;
-          
-          // Skip rendering cells where both bid and ask are 0
-          if (bid === 0 && ask === 0) {
-            // Use null to tell Plotly to skip rendering this cell
-            totalMatrix[r][i] = null;
-            diffMatrix[r][i] = null;
-            hoverText[r][i] = null;
-            continue;
-          }
-          
-          // Use a cube-root scale for better visual dynamics with large volume variations
-          const I_bid = Math.cbrt(bid / maxVolume);
-          const I_ask = Math.cbrt(ask / maxVolume);
-          
-          // Total intensity and imbalance
-          totalMatrix[r][i] = I_bid + I_ask;
-          diffMatrix[r][i] = I_ask - I_bid;
-          
-          // Enhanced hover text
-          const bidColor = bid > ask ? "<span style='color:#8af'>↑</span>" : "";
-          const askColor = ask > bid ? "<span style='color:#f88'>↓</span>" : "";
-          
-          hoverText[r][i] = 
-            `<b>Time:</b> ${formatTime(times[i])}<br>` +
-            `<b>Price:</b> ${Number(buckets[bucketIndex]).toFixed(priceDecimals)}<br>` +
-            `<b>Bid:</b> ${bid.toLocaleString()} ${bidColor}<br>` +
-            `<b>Ask:</b> ${ask.toLocaleString()} ${askColor}<br>` +
-            `<b>Ratio:</b> ${bid+ask > 0 ? (bid/(bid+ask)*100).toFixed(1) + '%' : 'N/A'} bid`;
-        }
-      }
-      
-      // Get the selected color scheme
-      const colorScheme = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
-      
-      // Trace 1: Overall intensity
-      const traceTotal = {
-        z: totalMatrix,
-        x: xLabels,
-        y: yLabels,
-        type: 'heatmap',
-        colorscale: colorScheme.intensity,
-        zmin: 0,
-        zmax: 2,
-        showscale: false,
-        hoverinfo: 'skip',
-        connectgaps: false,  // This ensures gaps are preserved
-        showlegend: false
-      };
-      
-      // Trace 2: Bid/Ask imbalance
-      const traceDiff = {
-        z: diffMatrix,
-        x: xLabels,
-        y: yLabels,
-        type: 'heatmap',
-        colorscale: colorScheme.imbalance,
-        zmin: -1,
-        zmax: 1,
-        opacity: 0.8,
-        showscale: false,
-        text: hoverText,
-        hoverinfo: 'text',
-        hoverlabel: {
-          bgcolor: 'rgba(0,0,0,0.8)',
-          bordercolor: '#444',
-          font: {size: 12, color: 'white'}
-        },
-        connectgaps: false,  // This ensures gaps are preserved
-        showlegend: false
-      };
-      
-      // Create array of traces - we'll add the price line if we have data
-      const traces = [traceTotal, traceDiff];
-      
-      // Trace 3: Price line (if we have price data)
-      if (priceData && priceData.length > 0) {
-        // Match timestamps between price data and heatmap
-        const matchedPrices = [];
-        const matchedTimes = [];
-        
-        // Convert heatmap times to Date objects for comparison
-        const heatmapTimes = times.map(t => new Date(t));
-        
-        // For each time in our heatmap, find the closest price point
-        heatmapTimes.forEach((heatmapTime, index) => {
-          // Find the closest price data point by time
-          let closestPrice = null;
-          let minTimeDiff = Infinity;
-          
-          for (const point of priceData) {
-            const timeDiff = Math.abs(point.time - heatmapTime);
-            if (timeDiff < minTimeDiff) {
-              minTimeDiff = timeDiff;
-              closestPrice = point.price;
-            }
-          }
-          
-          if (closestPrice !== null) {
-            matchedPrices.push(closestPrice);
-            matchedTimes.push(xLabels[index]);
-          }
-        });
-        
-        // Only add price line if we have matches
-        if (matchedPrices.length > 0) {
-          const traceLine = {
-            x: matchedTimes,
-            y: matchedPrices,
-            type: 'scatter',
-            mode: 'lines',
-            line: {
-              color: '#00ff88',
-              width: 2
-            },
-            name: 'Price',
-            hoverinfo: 'y',
-            hoverlabel: {
-              bgcolor: 'rgba(0,0,0,0.8)',
-              bordercolor: '#00ff88',
-              font: {color: '#fff'}
-            }
-          };
-          
-          traces.push(traceLine);
-        }
-      }
-      
-      // Layout with better readability and formatting
-      currentLayout = {
-        margin: { l: 70, r: 20, t: 30, b: 60 },
-        paper_bgcolor: '#0a0a0a',
-        plot_bgcolor: '#0a0a0a',
-        xaxis: {
-          title: 'Time',
-          tickangle: -45,
-          tickfont: { size: 10, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
-          gridcolor: '#222',
-          zeroline: false,
-          nticks: 10
-        },
-        yaxis: {
-          title: 'Price',
-          tickfont: { size: 11, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
-          gridcolor: '#222',
-          zeroline: false
-        },
-        dragmode: 'zoom',
-        modebar: {
-          orientation: 'v',
-          bgcolor: 'rgba(0,0,0,0.7)',
-          color: '#fff',
-          activecolor: '#80ccff'
-        }
-      };
-      
-      // Configuration for better interactivity
-      const config = {
-        responsive: true,
-        displayModeBar: true,
-        modeBarButtonsToAdd: [
-          'zoom2d',
-          'pan2d',
-          'zoomIn2d',
-          'zoomOut2d',
-          'autoScale2d',
-          'resetScale2d'
-        ],
-        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
-        displaylogo: false,
-        scrollZoom: true
-      };
-      
-      Plotly.newPlot('heatmapPlot', traces, currentLayout, config);
-    }
-    
-    // Event handlers for controls
-    resetZoomBtn.addEventListener('click', () => {
-      Plotly.relayout('heatmapPlot', {
-        'xaxis.autorange': true,
-        'yaxis.autorange': true
-      });
-    });
-    
-    toggleColorScaleBtn.addEventListener('click', () => {
-      useAlternateColorScale = !useAlternateColorScale;
-      fetchHeatmap(); // Redraw with new color scheme
-    });
-    
-    // Initial fetch and auto-refresh
-    fetchHeatmap();
-    const refreshInterval = setInterval(fetchHeatmap, 60000);
-    
-    // Resize handler
-    window.addEventListener('resize', () => {
-      Plotly.Plots.resize('heatmapPlot');
-    });
-  </script>
+
+    <script src="app.js"></script>
 </body>
 </html>
