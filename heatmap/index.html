@@ -2,15 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Binance Order Book Heatmap (Bookmap Style)</title>
-  <!-- Include Plotly.js -->
+  <title>Bookmap-Style Order Book Visualization</title>
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
-    /* Basic reset and dark theme */
-    html, body {
+    body {
       margin: 0;
       padding: 0;
-      background-color: #0a0a0a;
+      background-color: #000;
       color: #fff;
       font-family: Arial, sans-serif;
       overflow: hidden;
@@ -20,12 +18,10 @@
       width: 100vw;
       height: 100vh;
     }
-    /* Fill the container with the Plotly plot */
-    #heatmapPlot {
+    #chart {
       width: 100%;
       height: 100%;
     }
-    /* Overlay for last update time. */
     #overlay {
       position: absolute;
       top: 10px;
@@ -35,9 +31,7 @@
       border-radius: 4px;
       font-size: 14px;
       z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
     }
-    /* Control panel */
     #controls {
       position: absolute;
       top: 10px;
@@ -47,7 +41,6 @@
       border-radius: 4px;
       font-size: 14px;
       z-index: 10;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
     }
     button {
       background: #333;
@@ -59,85 +52,114 @@
       cursor: pointer;
     }
     button:hover {
-      background: #555;
+      background: #444;
     }
   </style>
 </head>
 <body>
   <div id="container">
-    <!-- Plotly will use this div for the heatmap -->
-    <div id="heatmapPlot"></div>
+    <div id="chart"></div>
     <div id="overlay">
       Last update: <span id="lastUpdate">N/A</span><br>
-      Current price: <span id="currentPrice">N/A</span>
+      Price: <span id="currentPrice">N/A</span>
     </div>
     <div id="controls">
       <button id="resetZoom">Reset View</button>
-      <button id="toggleColorScale">Toggle Colorscale</button>
+      <button id="refreshData">Refresh</button>
     </div>
   </div>
-  
+
   <script>
-    // References to DOM elements
-    const overlayLastUpdate = document.getElementById('lastUpdate');
-    const currentPriceElement = document.getElementById('currentPrice');
+    // DOM references
+    const chart = document.getElementById('chart');
+    const lastUpdateEl = document.getElementById('lastUpdate');
+    const currentPriceEl = document.getElementById('currentPrice');
     const resetZoomBtn = document.getElementById('resetZoom');
-    const toggleColorScaleBtn = document.getElementById('toggleColorScale');
+    const refreshBtn = document.getElementById('refreshData');
     
     // Global state
-    let useAlternateColorScale = false;
-    let currentLayout = {};
+    let globalData = null;
     let priceData = [];
     let lastPrice = null;
-    let globalData = null;
-    
-    // Color schemes (Bookmap-inspired)
-    const colorSchemes = {
-      default: {
-        bid: [
-          [0, 'rgba(0,0,0,0)'],       // Transparent for no data
-          [0.001, 'rgba(0,70,150,0.6)'],  // Low volume
-          [0.5, 'rgba(0,120,200,0.75)'],  // Medium volume
-          [1, 'rgba(30,180,255,0.9)']     // High volume
-        ],
-        ask: [
-          [0, 'rgba(0,0,0,0)'],       // Transparent for no data
-          [0.001, 'rgba(150,0,50,0.6)'],  // Low volume
-          [0.5, 'rgba(200,0,80,0.75)'],  // Medium volume
-          [1, 'rgba(255,30,100,0.9)']     // High volume
-        ],
-        price: '#00f9a9'  // Bright cyan for price line
-      },
-      alternate: {
-        bid: [
-          [0, 'rgba(0,0,0,0)'],       // Transparent for no data
-          [0.001, 'rgba(0,80,100,0.6)'],  // Low volume
-          [0.5, 'rgba(0,150,150,0.75)'],  // Medium volume
-          [1, 'rgba(0,220,220,0.9)']     // High volume
-        ],
-        ask: [
-          [0, 'rgba(0,0,0,0)'],       // Transparent for no data
-          [0.001, 'rgba(100,0,100,0.6)'],  // Low volume
-          [0.5, 'rgba(150,0,150,0.75)'],  // Medium volume
-          [1, 'rgba(220,0,220,0.9)']     // High volume
-        ],
-        price: '#80ff40'  // Neon green for price line
-      }
-    };
+    let yRange = null;
     
     // Format time for display
     function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString();
+    }
+    
+    // Format timestamp for x-axis
+    function formatTimeAxis(timestamp) {
       const date = new Date(timestamp);
       const hours = date.getHours().toString().padStart(2, '0');
       const minutes = date.getMinutes().toString().padStart(2, '0');
       const seconds = date.getSeconds().toString().padStart(2, '0');
       return `${hours}:${minutes}:${seconds}`;
     }
+
+    // Create candlestick data from price ticks
+    function createCandlesticks(priceTicks, timeInterval = 60000) { // 1 minute by default
+      if (!priceTicks || priceTicks.length < 2) return [];
+      
+      // Sort by timestamp
+      const sortedTicks = [...priceTicks].sort((a, b) => a.timestamp - b.timestamp);
+      
+      const candles = [];
+      let currentCandle = null;
+      let startTime = Math.floor(sortedTicks[0].timestamp / timeInterval) * timeInterval;
+      
+      for (const tick of sortedTicks) {
+        const tickTime = tick.timestamp;
+        const tickPrice = tick.price;
+        
+        // If this tick belongs to a new candle
+        if (tickTime >= startTime + timeInterval) {
+          // Complete the current candle if it exists
+          if (currentCandle) {
+            candles.push(currentCandle);
+          }
+          
+          // Start a new candle
+          startTime = Math.floor(tickTime / timeInterval) * timeInterval;
+          currentCandle = {
+            time: startTime,
+            open: tickPrice,
+            high: tickPrice,
+            low: tickPrice,
+            close: tickPrice
+          };
+        } 
+        // Update the current candle
+        else if (currentCandle) {
+          currentCandle.high = Math.max(currentCandle.high, tickPrice);
+          currentCandle.low = Math.min(currentCandle.low, tickPrice);
+          currentCandle.close = tickPrice;
+        } 
+        // First tick in this interval
+        else {
+          currentCandle = {
+            time: startTime,
+            open: tickPrice,
+            high: tickPrice,
+            low: tickPrice,
+            close: tickPrice
+          };
+        }
+      }
+      
+      // Add the last candle
+      if (currentCandle) {
+        candles.push(currentCandle);
+      }
+      
+      return candles;
+    }
     
-    // Fetch data and update visualization
+    // Fetch data from API
     async function fetchData() {
       try {
-        // Get heatmap data
+        // Get order book heatmap data
         const heatmapResponse = await fetch('https://eldritch.gleeze.com:3500/api/orderbook/heatmap');
         const heatmapData = await heatmapResponse.json();
         
@@ -146,283 +168,253 @@
         const ticksData = await ticksResponse.json();
         
         // Update the last update time
-        overlayLastUpdate.textContent = new Date().toLocaleTimeString();
+        lastUpdateEl.textContent = new Date().toLocaleTimeString();
         
         // Process price data
-        priceData = ticksData
-          .map(tick => ({
-            timestamp: tick.timestamp,
-            price: tick.price
-          }))
-          .filter(item => item.price !== null);
+        priceData = ticksData.filter(tick => tick.price !== null);
         
         // Update the current price display
         if (priceData.length > 0) {
           lastPrice = priceData[priceData.length - 1].price;
-          currentPriceElement.textContent = lastPrice.toFixed(2);
+          currentPriceEl.textContent = lastPrice.toFixed(2);
         }
         
-        // Save data globally and draw visualization
+        // Save data and draw visualization
         globalData = heatmapData;
-        drawBookmapStyle(heatmapData);
+        drawBookmap(heatmapData, priceData);
         
       } catch (error) {
         console.error('Error fetching data:', error);
       }
     }
     
-    // Draw Bookmap-style visualization
-    function drawBookmapStyle(data) {
+    // Draw the Bookmap style visualization
+    function drawBookmap(data, priceTicks) {
       if (!data || !data.times || data.times.length === 0) {
-        document.getElementById('heatmapPlot').innerHTML = 
-          '<div style="color:#fff;font-size:20px;padding:20px;">No data available</div>';
+        chart.innerHTML = '<div style="padding:20px;color:white">No data available</div>';
         return;
       }
       
+      // Extract data
       const times = data.times;
       const buckets = data.buckets.map(b => Number(b));
       const bidHeat = data.bidHeat;
       const askHeat = data.askHeat;
       
-      const numTicks = times.length;
-      const numBuckets = buckets.length;
+      // Format time labels for x-axis
+      const xLabels = times.map(formatTimeAxis);
       
-      // Format time labels
-      const xLabels = times.map(formatTime);
+      // Create combined depth heatmap data
+      const depthData = [];
+      let maxValue = 0;
       
-      // Calculate price precision
-      let priceDecimals = 2;
-      if (buckets[0] < 100) priceDecimals = 3;
-      if (buckets[0] < 10) priceDecimals = 4;
-      
-      // Find max volume for normalization
-      let maxBidVolume = 0;
-      let maxAskVolume = 0;
-      
-      for (let i = 0; i < numTicks; i++) {
-        for (let j = 0; j < numBuckets; j++) {
-          const bid = (bidHeat[i] && bidHeat[i][j]) ? bidHeat[i][j] : 0;
-          const ask = (askHeat[i] && askHeat[i][j]) ? askHeat[i][j] : 0;
+      for (let t = 0; t < times.length; t++) {
+        for (let p = 0; p < buckets.length; p++) {
+          const price = buckets[p];
+          const time = times[t];
+          const bidVol = (bidHeat[t] && bidHeat[t][p]) ? bidHeat[t][p] : 0;
+          const askVol = (askHeat[t] && askHeat[t][p]) ? askHeat[t][p] : 0;
           
-          if (bid > maxBidVolume) maxBidVolume = bid;
-          if (ask > maxAskVolume) maxAskVolume = ask;
-        }
-      }
-      
-      // Prevent division by zero
-      if (maxBidVolume === 0) maxBidVolume = 1;
-      if (maxAskVolume === 0) maxAskVolume = 1;
-      
-      // Create heatmap matrices - properly positioned for price y-axis
-      // For Bookmap style, we need separate bid and ask heatmaps
-      const bidMatrix = Array(numBuckets).fill().map(() => Array(numTicks).fill(null));
-      const askMatrix = Array(numBuckets).fill().map(() => Array(numTicks).fill(null));
-      const hoverText = Array(numBuckets).fill().map(() => Array(numTicks).fill(''));
-      
-      // Fill the matrices - we want highest price at the top
-      for (let i = 0; i < numTicks; i++) {
-        for (let j = 0; j < numBuckets; j++) {
-          // Get the volume data
-          const bid = (bidHeat[i] && bidHeat[i][j]) ? bidHeat[i][j] : 0;
-          const ask = (askHeat[i] && askHeat[i][j]) ? askHeat[i][j] : 0;
+          // Combine into a single intensity value with sign
+          // Positive for bids, negative for asks
+          const value = bidVol > 0 ? bidVol : -askVol;
+          maxValue = Math.max(maxValue, Math.abs(value));
           
-          // Normalize and apply non-linear scaling for better visualization
-          // Using a power scale (1/3) to make smaller values more visible
-          const bidValue = Math.pow(bid / maxBidVolume, 1/3);
-          const askValue = Math.pow(ask / maxAskVolume, 1/3);
-          
-          // The matrix rows are inverted (0 is top, numBuckets-1 is bottom)
-          // So we need to invert the bucket index
-          const rowIndex = numBuckets - 1 - j;
-          
-          // Store values in matrices
-          bidMatrix[rowIndex][i] = bid > 0 ? bidValue : null;
-          askMatrix[rowIndex][i] = ask > 0 ? askValue : null;
-          
-          // Create hover text
-          const price = buckets[j].toFixed(priceDecimals);
-          hoverText[rowIndex][i] = 
-            `<b>Time:</b> ${formatTime(times[i])}<br>` +
-            `<b>Price:</b> ${price}<br>` +
-            `<b>Bid Volume:</b> ${bid.toLocaleString()}<br>` +
-            `<b>Ask Volume:</b> ${ask.toLocaleString()}`;
-        }
-      }
-      
-      // Create price line data
-      const priceLine = {
-        x: [],
-        y: [],
-        type: 'scatter',
-        mode: 'lines',
-        line: {
-          color: useAlternateColorScale ? colorSchemes.alternate.price : colorSchemes.default.price,
-          width: 2,
-        },
-        name: 'Price',
-        hoverinfo: 'y+name',
-        showlegend: false
-      };
-      
-      // Match price data with time labels
-      if (priceData.length > 0) {
-        const timeMap = new Map(times.map((time, i) => [time, i]));
-        
-        for (const point of priceData) {
-          if (timeMap.has(point.timestamp)) {
-            const index = timeMap.get(point.timestamp);
-            priceLine.x.push(xLabels[index]);
-            priceLine.y.push(point.price);
+          if (bidVol > 0 || askVol > 0) {
+            depthData.push({
+              x: xLabels[t],
+              y: price,
+              z: Math.abs(value),
+              side: value > 0 ? 'bid' : 'ask',
+              timeIdx: t,
+              priceIdx: p,
+              bidVol,
+              askVol
+            });
           }
         }
       }
-      
-      // Get color schemes
-      const colors = useAlternateColorScale ? colorSchemes.alternate : colorSchemes.default;
-      
-      // Create traces
-      const bidTrace = {
-        z: bidMatrix,
-        x: xLabels,
-        y: buckets.slice().reverse(), // Reverse to have highest price at top
-        type: 'heatmap',
-        colorscale: colors.bid,
-        showscale: false,
-        hoverinfo: 'text',
-        text: hoverText,
-        zsmooth: 'best',
-        connectgaps: false
+
+      // Create candlestick chart data
+      const candles = createCandlesticks(priceTicks);
+      const candleTrace = {
+        x: candles.map(c => formatTimeAxis(c.time)),
+        open: candles.map(c => c.open),
+        high: candles.map(c => c.high),
+        low: candles.map(c => c.low),
+        close: candles.map(c => c.close),
+        type: 'candlestick',
+        increasing: {
+          line: { color: '#26a69a', width: 1.5 },
+          fillcolor: 'rgba(38, 166, 154, 0.7)'
+        },
+        decreasing: {
+          line: { color: '#ef5350', width: 1.5 },
+          fillcolor: 'rgba(239, 83, 80, 0.7)'
+        },
+        line: { width: 1 },
+        opacity: 0.8,
+        yaxis: 'y',
+        name: 'Price'
       };
       
-      const askTrace = {
-        z: askMatrix,
-        x: xLabels,
-        y: buckets.slice().reverse(), // Reverse to have highest price at top
-        type: 'heatmap',
-        colorscale: colors.ask,
-        showscale: false,
+      // Create bid and ask heatmap data
+      const bidPoints = depthData.filter(p => p.side === 'bid');
+      const askPoints = depthData.filter(p => p.side === 'ask');
+      
+      // Normalize values using logarithmic scale for better visualization
+      function normalize(val) {
+        return val > 0 ? Math.log(val + 1) / Math.log(maxValue + 1) : 0;
+      }
+      
+      // Create custom heatmap scatter plots for bids and asks
+      const bidScatter = {
+        x: bidPoints.map(p => p.x),
+        y: bidPoints.map(p => p.y),
+        mode: 'markers',
+        marker: {
+          size: 10,
+          opacity: 0.9,
+          color: bidPoints.map(p => normalize(p.z)),
+          colorscale: [
+            [0, 'rgba(0,30,80,0.1)'],
+            [0.2, 'rgba(0,70,150,0.5)'],
+            [0.5, 'rgba(30,110,200,0.7)'],
+            [0.8, 'rgba(50,150,230,0.85)'],
+            [1, 'rgba(70,200,255,0.95)']
+          ],
+          symbol: 'square',
+          line: {width: 0}
+        },
         hoverinfo: 'text',
-        text: hoverText,
-        zsmooth: 'best',
-        connectgaps: false
+        text: bidPoints.map(p => 
+          `Time: ${formatTime(times[p.timeIdx])}<br>` +
+          `Price: ${p.y.toFixed(2)}<br>` +
+          `Bid Volume: ${p.bidVol.toLocaleString()}`
+        ),
+        name: 'Bid Depth',
+        showlegend: false
+      };
+      
+      const askScatter = {
+        x: askPoints.map(p => p.x),
+        y: askPoints.map(p => p.y),
+        mode: 'markers',
+        marker: {
+          size: 10,
+          opacity: 0.9,
+          color: askPoints.map(p => normalize(p.z)),
+          colorscale: [
+            [0, 'rgba(80,0,30,0.1)'],
+            [0.2, 'rgba(150,0,70,0.5)'],
+            [0.5, 'rgba(200,30,100,0.7)'],
+            [0.8, 'rgba(230,50,130,0.85)'],
+            [1, 'rgba(255,70,150,0.95)']
+          ],
+          symbol: 'square',
+          line: {width: 0}
+        },
+        hoverinfo: 'text',
+        text: askPoints.map(p => 
+          `Time: ${formatTime(times[p.timeIdx])}<br>` +
+          `Price: ${p.y.toFixed(2)}<br>` +
+          `Ask Volume: ${p.askVol.toLocaleString()}`
+        ),
+        name: 'Ask Depth',
+        showlegend: false
+      };
+      
+      // Create simple price line for reference
+      const priceLine = {
+        x: priceTicks.map(p => formatTimeAxis(p.timestamp)),
+        y: priceTicks.map(p => p.price),
+        type: 'scatter',
+        mode: 'lines',
+        line: {
+          color: 'rgba(255,255,255,0.6)',
+          width: 1,
+          dash: 'dot'
+        },
+        name: 'Price',
+        hoverinfo: 'none',
+        showlegend: false
       };
       
       // Calculate y-axis range
       let minPrice = Math.min(...buckets);
       let maxPrice = Math.max(...buckets);
       
-      // Also consider price line data
-      if (priceLine.y.length > 0) {
-        const minPriceData = Math.min(...priceLine.y);
-        const maxPriceData = Math.max(...priceLine.y);
-        minPrice = Math.min(minPrice, minPriceData);
-        maxPrice = Math.max(maxPrice, maxPriceData);
+      // Include candle price ranges
+      if (candles.length > 0) {
+        const minCandlePrice = Math.min(...candles.map(c => c.low));
+        const maxCandlePrice = Math.max(...candles.map(c => c.high));
+        minPrice = Math.min(minPrice, minCandlePrice);
+        maxPrice = Math.max(maxPrice, maxCandlePrice);
       }
       
-      // Add a small buffer (5%)
+      // Add buffer (5%)
       const priceRange = maxPrice - minPrice;
       const buffer = priceRange * 0.05;
-      minPrice = minPrice - buffer;
-      maxPrice = maxPrice + buffer;
+      minPrice -= buffer;
+      maxPrice += buffer;
+      
+      // Save for zoom reset
+      yRange = [minPrice, maxPrice];
       
       // Layout configuration
-      currentLayout = {
-        margin: { l: 60, r: 20, t: 30, b: 60 },
-        paper_bgcolor: '#0a0a0a',
-        plot_bgcolor: '#0a0a0a',
+      const layout = {
+        plot_bgcolor: '#000',
+        paper_bgcolor: '#000',
+        margin: { l: 60, r: 40, t: 30, b: 60 },
         xaxis: {
           title: 'Time',
-          tickangle: -45,
-          tickfont: { size: 10, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
+          tickfont: { size: 10, color: '#aaa' },
           gridcolor: '#222',
-          zeroline: false,
-          nticks: 10
+          tickangle: -45
         },
         yaxis: {
           title: 'Price',
-          tickfont: { size: 11, color: '#ddd' },
-          titlefont: { color: '#fff', size: 14 },
+          tickfont: { size: 11, color: '#aaa' },
           gridcolor: '#222',
-          zeroline: false,
-          range: [minPrice, maxPrice],
-          autorange: false
+          range: yRange
         },
         dragmode: 'zoom',
-        modebar: {
-          orientation: 'v',
-          bgcolor: 'rgba(0,0,0,0.7)',
-          color: '#fff',
-          activecolor: '#80ccff'
-        },
-        hovermode: 'closest',
-        shapes: []
+        showlegend: false,
+        hovermode: 'closest'
       };
       
-      // Add a reference line at the last price
-      if (lastPrice !== null) {
-        currentLayout.shapes.push({
-          type: 'line',
-          x0: 0,
-          x1: 1,
-          y0: lastPrice,
-          y1: lastPrice,
-          xref: 'paper',
-          yref: 'y',
-          line: {
-            color: 'rgba(255, 255, 255, 0.3)',
-            width: 1,
-            dash: 'dot'
-          }
-        });
-      }
-      
-      // Plot configuration
+      // Create the plot
       const config = {
         responsive: true,
         displayModeBar: true,
-        modeBarButtonsToAdd: [
-          'zoom2d',
-          'pan2d',
-          'zoomIn2d',
-          'zoomOut2d',
-          'autoScale2d',
-          'resetScale2d'
-        ],
-        modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+        modeBarButtonsToRemove: ['sendDataToCloud', 'autoScale2d', 'lasso2d', 'select2d'],
+        modeBarButtonsToAdd: ['zoom2d', 'pan2d', 'resetScale2d'],
         displaylogo: false,
         scrollZoom: true
       };
       
-      Plotly.newPlot('heatmapPlot', [bidTrace, askTrace, priceLine], currentLayout, config);
+      Plotly.newPlot('chart', [bidScatter, askScatter, candleTrace, priceLine], layout, config);
     }
     
-    // Event handlers for controls
+    // Event listeners for controls
     resetZoomBtn.addEventListener('click', () => {
-      if (globalData) {
-        drawBookmapStyle(globalData);
-      } else {
-        Plotly.relayout('heatmapPlot', {
-          'xaxis.autorange': true,
-          'yaxis.autorange': true
+      if (yRange) {
+        Plotly.relayout('chart', {
+          'yaxis.range': yRange,
+          'xaxis.autorange': true
         });
       }
     });
     
-    toggleColorScaleBtn.addEventListener('click', () => {
-      useAlternateColorScale = !useAlternateColorScale;
-      if (globalData) {
-        drawBookmapStyle(globalData);
-      }
-    });
+    refreshBtn.addEventListener('click', fetchData);
     
-    // Initial fetch and auto-refresh
+    // Initial fetch and auto-refresh timer
     fetchData();
-    const refreshInterval = setInterval(fetchData, 60000);
+    const refreshInterval = setInterval(fetchData, 60000);  // Refresh every minute
     
-    // Resize handler
+    // Handle window resize
     window.addEventListener('resize', () => {
-      Plotly.Plots.resize('heatmapPlot');
+      Plotly.Plots.resize('chart');
     });
   </script>
 </body>
