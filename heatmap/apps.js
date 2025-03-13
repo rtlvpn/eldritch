@@ -511,6 +511,7 @@ function updateStatistics() {
   document.getElementById('ob-spread-value').textContent = 
     metrics.spread.toFixed(5);
 }
+
 // Render the order book side panel
 function renderOrderBook() {
     if (!state.currentOrderBook) return;
@@ -752,11 +753,23 @@ function renderOrderBook() {
     // Create color scales
     const bidColorScale = d3.scaleSequential()
       .domain([0, maxBidVolume])
-      .interpolator(d3.interpolateBlues);
+      .interpolator(t => {
+        // Cyberpunk blue/cyan scale (dark to bright neon)
+        return t === 0 ? 'rgba(0, 24, 55, 0)' : d3.interpolateRgb(
+          'rgba(0, 24, 55, 0.9)', 
+          'rgba(0, 255, 240, 0.9)'
+        )(t);
+      });
     
     const askColorScale = d3.scaleSequential()
       .domain([0, maxAskVolume])
-      .interpolator(d3.interpolateReds);
+      .interpolator(t => {
+        // Cyberpunk magenta/purple scale (dark to bright neon)
+        return t === 0 ? 'rgba(55, 0, 55, 0)' : d3.interpolateRgb(
+          'rgba(55, 0, 55, 0.9)', 
+          'rgba(255, 0, 240, 0.9)'
+        )(t);
+      });
     
     // Render cells
     for (let timeIdx = 0; timeIdx < heatmapData.times.length; timeIdx++) {
