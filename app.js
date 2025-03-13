@@ -21,14 +21,14 @@ const https = require('https');
 // ----- Configuration -----
 const PORT = process.env.PORT || 3500;
 const SYMBOL = process.env.SYMBOL || 'TRXUSDT';
-const SNAPSHOT_INTERVAL_MS = 500; // 500ms (2x per second) for more granular data
+const SNAPSHOT_INTERVAL_MS = 1000; // 500ms (2x per second) for more granular data
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Hourly cleanup
-const RETENTION_DAYS = 7; // Keep 7 days of data for better historical analysis
+const RETENTION_DAYS = 1; // Keep 7 days of data for better historical analysis
 const MAX_LEVELS = 500; // Track more price levels for better depth visualization
 
 // Paths to the Certbot generated certificates
-const CERT_PATH = process.env.CERT_PATH || '/etc/letsencrypt/live/eldritch.gleeze.com/fullchain.pem';
-const PRIVKEY_PATH = process.env.PRIVKEY_PATH || '/etc/letsencrypt/live/eldritch.gleeze.com/privkey.pem';
+const CERT_PATH = process.env.CERT_PATH || '/etc/letsencrypt/live/heatmapeldritch.gleeze.com/fullchain.pem';
+const PRIVKEY_PATH = process.env.PRIVKEY_PATH || '/etc/letsencrypt/live/heatmapeldritch.gleeze.com/privkey.pem';
 
 // Load the certificate and private key files
 let credentials;
@@ -739,25 +739,52 @@ app.get('/', (req, res) => {
 async function start() {
   try {
     // First, populate the order book
+    console.log("Fetching initial order book...");
     await fetchInitialOrderBook();
     
     // Connect to Binance WebSocket for live updates
+    console.log("Connecting to Binance WebSocket...");
     connectWebSocket();
     
     // Schedule regular snapshots
+    console.log(`Setting up snapshot interval (${SNAPSHOT_INTERVAL_MS}ms)...`);
     setInterval(saveSnapshot, SNAPSHOT_INTERVAL_MS);
     
     // Clean up old data
+    console.log(`Setting up cleanup interval (${CLEANUP_INTERVAL_MS}ms)...`);
     setInterval(deleteOldSnapshots, CLEANUP_INTERVAL_MS);
     
     // Create HTTPS server
+    console.log("Starting HTTPS server...");
     const httpsServer = https.createServer(credentials, app);
     httpsServer.listen(PORT, () => {
       console.log(`HTTPS server listening on port ${PORT}`);
     });
+    
+    // Add unhandled rejection handler to prevent crashes
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      // Application continues running
+    });
+    
   } catch (err) {
     console.error("Error starting application:", err);
+    // Don't exit, try to keep the server running
+    console.log("Attempting to continue despite startup error...");
+    
+    // Still try to start the server
+    try {
+      const httpsServer = https.createServer(credentials, app);
+      httpsServer.listen(PORT, () => {
+        console.log(`HTTPS server listening on port ${PORT} (after error recovery)`);
+      });
+    } catch (serverErr) {
+      console.error("Critical error starting HTTPS server:", serverErr);
+    }
   }
 }
 
-start(); 
+// Start the application and handle any top-level errors
+start().catch(err => {
+  console.error("Fatal error in application startup:", err);
+}); 

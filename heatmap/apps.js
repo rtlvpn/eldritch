@@ -13,7 +13,7 @@
  */
 
 // API Endpoint - Change to your server URL
-const API_ENDPOINT = 'https://eldritch.gleeze.com:3500'; 
+const API_ENDPOINT = 'https://heatmapeldritch.gleeze.com:3500'; 
 
 // Global state
 const state = {
