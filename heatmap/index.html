@@ -44,11 +44,11 @@
                 const start = end - (60 * 60 * 1000);
                 
                 // Fetch heatmap data for TRXUSDT with default bucket size
-                const heatmapResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/heatmap?start=${start}&end=${end}`);
+                const heatmapResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/heatmap`);
                 const heatmapData = await heatmapResponse.json();
                 
                 // Fetch tick data
-                const ticksResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/ticks?start=${start}&end=${end}`);
+                const ticksResponse = await fetch(`https://eldritch.gleeze.com:3500/api/orderbook/ticks`);
                 const ticksData = await ticksResponse.json();
                 
                 console.log("Heatmap data:", heatmapData);
