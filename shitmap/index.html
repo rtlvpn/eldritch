@@ -92,11 +92,11 @@
         // Configuration
         const CONFIG = {
             apiBaseUrl: 'https://heatmapeldritch.gleeze.com:3500', // Replace with your backend URL
-            symbol: 'BTCUSDT',                               // Default symbol
+            symbol: 'TRXUSDT',                               // Changed from BTCUSDT to TRXUSDT
             timeframe: '1h',                                 // Default timeframe (1 hour)
             refreshInterval: 15000,                          // Auto refresh every 15 seconds
             priceRefreshInterval: 5000,                      // Fetch price every 5 seconds
-            bucketSize: 0.001,                               // Price bucket size (adjust based on asset)
+            bucketSize: 0.00001,                               // Smaller bucket size for lower-priced asset
             maxBuckets: 300,                                 // Maximum number of price buckets
             priceLineColor: '#FFFF00',                       // Yellow for price line
             priceLineWidth: 2,                               // Line thickness
