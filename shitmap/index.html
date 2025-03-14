@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orderbook Heatmap</title>
+    <title>Advanced Orderbook Heatmap</title>
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- D3.js for heatmap -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -11,7 +15,6 @@
             background-color: #000;
             color: #fff;
             font-family: Arial, sans-serif;
-            overflow: hidden;
         }
         .container {
             display: flex;
@@ -39,13 +42,24 @@
             position: relative;
             flex-grow: 1;
             border: 1px solid #333;
+            overflow: hidden;
         }
-        #heatmapCanvas {
+        #tvChart {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            z-index: 10;
+        }
+        #heatmapLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
         }
         .controls {
             display: flex;
@@ -69,17 +83,19 @@
             transform: translate(-50%, -50%);
             font-size: 18px;
             color: #888;
+            z-index: 20;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <div class="symbol" id="symbolDisplay">Loading...</div>
-            <div class="price" id="priceDisplay">---.--</div>
+            <div class="symbol" id="symbolDisplay">TRXUSDT</div>
+            <div class="price" id="priceDisplay">---.----</div>
         </div>
         <div class="chart-container">
-            <canvas id="heatmapCanvas"></canvas>
+            <div id="tvChart"></div>
+            <div id="heatmapLayer"></div>
             <div class="loading" id="loadingIndicator">Loading order book data...</div>
         </div>
         <div class="controls">
@@ -91,16 +107,42 @@
     <script>
         // Configuration
         const CONFIG = {
-            apiBaseUrl: 'https://heatmapeldritch.gleeze.com:3500', // Replace with your backend URL
-            symbol: 'TRXUSDT',                               // Changed from BTCUSDT to TRXUSDT
-            timeframe: '1h',                                 // Default timeframe (1 hour)
-            refreshInterval: 15000,                          // Auto refresh every 15 seconds
-            priceRefreshInterval: 5000,                      // Fetch price every 5 seconds
-            bucketSize: 0.00001,                               // Smaller bucket size for lower-priced asset
-            maxBuckets: 300,                                 // Maximum number of price buckets
-            priceLineColor: '#FFFF00',                       // Yellow for price line
-            priceLineWidth: 2,                               // Line thickness
-            maxPriceHistory: 60,                             // Store up to 60 price points (5 minutes at 5s interval)
+            apiBaseUrl: 'https://heatmapeldritch.gleeze.com', // Replace with your backend URL
+            symbol: 'TRXUSDT',
+            timeframe: '1h',
+            refreshInterval: 15000,
+            bucketSize: 0.00001,
+            maxBuckets: 300,
+            chartOptions: {
+                layout: {
+                    background: { color: 'rgba(0, 0, 0, 0.0)' }, // Transparent background
+                    textColor: '#d1d4dc',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                    horzLines: { color: 'rgba(42, 46, 57, 0.5)' },
+                },
+                timeScale: {
+                    borderColor: 'rgba(197, 203, 206, 0.8)',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(197, 203, 206, 0.8)',
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                handleScroll: true,
+                handleScale: true,
+            },
+            candlestickOptions: {
+                upColor: '#4AFA9A',
+                downColor: '#FA4A83',
+                borderVisible: false,
+                wickUpColor: '#4AFA9A',
+                wickDownColor: '#FA4A83',
+            },
             heatmapColors: {
                 bids: ['#002200', '#004400', '#006600', '#008800', '#00AA00', '#00FF00'],
                 asks: ['#220000', '#440000', '#660000', '#880000', '#AA0000', '#FF0000'],
@@ -108,34 +150,38 @@
             }
         };
 
-        // Canvas and context
-        const canvas = document.getElementById('heatmapCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        // UI elements
+        // State
+        let state = {
+            chart: null,
+            candleSeries: null,
+            heatmapData: null,
+            currentPrice: null,
+            lastUpdated: null,
+            heatmapSVG: null,
+            resizeObserver: null,
+        };
+
+        // Elements
         const symbolDisplay = document.getElementById('symbolDisplay');
         const priceDisplay = document.getElementById('priceDisplay');
         const loadingIndicator = document.getElementById('loadingIndicator');
         const refreshBtn = document.getElementById('refreshBtn');
         const lastUpdatedDisplay = document.getElementById('lastUpdated');
+        const chartContainer = document.getElementById('tvChart');
+        const heatmapContainer = document.getElementById('heatmapLayer');
 
-        // App state
-        let state = {
-            heatmapData: null,
-            priceHistory: [],  // Array of {timestamp, price} objects
-            currentPrice: null,
-            lastUpdated: null,
-            resizeTimer: null,
-            animationFrame: null
-        };
-
-        // Initialize
+        // Initialize app
         function init() {
             symbolDisplay.textContent = CONFIG.symbol;
             
-            // Set canvas size to match container
-            resizeCanvas();
-            window.addEventListener('resize', handleResize);
+            // Initialize TradingView chart
+            initChart();
+            
+            // Initialize D3 heatmap
+            initHeatmap();
+            
+            // Set up resize handling
+            setupResizeHandler();
             
             // Button events
             refreshBtn.addEventListener('click', fetchAllData);
@@ -144,53 +190,87 @@
             fetchAllData();
             
             // Set up auto refresh
-            setInterval(fetchHeatmapData, CONFIG.refreshInterval);
+            setInterval(fetchAllData, CONFIG.refreshInterval);
+        }
+
+        // Initialize TradingView Lightweight Chart
+        function initChart() {
+            state.chart = LightweightCharts.createChart(chartContainer, CONFIG.chartOptions);
             
-            // Setup regular price updates
-            fetchPrice();
-            setInterval(fetchPrice, CONFIG.priceRefreshInterval);
-        }
-
-        // Resize handler with debounce
-        function handleResize() {
-            clearTimeout(state.resizeTimer);
-            state.resizeTimer = setTimeout(() => {
-                resizeCanvas();
-                render();
-            }, 200);
-        }
-
-        // Set canvas dimensions
-        function resizeCanvas() {
-            const container = canvas.parentElement;
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
+            // Add candlestick series
+            state.candleSeries = state.chart.addCandlestickSeries(CONFIG.candlestickOptions);
             
-            // Cancel any pending animation frame and re-render
-            if (state.animationFrame) {
-                cancelAnimationFrame(state.animationFrame);
-            }
-            state.animationFrame = requestAnimationFrame(render);
+            // Set initial visible range (1 hour)
+            const now = new Date();
+            const oneHourAgo = new Date(now.getTime() - 3600 * 1000);
+            
+            state.chart.timeScale().setVisibleRange({
+                from: oneHourAgo.getTime() / 1000,
+                to: now.getTime() / 1000
+            });
         }
 
-        // Fetch all necessary data
+        // Initialize D3 heatmap
+        function initHeatmap() {
+            state.heatmapSVG = d3.select('#heatmapLayer')
+                .append('svg')
+                .attr('width', '100%')
+                .attr('height', '100%')
+                .style('position', 'absolute')
+                .style('top', 0)
+                .style('left', 0);
+        }
+
+        // Set up resize handler
+        function setupResizeHandler() {
+            // Use ResizeObserver to handle container size changes
+            state.resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    if (state.chart) {
+                        state.chart.resize(
+                            entry.contentRect.width, 
+                            entry.contentRect.height
+                        );
+                        
+                        // Redraw heatmap after resize
+                        if (state.heatmapData) {
+                            renderHeatmap();
+                        }
+                    }
+                }
+            });
+            
+            state.resizeObserver.observe(chartContainer);
+        }
+
+        // Fetch all data
         async function fetchAllData() {
             loadingIndicator.style.display = 'block';
             
             try {
-                // Fetch heatmap data
-                const heatmapData = await fetchHeatmapData();
+                // Fetch data in parallel
+                const [heatmapData, candleData] = await Promise.all([
+                    fetchHeatmapData(),
+                    fetchCandleData()
+                ]);
                 
+                // Update state
                 state.heatmapData = heatmapData;
                 state.lastUpdated = new Date();
                 
-                // Update UI
+                // Process and render heatmap
+                renderHeatmap();
+                
+                // Update candlestick chart
+                updateCandleChart(candleData);
+                
+                // Update UI elements
                 updateLastUpdatedDisplay();
                 
-                // Render the visualization
-                render();
-                
                 loadingIndicator.style.display = 'none';
+                
+                // Fetch current price separately
+                fetchCurrentPrice();
             } catch (error) {
                 console.error("Error fetching data:", error);
                 loadingIndicator.textContent = "Error loading data. Please try again.";
@@ -216,8 +296,33 @@
             return await response.json();
         }
 
+        // Fetch candle data from Binance
+        async function fetchCandleData() {
+            // Using Binance Kline/Candlestick API to get 1m candles for the last hour
+            const interval = '1m';
+            const limit = 60; // 60 candles = 1 hour
+            
+            const url = `https://api.binance.com/api/v3/klines?symbol=${CONFIG.symbol}&interval=${interval}&limit=${limit}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch candle data: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Format data for TradingView chart
+            return data.map(kline => ({
+                time: kline[0] / 1000, // Convert to seconds for TradingView
+                open: parseFloat(kline[1]),
+                high: parseFloat(kline[2]),
+                low: parseFloat(kline[3]),
+                close: parseFloat(kline[4])
+            }));
+        }
+
         // Fetch current price from Binance
-        async function fetchPrice() {
+        async function fetchCurrentPrice() {
             try {
                 const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${CONFIG.symbol}`);
                 
@@ -228,26 +333,11 @@
                 const data = await response.json();
                 const price = parseFloat(data.price);
                 
-                // Add to price history with timestamp
-                const timestamp = new Date();
-                state.priceHistory.push({
-                    timestamp,
-                    price
-                });
-                
-                // Limit history size
-                if (state.priceHistory.length > CONFIG.maxPriceHistory) {
-                    state.priceHistory.shift();
-                }
-                
-                // Update current price
+                // Update state
                 state.currentPrice = price;
                 
                 // Update UI
                 updatePriceDisplay();
-                
-                // Re-render
-                render();
                 
                 return price;
             } catch (error) {
@@ -256,121 +346,41 @@
             }
         }
 
-        // Update price display
-        function updatePriceDisplay() {
-            if (state.currentPrice) {
-                priceDisplay.textContent = state.currentPrice.toFixed(2);
+        // Update candle chart with new data
+        function updateCandleChart(candleData) {
+            if (state.candleSeries && candleData.length > 0) {
+                state.candleSeries.setData(candleData);
                 
-                // Color based on price movement (if we have history)
-                if (state.priceHistory.length >= 2) {
-                    const lastIdx = state.priceHistory.length - 1;
-                    const priceChange = state.priceHistory[lastIdx].price - state.priceHistory[lastIdx-1].price;
-                    priceDisplay.style.color = priceChange >= 0 ? '#4AFA9A' : '#FA4A83';
+                // Optionally update price marker
+                if (state.currentPrice) {
+                    state.chart.priceScale('right').applyOptions({
+                        autoScale: true
+                    });
                 }
             }
         }
 
-        // Update last updated timestamp
-        function updateLastUpdatedDisplay() {
-            if (state.lastUpdated) {
-                lastUpdatedDisplay.textContent = `Last updated: ${state.lastUpdated.toLocaleTimeString()}`;
-            }
-        }
-
-        // Main render function
-        function render() {
-            if (!state.heatmapData) return;
+        // Render heatmap using D3
+        function renderHeatmap() {
+            if (!state.heatmapData || !state.chart) return;
             
-            // Clear canvas
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Calculate dimensions and scales
-            const dimensions = calculateDimensions();
-            
-            // Render heatmap
-            renderHeatmap(dimensions);
-            
-            // Render price line (if we have price history)
-            if (state.priceHistory.length > 0) {
-                renderPriceLine(dimensions);
-            }
-            
-            // Render axes and grid
-            renderAxes(dimensions);
-        }
-
-        // Calculate dimensions and scales for rendering
-        function calculateDimensions() {
-            // Reserve space for axes
-            const margin = {
-                top: 10,
-                right: 70, // Space for price axis
-                bottom: 30, // Space for time axis
-                left: 10
-            };
-            
-            const chartWidth = canvas.width - margin.left - margin.right;
-            const chartHeight = canvas.height - margin.top - margin.bottom;
-            
-            // Get data bounds
-            const prices = state.heatmapData.prices;
-            const times = state.heatmapData.times.map(t => new Date(t));
-            
-            // Time scale (x-axis)
-            const timeScale = {
-                min: new Date(Math.min(...times)),
-                max: new Date(Math.max(...times)),
-                pixelToTime: function(x) {
-                    const percent = (x - margin.left) / chartWidth;
-                    const timeMs = this.min.getTime() + (this.max.getTime() - this.min.getTime()) * percent;
-                    return new Date(timeMs);
-                },
-                timeToPixel: function(time) {
-                    const percent = (time.getTime() - this.min.getTime()) / (this.max.getTime() - this.min.getTime());
-                    return margin.left + percent * chartWidth;
-                }
-            };
-            
-            // Price scale (y-axis)
-            // Use a slightly wider range than the data to provide context
-            const priceRange = Math.max(state.heatmapData.maxPrice - state.heatmapData.minPrice, 0.01);
-            const pricePadding = priceRange * 0.1;
-            
-            const priceScale = {
-                min: state.heatmapData.minPrice - pricePadding,
-                max: state.heatmapData.maxPrice + pricePadding,
-                pixelToPrice: function(y) {
-                    const percent = (canvas.height - margin.bottom - y) / chartHeight;
-                    return this.min + (this.max - this.min) * percent;
-                },
-                priceToPixel: function(price) {
-                    const percent = (price - this.min) / (this.max - this.min);
-                    return canvas.height - margin.bottom - percent * chartHeight;
-                }
-            };
-            
-            return {
-                margin,
-                chartWidth,
-                chartHeight,
-                timeScale,
-                priceScale
-            };
-        }
-
-        // Render the heatmap visualization
-        function renderHeatmap(dimensions) {
-            const { margin, chartWidth, chartHeight, timeScale, priceScale } = dimensions;
+            // Clear existing heatmap
+            state.heatmapSVG.selectAll('*').remove();
             
             const { times, prices, bidVolumes, askVolumes } = state.heatmapData;
+            
+            // Get chart dimensions and scales
+            const chartInfo = state.chart.timeScale().getVisibleLogicalRange();
+            if (!chartInfo) return; // Chart not ready yet
+            
+            // Get visible price range
+            const priceScale = state.chart.priceScale('right');
+            const priceRange = priceScale.getVisibleLogicalRange();
+            if (!priceRange) return; // Price scale not ready
             
             // Calculate cell dimensions
             const timeCount = times.length;
             const priceCount = prices.length;
-            
-            const cellWidth = chartWidth / timeCount;
-            const cellHeight = chartHeight / priceCount;
             
             // Find max volume for color scaling
             let maxBidVolume = 0;
@@ -391,14 +401,14 @@
             maxBidVolume = Math.log(maxBidVolume + 1);
             maxAskVolume = Math.log(maxAskVolume + 1);
             
-            // Draw heatmap cells
+            // Create heatmap cells
+            const heatmapCells = [];
+            
             for (let t = 0; t < timeCount; t++) {
-                const time = new Date(times[t]);
-                const x = timeScale.timeToPixel(time);
+                const time = new Date(times[t]).getTime() / 1000; // Convert to seconds for TV chart
                 
                 for (let p = 0; p < priceCount; p++) {
                     const price = prices[p];
-                    const y = priceScale.priceToPixel(price);
                     
                     // Get volumes (with safety checks)
                     const bidVol = bidVolumes[t] && bidVolumes[t][p] ? bidVolumes[t][p] : 0;
@@ -421,209 +431,69 @@
                         color = CONFIG.heatmapColors.neutral;
                     }
                     
-                    // Draw cell
-                    ctx.fillStyle = color;
-                    ctx.fillRect(x, y - cellHeight, cellWidth, cellHeight);
-                }
-            }
-        }
-
-        // Render price line (spline)
-        function renderPriceLine(dimensions) {
-            const { timeScale, priceScale } = dimensions;
-            
-            // Ensure we have at least 2 points to draw a line
-            if (state.priceHistory.length < 2) return;
-            
-            ctx.strokeStyle = CONFIG.priceLineColor;
-            ctx.lineWidth = CONFIG.priceLineWidth;
-            
-            // Begin the path
-            ctx.beginPath();
-            
-            // Move to the first point
-            const firstPoint = state.priceHistory[0];
-            const x0 = timeScale.timeToPixel(firstPoint.timestamp);
-            const y0 = priceScale.priceToPixel(firstPoint.price);
-            ctx.moveTo(x0, y0);
-            
-            // Method 2: Smooth curved spline (Catmull-Rom)
-            for (let i = 0; i < state.priceHistory.length - 1; i++) {
-                const p0 = i > 0 ? state.priceHistory[i-1] : state.priceHistory[i];
-                const p1 = state.priceHistory[i];
-                const p2 = state.priceHistory[i+1];
-                const p3 = i < state.priceHistory.length - 2 ? state.priceHistory[i+2] : p2;
-                
-                // Convert points to pixel coordinates
-                const x1 = timeScale.timeToPixel(p1.timestamp);
-                const y1 = priceScale.priceToPixel(p1.price);
-                const x2 = timeScale.timeToPixel(p2.timestamp);
-                const y2 = priceScale.priceToPixel(p2.price);
-                
-                // Number of segments between points (higher = smoother)
-                const segments = 16;
-                
-                // Draw curve segments
-                for (let t = 1; t <= segments; t++) {
-                    const tension = 0.5; // 0 = straight lines, 1 = very curved
-                    const t1 = t / segments;
-                    
-                    // Catmull-Rom spline calculation
-                    const x0 = timeScale.timeToPixel(p0.timestamp);
-                    const y0 = priceScale.priceToPixel(p0.price);
-                    const x3 = timeScale.timeToPixel(p3.timestamp);
-                    const y3 = priceScale.priceToPixel(p3.price);
-                    
-                    const t2 = t1 * t1;
-                    const t3 = t2 * t1;
-                    
-                    // Catmull-Rom spline calculations
-                    const xc = 0.5 * (
-                        2 * x1 + 
-                        (-x0 + x2) * t1 + 
-                        (2*x0 - 5*x1 + 4*x2 - x3) * t2 + 
-                        (-x0 + 3*x1 - 3*x2 + x3) * t3
-                    );
-                    
-                    const yc = 0.5 * (
-                        2 * y1 + 
-                        (-y0 + y2) * t1 + 
-                        (2*y0 - 5*y1 + 4*y2 - y3) * t2 + 
-                        (-y0 + 3*y1 - 3*y2 + y3) * t3
-                    );
-                    
-                    ctx.lineTo(xc, yc);
+                    heatmapCells.push({
+                        time,
+                        price,
+                        color
+                    });
                 }
             }
             
-            // Draw the path
-            ctx.stroke();
-            
-            // Draw points at each price update for emphasis
-            ctx.fillStyle = CONFIG.priceLineColor;
-            state.priceHistory.forEach(point => {
-                const x = timeScale.timeToPixel(point.timestamp);
-                const y = priceScale.priceToPixel(point.price);
-                ctx.beginPath();
-                ctx.arc(x, y, 2, 0, Math.PI * 2);
-                ctx.fill();
+            // Draw cells using D3 and TradingView coordinates
+            heatmapCells.forEach(cell => {
+                // Convert logical coordinates to pixel coordinates
+                const x = state.chart.timeScale().logicalToCoordinate(cell.time);
+                const y = priceScale.logicalToCoordinate(cell.price);
+                
+                // Skip if out of bounds
+                if (x === null || y === null) return;
+                
+                // Calculate cell size (approximate)
+                const nextTimeIndex = times.indexOf(times[times.findIndex(t => new Date(t).getTime() / 1000 === cell.time) + 1]);
+                const nextTime = nextTimeIndex !== -1 ? new Date(times[nextTimeIndex]).getTime() / 1000 : cell.time + 60;
+                const nextX = state.chart.timeScale().logicalToCoordinate(nextTime);
+                
+                const cellWidth = nextX !== null ? Math.abs(nextX - x) : 5;
+                
+                const nextPriceIndex = prices.indexOf(prices[prices.indexOf(cell.price) + 1]);
+                const nextPrice = nextPriceIndex !== -1 ? prices[nextPriceIndex] : cell.price * 1.0001;
+                const nextY = priceScale.logicalToCoordinate(nextPrice);
+                
+                const cellHeight = nextY !== null ? Math.abs(y - nextY) : 5;
+                
+                // Draw cell rectangle
+                state.heatmapSVG.append('rect')
+                    .attr('x', x)
+                    .attr('y', y - cellHeight)
+                    .attr('width', cellWidth)
+                    .attr('height', cellHeight)
+                    .attr('fill', cell.color)
+                    .attr('opacity', 0.8); // Slight transparency to see candles better
             });
         }
 
-        // Render axes and grid
-        function renderAxes(dimensions) {
-            const { margin, chartWidth, chartHeight, timeScale, priceScale } = dimensions;
-            
-            // Draw axes
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            
-            // Bottom axis (time)
-            ctx.beginPath();
-            ctx.moveTo(margin.left, canvas.height - margin.bottom);
-            ctx.lineTo(margin.left + chartWidth, canvas.height - margin.bottom);
-            ctx.stroke();
-            
-            // Right axis (price)
-            ctx.beginPath();
-            ctx.moveTo(canvas.width - margin.right, margin.top);
-            ctx.lineTo(canvas.width - margin.right, canvas.height - margin.bottom);
-            ctx.stroke();
-            
-            // Time labels
-            ctx.fillStyle = '#888';
-            ctx.font = '10px Arial';
-            ctx.textAlign = 'center';
-            
-            // Draw time ticks every 15 minutes
-            const startTime = new Date(timeScale.min);
-            const endTime = new Date(timeScale.max);
-            
-            for (let time = new Date(startTime); time <= endTime; time = new Date(time.getTime() + 15 * 60 * 1000)) {
-                const x = timeScale.timeToPixel(time);
-                
-                // Only draw if within chart area
-                if (x >= margin.left && x <= canvas.width - margin.right) {
-                    // Draw tick
-                    ctx.beginPath();
-                    ctx.moveTo(x, canvas.height - margin.bottom);
-                    ctx.lineTo(x, canvas.height - margin.bottom + 5);
-                    ctx.stroke();
-                    
-                    // Draw label
-                    ctx.fillText(
-                        time.getHours().toString().padStart(2, '0') + ':' + 
-                        time.getMinutes().toString().padStart(2, '0'),
-                        x, 
-                        canvas.height - margin.bottom + 15
-                    );
-                }
-            }
-            
-            // Price labels and grid lines
-            ctx.textAlign = 'left';
-            
-            // Calculate appropriate price step based on range
-            const priceRange = priceScale.max - priceScale.min;
-            let priceStep;
-            
-            if (priceRange > 1000) priceStep = 200;
-            else if (priceRange > 500) priceStep = 100;
-            else if (priceRange > 200) priceStep = 50;
-            else if (priceRange > 100) priceStep = 20;
-            else if (priceRange > 50) priceStep = 10;
-            else if (priceRange > 20) priceStep = 5;
-            else if (priceRange > 10) priceStep = 2;
-            else if (priceRange > 5) priceStep = 1;
-            else if (priceRange > 2) priceStep = 0.5;
-            else if (priceRange > 1) priceStep = 0.2;
-            else priceStep = 0.1;
-            
-            // Draw price grid lines and labels
-            const startPrice = Math.ceil(priceScale.min / priceStep) * priceStep;
-            
-            for (let price = startPrice; price <= priceScale.max; price += priceStep) {
-                const y = priceScale.priceToPixel(price);
-                
-                // Draw grid line
-                ctx.strokeStyle = '#333';
-                ctx.beginPath();
-                ctx.moveTo(margin.left, y);
-                ctx.lineTo(canvas.width - margin.right, y);
-                ctx.stroke();
-                
-                // Draw price label
-                ctx.fillStyle = '#888';
-                ctx.fillText(
-                    price.toFixed(price < 1 ? 2 : 0), 
-                    canvas.width - margin.right + 5, 
-                    y + 4
-                );
-            }
-            
-            // Draw current price indicator line
+        // Update price display
+        function updatePriceDisplay() {
             if (state.currentPrice) {
-                const y = priceScale.priceToPixel(state.currentPrice);
+                // Format price based on value (more decimals for lower priced assets)
+                const decimals = state.currentPrice < 1 ? 4 : (state.currentPrice < 10 ? 3 : 2);
+                priceDisplay.textContent = state.currentPrice.toFixed(decimals);
                 
-                ctx.strokeStyle = '#aaa';
-                ctx.setLineDash([2, 2]);
-                ctx.beginPath();
-                ctx.moveTo(margin.left, y);
-                ctx.lineTo(canvas.width - margin.right, y);
-                ctx.stroke();
-                ctx.setLineDash([]);
+                // Color based on price movement (if we have previous price in state)
+                if (state.previousPrice) {
+                    const priceChange = state.currentPrice - state.previousPrice;
+                    priceDisplay.style.color = priceChange >= 0 ? '#4AFA9A' : '#FA4A83';
+                }
                 
-                // Draw current price label with background
-                const priceText = state.currentPrice.toFixed(2);
-                const textWidth = ctx.measureText(priceText).width + 10;
-                
-                // Background
-                ctx.fillStyle = '#002';
-                ctx.fillRect(canvas.width - margin.right + 5, y - 10, textWidth, 20);
-                
-                // Text
-                ctx.fillStyle = '#4AFA9A';
-                ctx.fillText(priceText, canvas.width - margin.right + 10, y + 4);
+                // Store current price for next comparison
+                state.previousPrice = state.currentPrice;
+            }
+        }
+
+        // Update last updated timestamp
+        function updateLastUpdatedDisplay() {
+            if (state.lastUpdated) {
+                lastUpdatedDisplay.textContent = `Last updated: ${state.lastUpdated.toLocaleTimeString()}`;
             }
         }
 
