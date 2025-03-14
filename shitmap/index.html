@@ -4,97 +4,311 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TRXUSDT Orderbook Heatmap</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
-    <script src="https://cdn.jsdelivr.net/npm/moment"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment"></script>
-    <script src="https://cdn.jsdelivr.net/npm/d3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.1.1/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
     <style>
+        :root {
+            --bg-color: #121212;
+            --text-color: #e0e0e0;
+            --header-color: #ffc107;
+            --btn-color: #2c2c2c;
+            --btn-hover: #3c3c3c;
+            --chart-grid: #333;
+            --chart-border: #555;
+        }
+        
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
-            padding: 20px;
-            background-color: #121212;
-            color: #e0e0e0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
         }
+        
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
+            padding: 20px;
         }
-        .chart-container {
-            position: relative;
-            height: 70vh;
-            width: 100%;
+        
+        header {
             margin-bottom: 20px;
+            border-bottom: 1px solid var(--chart-border);
+            padding-bottom: 10px;
         }
+        
+        h1 {
+            color: var(--header-color);
+            margin: 0;
+            font-size: 2rem;
+        }
+        
         .controls {
-            margin-bottom: 20px;
             display: flex;
-            gap: 10px;
+            gap: 15px;
+            margin-bottom: 20px;
             align-items: center;
+            flex-wrap: wrap;
         }
-        button, select {
-            background-color: #333;
-            color: white;
-            border: none;
-            padding: 8px 16px;
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        label {
+            font-weight: 500;
+        }
+        
+        select, button {
+            background-color: var(--btn-color);
+            color: var(--text-color);
+            border: 1px solid var(--chart-border);
+            padding: 8px 15px;
             border-radius: 4px;
+            font-size: 0.9rem;
             cursor: pointer;
+            transition: background-color 0.2s;
         }
-        button:hover, select:hover {
-            background-color: #444;
+        
+        select:hover, button:hover {
+            background-color: var(--btn-hover);
         }
-        #heatmapCanvas {
+        
+        button {
+            font-weight: 500;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 75vh;
+            margin-bottom: 20px;
+            border: 1px solid var(--chart-border);
+            border-radius: 4px;
+        }
+        
+        .loading-overlay {
             position: absolute;
             top: 0;
             left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            border-radius: 4px;
+        }
+        
+        .loading-spinner {
+            border: 5px solid #333;
+            border-top: 5px solid var(--header-color);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 100%;
+            width: 100%;
+        }
+        
+        #priceChart {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #heatmapOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             pointer-events: none;
+        }
+        
+        .status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #999;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9rem;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 10px;
+            border-radius: 2px;
+        }
+        
+        .legend-buy {
+            background-color: rgba(0, 255, 0, 0.3);
+        }
+        
+        .legend-sell {
+            background-color: rgba(255, 0, 0, 0.3);
+        }
+        
+        .legend-liquidity {
+            background-color: yellow;
+            height: 2px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>TRXUSDT Orderbook Heatmap</h1>
+        <header>
+            <h1>TRXUSDT Orderbook Heatmap</h1>
+        </header>
         
         <div class="controls">
-            <label for="timeRange">Time Range:</label>
-            <select id="timeRange">
-                <option value="3600">Last Hour</option>
-                <option value="14400">Last 4 Hours</option>
-                <option value="86400">Last 24 Hours</option>
-            </select>
+            <div class="control-group">
+                <label for="timeRange">Time Range:</label>
+                <select id="timeRange">
+                    <option value="3600">Last Hour</option>
+                    <option value="7200">Last 2 Hours</option>
+                    <option value="14400">Last 4 Hours</option>
+                    <option value="43200">Last 12 Hours</option>
+                    <option value="86400">Last 24 Hours</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="intervalSelect">Interval:</label>
+                <select id="intervalSelect">
+                    <option value="60">1 Minute</option>
+                    <option value="300">5 Minutes</option>
+                    <option value="900">15 Minutes</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="heatmapIntensity">Heatmap Intensity:</label>
+                <select id="heatmapIntensity">
+                    <option value="0.5">50%</option>
+                    <option value="0.7" selected>70%</option>
+                    <option value="1">100%</option>
+                </select>
+            </div>
             
             <button id="refreshBtn">Refresh Data</button>
         </div>
         
-        <div class="chart-container">
-            <canvas id="priceChart"></canvas>
-            <canvas id="heatmapCanvas"></canvas>
+        <div class="chart-wrapper">
+            <div id="loadingOverlay" class="loading-overlay">
+                <div class="loading-spinner"></div>
+            </div>
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+                <canvas id="heatmapOverlay"></canvas>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color legend-buy"></div>
+                <span>Buy Orders</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color legend-sell"></div>
+                <span>Sell Orders</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color legend-liquidity"></div>
+                <span>Liquidity Levels</span>
+            </div>
+        </div>
+        
+        <div class="status" id="statusText">
+            Ready - Waiting for data...
         </div>
     </div>
 
     <script>
+    (function() {
         // Chart instances
         let priceChart = null;
         
-        // Get DOM elements
+        // DOM Elements
         const timeRangeSelect = document.getElementById('timeRange');
+        const intervalSelect = document.getElementById('intervalSelect');
+        const heatmapIntensitySelect = document.getElementById('heatmapIntensity');
         const refreshBtn = document.getElementById('refreshBtn');
+        const statusText = document.getElementById('statusText');
+        const loadingOverlay = document.getElementById('loadingOverlay');
         const priceChartCanvas = document.getElementById('priceChart');
-        const heatmapCanvas = document.getElementById('heatmapCanvas');
+        const heatmapOverlay = document.getElementById('heatmapOverlay');
         
-        // Resize heatmap canvas to match price chart
-        function resizeHeatmapCanvas() {
-            const chartRect = priceChartCanvas.getBoundingClientRect();
-            heatmapCanvas.width = chartRect.width;
-            heatmapCanvas.height = chartRect.height;
-            heatmapCanvas.style.width = `${chartRect.width}px`;
-            heatmapCanvas.style.height = `${chartRect.height}px`;
+        // Helper functions
+        function formatDate(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleString();
         }
         
-        // Initialize the chart
+        function showLoading() {
+            loadingOverlay.style.display = 'flex';
+        }
+        
+        function hideLoading() {
+            loadingOverlay.style.display = 'none';
+        }
+        
+        function updateStatus(message) {
+            statusText.textContent = message;
+        }
+        
+        function resizeOverlay() {
+            const chartRect = priceChartCanvas.getBoundingClientRect();
+            heatmapOverlay.width = chartRect.width;
+            heatmapOverlay.height = chartRect.height;
+            heatmapOverlay.style.width = `${chartRect.width}px`;
+            heatmapOverlay.style.height = `${chartRect.height}px`;
+            
+            // If we have data, redraw the heatmap when resizing
+            if (window.lastHeatmapData) {
+                drawHeatmap(window.lastHeatmapData);
+            }
+        }
+        
+        // Initialize the candlestick chart
         function initChart() {
+            if (priceChart) {
+                priceChart.destroy();
+            }
+            
             const ctx = priceChartCanvas.getContext('2d');
+            
+            // Register financial chart type if not registered already
+            if (!Chart.controllers.candlestick) {
+                window.CandlestickController.register();
+            }
             
             priceChart = new Chart(ctx, {
                 type: 'candlestick',
@@ -107,39 +321,195 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    animation: false,
                     scales: {
                         x: {
                             type: 'time',
                             time: {
-                                unit: 'minute'
+                                unit: 'minute',
+                                displayFormats: {
+                                    minute: 'HH:mm'
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(80, 80, 80, 0.2)',
+                                borderColor: 'rgba(80, 80, 80, 0.4)'
+                            },
+                            ticks: {
+                                color: '#aaa'
                             }
                         },
                         y: {
                             position: 'right',
-                            title: {
-                                display: true,
-                                text: 'Price (USDT)'
+                            grid: {
+                                color: 'rgba(80, 80, 80, 0.2)',
+                                borderColor: 'rgba(80, 80, 80, 0.4)'
+                            },
+                            ticks: {
+                                color: '#aaa'
                             }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const point = context.raw;
+                                    return [
+                                        `Open: ${point.o}`,
+                                        `High: ${point.h}`,
+                                        `Low: ${point.l}`,
+                                        `Close: ${point.c}`
+                                    ];
+                                }
+                            }
+                        },
+                        legend: {
+                            display: false
                         }
                     }
                 }
             });
         }
         
+        // Draw the heatmap overlay
+        function drawHeatmap(data) {
+            // Store the data for resize events
+            window.lastHeatmapData = data;
+            
+            // Make sure overlay is properly sized
+            resizeOverlay();
+            
+            const ctx = heatmapOverlay.getContext('2d');
+            ctx.clearRect(0, 0, heatmapOverlay.width, heatmapOverlay.height);
+            
+            if (!data.timestamps || !data.timestamps.length || !data.priceLevels || !data.priceLevels.length) {
+                updateStatus('No heatmap data available for this time range');
+                return;
+            }
+            
+            // Get chart scales
+            const xScale = priceChart.scales.x;
+            const yScale = priceChart.scales.y;
+            
+            // Set global alpha based on intensity selection
+            const intensity = parseFloat(heatmapIntensitySelect.value);
+            
+            // Find max volume for normalization
+            let maxVolume = 0;
+            for (const point of data.heatmap) {
+                for (const volume of point.volumes) {
+                    maxVolume = Math.max(maxVolume, Math.abs(volume));
+                }
+            }
+            
+            // Create buy/sell gradients
+            const buyGradient = ctx.createLinearGradient(0, 0, 0, heatmapOverlay.height);
+            buyGradient.addColorStop(0, 'rgba(0, 255, 0, 0)');
+            buyGradient.addColorStop(1, `rgba(0, 255, 0, ${intensity})`);
+            
+            const sellGradient = ctx.createLinearGradient(0, 0, 0, heatmapOverlay.height);
+            sellGradient.addColorStop(0, `rgba(255, 0, 0, ${intensity})`);
+            sellGradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+            
+            // Draw heatmap for each timestamp
+            for (let i = 0; i < data.timestamps.length; i++) {
+                const timestamp = data.timestamps[i];
+                const volumes = data.heatmap[i].volumes;
+                
+                // Calculate x position
+                const x = xScale.getPixelForValue(timestamp * 1000); // Convert to milliseconds
+                const cellWidth = xScale.width / data.timestamps.length;
+                
+                // Draw volumes at each price level
+                for (let j = 0; j < volumes.length; j++) {
+                    const volume = volumes[j];
+                    if (Math.abs(volume) < maxVolume * 0.02) continue; // Skip very small volumes
+                    
+                    const priceLevel = data.priceLevels[j];
+                    const y = yScale.getPixelForValue(priceLevel);
+                    
+                    // Different color based on buy/sell side
+                    if (volume > 0) {
+                        ctx.fillStyle = buyGradient;
+                    } else {
+                        ctx.fillStyle = sellGradient;
+                    }
+                    
+                    // Calculate height based on volume
+                    const heightFactor = Math.min(Math.abs(volume) / maxVolume, 1) * intensity;
+                    const cellHeight = Math.max(2, heightFactor * 20); // At least 2px height
+                    
+                    // Draw rectangle
+                    ctx.fillRect(
+                        x - cellWidth/2, 
+                        y - cellHeight/2, 
+                        cellWidth, 
+                        cellHeight
+                    );
+                }
+            }
+            
+            // Draw horizontal liquidity lines (yellow)
+            ctx.strokeStyle = 'yellow';
+            ctx.lineWidth = 1.5;
+            
+            // Aggregate volumes across all timestamps for each price level
+            const aggregatedVolumes = new Array(data.priceLevels.length).fill(0);
+            
+            for (const point of data.heatmap) {
+                point.volumes.forEach((volume, i) => {
+                    aggregatedVolumes[i] += Math.abs(volume);
+                });
+            }
+            
+            // Find high volume price levels (top 15%)
+            const sortedVolumes = [...aggregatedVolumes].sort((a, b) => b - a);
+            const threshold = sortedVolumes[Math.floor(sortedVolumes.length * 0.15)] || 0;
+            
+            // Draw horizontal lines at significant liquidity levels
+            for (let i = 0; i < aggregatedVolumes.length; i++) {
+                if (aggregatedVolumes[i] >= threshold) {
+                    const priceLevel = data.priceLevels[i];
+                    const y = yScale.getPixelForValue(priceLevel);
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(xScale.left, y);
+                    ctx.lineTo(xScale.right, y);
+                    ctx.stroke();
+                }
+            }
+            
+            updateStatus(`Heatmap updated - Showing data from ${formatDate(data.timestamps[0])} to ${formatDate(data.timestamps[data.timestamps.length-1])}`);
+        }
+        
         // Fetch and update data
         async function updateData() {
+            showLoading();
+            updateStatus('Fetching data...');
+            
             const timeRange = parseInt(timeRangeSelect.value);
+            const interval = parseInt(intervalSelect.value);
             const endTime = Math.floor(Date.now() / 1000);
             const startTime = endTime - timeRange;
             
             try {
                 // Fetch candlestick data
-                const candleResponse = await fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}`);
+                const candleResponse = await fetch(`/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=${interval}`);
+                if (!candleResponse.ok) {
+                    throw new Error(`HTTP error: ${candleResponse.status}`);
+                }
                 const candleData = await candleResponse.json();
                 
-                // Format data for chart.js
+                if (!candleData || candleData.length === 0) {
+                    updateStatus('No candlestick data available for this time range');
+                    hideLoading();
+                    return;
+                }
+                
+                // Format candlestick data
                 const formattedCandles = candleData.map(candle => ({
-                    x: new Date(candle.timestamp),
+                    x: new Date(candle.timestamp), // timestamp is in milliseconds
                     o: candle.open,
                     h: candle.high,
                     l: candle.low,
@@ -151,116 +521,45 @@
                 priceChart.update();
                 
                 // Fetch heatmap data
-                const heatmapResponse = await fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}`);
+                const heatmapResponse = await fetch(`/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=200`);
+                if (!heatmapResponse.ok) {
+                    throw new Error(`HTTP error: ${heatmapResponse.status}`);
+                }
                 const heatmapData = await heatmapResponse.json();
                 
-                // Draw heatmap overlay
+                // Draw the heatmap
                 drawHeatmap(heatmapData);
                 
+                updateStatus(`Data updated successfully - ${formattedCandles.length} candles loaded`);
             } catch (error) {
                 console.error('Error fetching data:', error);
+                updateStatus(`Error: ${error.message}`);
+            } finally {
+                hideLoading();
             }
-        }
-        
-        // Draw the heatmap overlay
-        function drawHeatmap(data) {
-            resizeHeatmapCanvas();
-            
-            const ctx = heatmapCanvas.getContext('2d');
-            ctx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
-            
-            if (!data.timestamps.length || !data.priceLevels.length) {
-                return;
-            }
-            
-            // Create a heatmap color scale
-            const colorScale = d3.scaleSequential(d3.interpolateViridis)
-                .domain([-1, 1]); // -1 = sell, 1 = buy
-            
-            // Get chart scales
-            const xScale = priceChart.scales.x;
-            const yScale = priceChart.scales.y;
-            
-            // Cell dimensions
-            const cellWidth = xScale.width / data.timestamps.length;
-            const cellHeight = yScale.height / data.priceLevels.length;
-            
-            // Get min/max volume for normalization
-            let maxVolume = 0;
-            for (const point of data.heatmap) {
-                for (const volume of point.volumes) {
-                    maxVolume = Math.max(maxVolume, Math.abs(volume));
-                }
-            }
-            
-            // Draw heatmap cells
-            data.heatmap.forEach((point, timeIndex) => {
-                const x = xScale.left + timeIndex * cellWidth;
-                
-                point.volumes.forEach((volume, priceIndex) => {
-                    if (volume === 0) return; // Skip empty cells
-                    
-                    const priceLevel = data.priceLevels[priceIndex];
-                    const y = yScale.getPixelForValue(priceLevel) - cellHeight/2;
-                    
-                    // Normalize volume for color intensity (-1 to 1)
-                    const intensity = (volume / maxVolume) * (volume > 0 ? 1 : -1);
-                    
-                    // Set color based on side (buy/sell)
-                    ctx.fillStyle = colorScale(intensity);
-                    
-                    // Draw rectangle
-                    ctx.fillRect(x, y, cellWidth, cellHeight);
-                });
-            });
-            
-            // Add yellow lines for high volume areas
-            ctx.strokeStyle = 'yellow';
-            ctx.lineWidth = 1;
-            
-            // Find high volume price levels
-            const aggregatedVolumes = new Array(data.priceLevels.length).fill(0);
-            
-            // Sum volumes across all timestamps
-            data.heatmap.forEach(point => {
-                point.volumes.forEach((volume, i) => {
-                    aggregatedVolumes[i] += Math.abs(volume);
-                });
-            });
-            
-            // Find top 20% of volume concentrations
-            const sortedVolumes = [...aggregatedVolumes].sort((a, b) => b - a);
-            const threshold = sortedVolumes[Math.floor(sortedVolumes.length * 0.2)];
-            
-            // Draw lines at high volume price levels
-            aggregatedVolumes.forEach((volume, i) => {
-                if (volume >= threshold) {
-                    const y = yScale.getPixelForValue(data.priceLevels[i]);
-                    ctx.beginPath();
-                    ctx.moveTo(xScale.left, y);
-                    ctx.lineTo(xScale.right, y);
-                    ctx.stroke();
-                }
-            });
         }
         
         // Event listeners
         refreshBtn.addEventListener('click', updateData);
         timeRangeSelect.addEventListener('change', updateData);
+        intervalSelect.addEventListener('change', updateData);
+        heatmapIntensitySelect.addEventListener('change', () => {
+            if (window.lastHeatmapData) {
+                drawHeatmap(window.lastHeatmapData);
+            }
+        });
+        
+        window.addEventListener('resize', resizeOverlay);
         
         // Initialize
-        window.addEventListener('load', () => {
+        function init() {
             initChart();
             updateData();
-            
-            // Handle window resize
-            window.addEventListener('resize', () => {
-                resizeHeatmapCanvas();
-                if (priceChart) {
-                    priceChart.resize();
-                }
-            });
-        });
+        }
+        
+        // Start app
+        document.addEventListener('DOMContentLoaded', init);
+    })();
     </script>
 </body>
-</html>
+</html> 
