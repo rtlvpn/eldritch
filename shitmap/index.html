@@ -67,6 +67,12 @@
                 <option value="200">200</option>
             </select>
             
+            <label for="minPrice">Min Price:</label>
+            <input type="number" id="minPrice" step="0.0001" value="0" style="width: 80px;">
+            
+            <label for="maxPrice">Max Price:</label>
+            <input type="number" id="maxPrice" step="0.0001" value="0" style="width: 80px;" placeholder="Auto">
+            
             <button id="refreshBtn">Refresh Data</button>
         </div>
         
@@ -125,9 +131,31 @@
                     return;
                 }
                 
+                // Get user-defined price range values
+                const userMinPrice = parseFloat(document.getElementById('minPrice').value);
+                const userMaxPrice = parseFloat(document.getElementById('maxPrice').value);
+                
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
                 const prices = candlestickData.map(item => item.close);
+                
+                // Auto-set max price if user hasn't specified one
+                if (userMaxPrice <= 0 || isNaN(userMaxPrice)) {
+                    // Find maximum price in data and add some buffer
+                    const dataMaxPrice = Math.max(...prices) * 1.05;
+                    document.getElementById('maxPrice').value = dataMaxPrice.toFixed(4);
+                }
+                
+                // For initial load, set sensible default values based on the data
+                if (userMinPrice <= 0 || isNaN(userMinPrice)) {
+                    // Find minimum price in data and subtract some buffer
+                    const dataMinPrice = Math.max(0, Math.min(...prices) * 0.95);
+                    document.getElementById('minPrice').value = dataMinPrice.toFixed(4);
+                }
+                
+                // Get the final min/max values to use
+                const minPrice = parseFloat(document.getElementById('minPrice').value);
+                const maxPrice = parseFloat(document.getElementById('maxPrice').value);
                 
                 // Prepare heatmap data
                 const heatmapZ = [];
@@ -191,7 +219,8 @@
                     yaxis: {
                         title: 'Price Level',
                         side: 'left',
-                        autorange: true,
+                        range: [minPrice, maxPrice], // Set fixed range for price levels
+                        autorange: false, // Turn off autorange
                         showgrid: true,
                         zeroline: false
                     },
@@ -199,6 +228,8 @@
                         title: 'Price (USDT)',
                         side: 'right',
                         overlaying: 'y',
+                        range: [minPrice, maxPrice], // Match the price axis range
+                        autorange: false,
                         showgrid: false,
                         zeroline: false
                     },
