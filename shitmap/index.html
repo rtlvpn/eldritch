@@ -376,23 +376,18 @@
         }
         
         // Draw the heatmap overlay
-        function drawHeatmap(data, isResize = false) {
-            // Prevent recursive calls
-            if (isDrawingHeatmap) return;
-            
-            isDrawingHeatmap = true;
-            
+        function drawHeatmap(data) {
             // Store the data for resize events
             window.lastHeatmapData = data;
             
-            // Make sure overlay is properly sized, but only if not already resizing
-            if (!isResize) {
-                const chartRect = priceChartCanvas.getBoundingClientRect();
-                heatmapOverlay.width = chartRect.width;
-                heatmapOverlay.height = chartRect.height;
-                heatmapOverlay.style.width = `${chartRect.width}px`;
-                heatmapOverlay.style.height = `${chartRect.height}px`;
-            }
+            // Prevent recursive calls
+            if (isDrawingHeatmap) return;
+            isDrawingHeatmap = true;
+            
+            // Make sure overlay is properly sized
+            const chartRect = priceChartCanvas.getBoundingClientRect();
+            heatmapOverlay.width = chartRect.width;
+            heatmapOverlay.height = chartRect.height;
             
             const ctx = heatmapOverlay.getContext('2d');
             ctx.clearRect(0, 0, heatmapOverlay.width, heatmapOverlay.height);
@@ -411,10 +406,17 @@
             const intensity = parseFloat(heatmapIntensitySelect.value);
             
             // Find max volume for normalization
-            let maxVolume = 0;
-            for (const point of data.heatmap) {
-                for (const volume of point.volumes) {
-                    maxVolume = Math.max(maxVolume, Math.abs(volume));
+            let maxBuyVolume = 0;
+            let maxSellVolume = 0;
+            
+            if (data.enhancedHeatmap) {
+                for (const point of data.enhancedHeatmap) {
+                    for (const volume of point.buyVolumes) {
+                        maxBuyVolume = Math.max(maxBuyVolume, volume);
+                    }
+                    for (const volume of point.sellVolumes) {
+                        maxSellVolume = Math.max(maxSellVolume, volume);
+                    }
                 }
             }
             
@@ -428,40 +430,59 @@
             sellGradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
             
             // Draw heatmap for each timestamp
-            for (let i = 0; i < data.timestamps.length; i++) {
-                const timestamp = data.timestamps[i];
-                const volumes = data.heatmap[i].volumes;
-                
-                // Calculate x position
-                const x = xScale.getPixelForValue(timestamp * 1000); // Convert to milliseconds
-                const cellWidth = xScale.width / data.timestamps.length;
-                
-                // Draw volumes at each price level
-                for (let j = 0; j < volumes.length; j++) {
-                    const volume = volumes[j];
-                    if (Math.abs(volume) < maxVolume * 0.02) continue; // Skip very small volumes
+            if (data.enhancedHeatmap) {
+                for (let i = 0; i < data.timestamps.length; i++) {
+                    const timestamp = data.timestamps[i];
+                    const buyVolumes = data.enhancedHeatmap[i].buyVolumes;
+                    const sellVolumes = data.enhancedHeatmap[i].sellVolumes;
                     
-                    const priceLevel = data.priceLevels[j];
-                    const y = yScale.getPixelForValue(priceLevel);
+                    // Calculate x position
+                    const x = xScale.getPixelForValue(timestamp * 1000); // Convert to milliseconds
+                    const cellWidth = Math.max(2, xScale.width / data.timestamps.length);
                     
-                    // Different color based on buy/sell side
-                    if (volume > 0) {
+                    // Draw buy volumes (green)
+                    for (let j = 0; j < buyVolumes.length; j++) {
+                        const volume = buyVolumes[j];
+                        if (volume < maxBuyVolume * 0.01) continue; // Skip very small volumes
+                        
+                        const priceLevel = data.priceLevels[j];
+                        const y = yScale.getPixelForValue(priceLevel);
+                        
+                        // Calculate height based on volume
+                        const heightFactor = Math.min(volume / maxBuyVolume, 1) * intensity;
+                        const cellHeight = Math.max(2, heightFactor * 20); // At least 2px height
+                        
+                        // Draw buy rectangle
                         ctx.fillStyle = buyGradient;
-                    } else {
-                        ctx.fillStyle = sellGradient;
+                        ctx.fillRect(
+                            x - cellWidth/2, 
+                            y - cellHeight/2, 
+                            cellWidth, 
+                            cellHeight
+                        );
                     }
                     
-                    // Calculate height based on volume
-                    const heightFactor = Math.min(Math.abs(volume) / maxVolume, 1) * intensity;
-                    const cellHeight = Math.max(2, heightFactor * 20); // At least 2px height
-                    
-                    // Draw rectangle
-                    ctx.fillRect(
-                        x - cellWidth/2, 
-                        y - cellHeight/2, 
-                        cellWidth, 
-                        cellHeight
-                    );
+                    // Draw sell volumes (red)
+                    for (let j = 0; j < sellVolumes.length; j++) {
+                        const volume = sellVolumes[j];
+                        if (volume < maxSellVolume * 0.01) continue; // Skip very small volumes
+                        
+                        const priceLevel = data.priceLevels[j];
+                        const y = yScale.getPixelForValue(priceLevel);
+                        
+                        // Calculate height based on volume
+                        const heightFactor = Math.min(volume / maxSellVolume, 1) * intensity;
+                        const cellHeight = Math.max(2, heightFactor * 20); // At least 2px height
+                        
+                        // Draw sell rectangle
+                        ctx.fillStyle = sellGradient;
+                        ctx.fillRect(
+                            x - cellWidth/2, 
+                            y - cellHeight/2, 
+                            cellWidth, 
+                            cellHeight
+                        );
+                    }
                 }
             }
             
