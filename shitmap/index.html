@@ -266,6 +266,9 @@
         const priceChartCanvas = document.getElementById('priceChart');
         const heatmapOverlay = document.getElementById('heatmapOverlay');
         
+        // Flag to prevent recursive loops
+        let isDrawingHeatmap = false;
+        
         // Helper functions
         function formatDate(timestamp) {
             const date = new Date(timestamp * 1000);
@@ -291,9 +294,9 @@
             heatmapOverlay.style.width = `${chartRect.width}px`;
             heatmapOverlay.style.height = `${chartRect.height}px`;
             
-            // If we have data, redraw the heatmap when resizing
-            if (window.lastHeatmapData) {
-                drawHeatmap(window.lastHeatmapData);
+            // If we have data and not already drawing, redraw the heatmap
+            if (window.lastHeatmapData && !isDrawingHeatmap) {
+                drawHeatmap(window.lastHeatmapData, true);
             }
         }
         
@@ -373,18 +376,30 @@
         }
         
         // Draw the heatmap overlay
-        function drawHeatmap(data) {
+        function drawHeatmap(data, isResize = false) {
+            // Prevent recursive calls
+            if (isDrawingHeatmap) return;
+            
+            isDrawingHeatmap = true;
+            
             // Store the data for resize events
             window.lastHeatmapData = data;
             
-            // Make sure overlay is properly sized
-            resizeOverlay();
+            // Make sure overlay is properly sized, but only if not already resizing
+            if (!isResize) {
+                const chartRect = priceChartCanvas.getBoundingClientRect();
+                heatmapOverlay.width = chartRect.width;
+                heatmapOverlay.height = chartRect.height;
+                heatmapOverlay.style.width = `${chartRect.width}px`;
+                heatmapOverlay.style.height = `${chartRect.height}px`;
+            }
             
             const ctx = heatmapOverlay.getContext('2d');
             ctx.clearRect(0, 0, heatmapOverlay.width, heatmapOverlay.height);
             
             if (!data.timestamps || !data.timestamps.length || !data.priceLevels || !data.priceLevels.length) {
                 updateStatus('No heatmap data available for this time range');
+                isDrawingHeatmap = false;
                 return;
             }
             
@@ -481,6 +496,9 @@
             }
             
             updateStatus(`Heatmap updated - Showing data from ${formatDate(data.timestamps[0])} to ${formatDate(data.timestamps[data.timestamps.length-1])}`);
+            
+            // Reset drawing flag
+            isDrawingHeatmap = false;
         }
         
         // Fetch and update data
@@ -549,7 +567,12 @@
             }
         });
         
-        window.addEventListener('resize', resizeOverlay);
+        // Debounce resize event to prevent excessive calls
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(resizeOverlay, 100);
+        });
         
         // Initialize
         function init() {
