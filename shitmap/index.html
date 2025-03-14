@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TRXUSDT Advanced Orderbook Heatmap</title>
+    <title>TRXUSDT Orderbook Heatmap</title>
     <style>
         body {
             margin: 0;
@@ -127,8 +127,8 @@
         const overlayCtx = overlayCanvas.getContext('2d');
         
         // State
-        let heatmapData = null;
-        let lastHeatmapUpdate = 0;
+        let orderbookData = null;
+        let currentPrice = null;
         
         // Resize canvases to full window
         function resizeCanvases() {
@@ -141,8 +141,8 @@
             overlayCanvas.width = width;
             overlayCanvas.height = height;
             
-            if (heatmapData) {
-                renderHeatmap();
+            if (orderbookData) {
+                renderOrderbook();
             }
         }
         
@@ -153,10 +153,10 @@
             socket.onopen = () => {
                 status.textContent = 'Connected';
                 
-                // Subscribe to data feeds
+                // Subscribe to orderbook data
                 socket.send(JSON.stringify({
                     action: 'subscribe',
-                    topics: ['heatmap', 'orderbook']
+                    topics: ['orderbook']
                 }));
             };
             
@@ -175,12 +175,9 @@
                     const message = JSON.parse(event.data);
                     
                     if (message.type === 'orderbook') {
-                        updateHeader(message.data);
-                    }
-                    else if (message.type === 'heatmap') {
-                        heatmapData = message.data;
-                        lastHeatmapUpdate = Date.now();
-                        renderHeatmap();
+                        orderbookData = message.data;
+                        updateHeader(orderbookData);
+                        renderOrderbook();
                     }
                 } catch (err) {
                     console.error('Error processing message', err);
@@ -201,11 +198,15 @@
             const imbalanceVal = (data.metrics.imbalance * 100).toFixed(2);
             imbalanceEl.textContent = imbalanceVal + '%';
             imbalanceEl.className = data.metrics.imbalance >= 0 ? 'bid' : 'negative';
+            
+            currentPrice = data.metrics.midPrice;
+            const now = new Date();
+            timeDisplay.textContent = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
         }
         
-        // Render heatmap visualization
-        function renderHeatmap() {
-            if (!heatmapData) return;
+        // Render orderbook visualization (simple bid/ask separation like your second image)
+        function renderOrderbook() {
+            if (!orderbookData || !currentPrice) return;
             
             const width = heatmapCanvas.width;
             const height = heatmapCanvas.height;
@@ -215,166 +216,104 @@
             heatmapCtx.clearRect(0, 0, width, height);
             overlayCtx.clearRect(0, 0, width, height);
             
-            // Extract data
-            const { times, prices, bidVolumes, askVolumes, midPrices, currentPrice, minPrice, maxPrice } = heatmapData;
+            // Get bids and asks from orderbook
+            const bids = orderbookData.bids || [];
+            const asks = orderbookData.asks || [];
             
-            if (!times || times.length === 0) return;
+            // Calculate min/max prices to display
+            // Use fixed range of +/- 20% from current price
+            const range = currentPrice * 0.2;
+            const minPrice = currentPrice - range;
+            const maxPrice = currentPrice + range;
             
-            // Calculate scale factors
-            const priceRange = maxPrice - minPrice;
-            const priceToY = (price) => height - ((price - minPrice) / priceRange) * height;
+            // Calculate price to Y position conversion
+            const priceToY = (price) => height * (maxPrice - price) / (maxPrice - minPrice);
             
-            // Fill the background
-            heatmapCtx.fillStyle = '#0a0a1a';
-            heatmapCtx.fillRect(0, 0, width, height);
+            // Calculate the dividing line (current price)
+            const currentPriceY = priceToY(currentPrice);
             
-            // Add a slight grid pattern
-            heatmapCtx.strokeStyle = 'rgba(50, 50, 90, 0.15)';
+            // Fill bid zone (yellow, below current price)
+            const bidGradient = heatmapCtx.createLinearGradient(0, currentPriceY, 0, height);
+            bidGradient.addColorStop(0, 'rgba(255, 255, 0, 0.7)');  // Yellow at top
+            bidGradient.addColorStop(1, 'rgba(200, 180, 0, 0.7)');  // Darker yellow at bottom
+            
+            heatmapCtx.fillStyle = bidGradient;
+            heatmapCtx.fillRect(0, currentPriceY, effectiveWidth, height - currentPriceY);
+            
+            // Fill ask zone (blue, above current price)
+            const askGradient = heatmapCtx.createLinearGradient(0, 0, 0, currentPriceY);
+            askGradient.addColorStop(0, 'rgba(0, 150, 200, 0.7)');  // Cyan at top
+            askGradient.addColorStop(1, 'rgba(0, 180, 240, 0.7)');  // Lighter blue at bottom
+            
+            heatmapCtx.fillStyle = askGradient;
+            heatmapCtx.fillRect(0, 0, effectiveWidth, currentPriceY);
+            
+            // Draw horizontal lines for different price levels
+            heatmapCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
             heatmapCtx.lineWidth = 1;
             
-            // Vertical grid lines (time)
-            for (let i = 0; i < times.length; i += Math.max(1, Math.floor(times.length / 20))) {
-                const x = (i / times.length) * effectiveWidth;
-                heatmapCtx.beginPath();
-                heatmapCtx.moveTo(x, 0);
-                heatmapCtx.lineTo(x, height);
-                heatmapCtx.stroke();
-            }
-            
-            // Horizontal grid lines (price)
-            for (let price = Math.ceil(minPrice * 100) / 100; price <= maxPrice; price += priceRange / 15) {
+            // Draw bid lines (more intense yellow for higher volume)
+            bids.forEach(bid => {
+                const price = bid.price;
+                const volume = bid.volume;
+                
+                if (price < minPrice || price > currentPrice) return;
+                
                 const y = priceToY(price);
-                heatmapCtx.beginPath();
-                heatmapCtx.moveTo(0, y);
-                heatmapCtx.lineTo(effectiveWidth, y);
-                heatmapCtx.stroke();
-            }
-            
-            // Find global max volume for color scaling
-            let maxVolume = 0;
-            for (let t = 0; t < times.length; t++) {
-                if (!bidVolumes[t] || !askVolumes[t]) continue;
                 
-                for (let p = 0; p < prices.length; p++) {
-                    const bidVol = bidVolumes[t][p] || 0;
-                    const askVol = askVolumes[t][p] || 0;
-                    maxVolume = Math.max(maxVolume, bidVol, askVol);
+                // Calculate intensity based on volume (normalized to max volume in visible range)
+                const maxBidVolume = Math.max(...bids.map(b => b.volume), 1);
+                const intensity = Math.min(1, volume / maxBidVolume);
+                
+                // Only draw lines for significant orders
+                if (intensity > 0.05) {
+                    heatmapCtx.beginPath();
+                    heatmapCtx.strokeStyle = `rgba(255, 255, 0, ${intensity * 0.7})`;
+                    heatmapCtx.moveTo(0, y);
+                    heatmapCtx.lineTo(effectiveWidth, y);
+                    heatmapCtx.stroke();
                 }
-            }
+            });
             
-            // Apply a logarithmic scale for better visualization
-            const logScale = (vol) => maxVolume > 0 ? Math.log(1 + vol) / Math.log(1 + maxVolume) : 0;
-            
-            // Draw heatmap cells for each time and price point
-            const timeStep = effectiveWidth / times.length;
-            const priceStep = height / prices.length;
-            
-            // Draw bid/ask liquidity as heatmap
-            for (let t = 0; t < times.length; t++) {
-                const x = t * timeStep;
+            // Draw ask lines (more intense blue for higher volume)
+            asks.forEach(ask => {
+                const price = ask.price;
+                const volume = ask.volume;
                 
-                if (!bidVolumes[t] || !askVolumes[t]) continue;
+                if (price > maxPrice || price < currentPrice) return;
                 
-                for (let p = 0; p < prices.length; p++) {
-                    const price = prices[p];
-                    const y = priceToY(price);
-                    
-                    const bidVol = bidVolumes[t][p] || 0;
-                    const askVol = askVolumes[t][p] || 0;
-                    
-                    if (bidVol > 0) {
-                        // Yellow/green for bids
-                        const intensity = logScale(bidVol);
-                        if (intensity > 0.05) { // Only draw significant volumes
-                            heatmapCtx.fillStyle = getBidColor(intensity);
-                            heatmapCtx.fillRect(x, y, timeStep + 0.5, priceStep + 0.5);
-                        }
-                    }
-                    if (askVol > 0) {
-                        // Cyan/blue for asks
-                        const intensity = logScale(askVol);
-                        if (intensity > 0.05) { // Only draw significant volumes
-                            heatmapCtx.fillStyle = getAskColor(intensity);
-                            heatmapCtx.fillRect(x, y, timeStep + 0.5, priceStep + 0.5);
-                        }
-                    }
+                const y = priceToY(price);
+                
+                // Calculate intensity based on volume (normalized to max volume in visible range)
+                const maxAskVolume = Math.max(...asks.map(a => a.volume), 1);
+                const intensity = Math.min(1, volume / maxAskVolume);
+                
+                // Only draw lines for significant orders
+                if (intensity > 0.05) {
+                    heatmapCtx.beginPath();
+                    heatmapCtx.strokeStyle = `rgba(0, 200, 255, ${intensity * 0.7})`;
+                    heatmapCtx.moveTo(0, y);
+                    heatmapCtx.lineTo(effectiveWidth, y);
+                    heatmapCtx.stroke();
                 }
-            }
+            });
+            
+            // Draw current price line
+            overlayCtx.beginPath();
+            overlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+            overlayCtx.lineWidth = 1;
+            overlayCtx.setLineDash([5, 3]);
+            overlayCtx.moveTo(0, currentPriceY);
+            overlayCtx.lineTo(effectiveWidth, currentPriceY);
+            overlayCtx.stroke();
+            overlayCtx.setLineDash([]);
+            
+            // Update price display
+            priceDisplay.style.top = (currentPriceY - 10) + 'px';
+            priceDisplay.textContent = currentPrice.toFixed(4);
             
             // Update price axis
             updatePriceAxis(minPrice, maxPrice, priceToY);
-            
-            // Draw current price line
-            if (currentPrice) {
-                const y = priceToY(currentPrice);
-                
-                // Draw red horizontal line at current price
-                overlayCtx.beginPath();
-                overlayCtx.strokeStyle = 'rgba(255, 51, 51, 0.8)';
-                overlayCtx.lineWidth = 1;
-                overlayCtx.setLineDash([5, 3]);
-                overlayCtx.moveTo(0, y);
-                overlayCtx.lineTo(effectiveWidth, y);
-                overlayCtx.stroke();
-                overlayCtx.setLineDash([]);
-                
-                // Update price display
-                priceDisplay.style.top = (y - 10) + 'px';
-                priceDisplay.textContent = currentPrice.toFixed(4);
-            }
-            
-            // Draw price history if available
-            if (midPrices && midPrices.length > 0) {
-                // Draw candlestick/line chart overlay
-                overlayCtx.beginPath();
-                overlayCtx.strokeStyle = 'rgba(255, 215, 0, 0.9)'; // Gold/yellow
-                overlayCtx.lineWidth = 1.5;
-                
-                for (let i = 0; i < midPrices.length; i++) {
-                    const x = (i / midPrices.length) * effectiveWidth;
-                    const y = priceToY(midPrices[i]);
-                    
-                    if (i === 0) {
-                        overlayCtx.moveTo(x, y);
-                    } else {
-                        overlayCtx.lineTo(x, y);
-                    }
-                }
-                
-                overlayCtx.stroke();
-            }
-            
-            // Update time display
-            if (times.length > 0) {
-                const lastTime = times[times.length - 1];
-                let timeStr = lastTime;
-                if (lastTime.includes(' ')) {
-                    timeStr = lastTime.split(' ')[1].substring(0, 5); // Extract HH:MM
-                }
-                timeDisplay.textContent = timeStr;
-            }
-        }
-        
-        // Generate color for bid volumes
-        function getBidColor(intensity) {
-            // Yellow to green range for bids
-            const r = Math.floor(255 * Math.min(1, intensity * 1.5));
-            const g = Math.floor(255 * Math.min(1, intensity * 1.3));
-            const b = Math.floor(50 * intensity);
-            const alpha = 0.2 + intensity * 0.8;
-            
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        }
-        
-        // Generate color for ask volumes
-        function getAskColor(intensity) {
-            // Cyan to blue range for asks
-            const r = Math.floor(100 * intensity);
-            const g = Math.floor(200 * intensity);
-            const b = Math.floor(255 * intensity);
-            const alpha = 0.2 + intensity * 0.8;
-            
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
         }
         
         // Update price axis with labels at appropriate intervals
@@ -383,7 +322,7 @@
             const priceRange = maxPrice - minPrice;
             const step = calculateNiceStep(priceRange / 10);
             
-            // Start at a "nice" value
+ // Start at a "nice" value
             const startPrice = Math.ceil(minPrice / step) * step;
             
             for (let price = startPrice; price <= maxPrice; price += step) {
@@ -392,10 +331,7 @@
                 const label = document.createElement('div');
                 label.style.position = 'absolute';
                 label.style.top = (y - 6) + 'px';
-                label.textContent = price.toLocaleString(undefined, {
-                    minimumFractionDigits: getDecimalPlaces(step),
-                    maximumFractionDigits: getDecimalPlaces(step)
-                });
+                label.textContent = price.toFixed(4);
                 priceAxis.appendChild(label);
             }
         }
@@ -411,32 +347,17 @@
             return 10 * Math.pow(10, exponent);
         }
         
-        // Get appropriate decimal places based on step size
-        function getDecimalPlaces(step) {
-            if (step >= 1) return 0;
-            return Math.ceil(Math.abs(Math.log10(step)));
-        }
-        
-        // Animation loop for smooth rendering
-        function animate() {
-            requestAnimationFrame(animate);
-            
-            // Only re-render if we have new data or window was resized
-            if (heatmapData && lastHeatmapUpdate > 0) {
-                // Not rendering every frame to save CPU
-                // but ensuring we always show latest data
-                if (Date.now() - lastHeatmapUpdate < 500) {
-                    renderHeatmap();
-                    lastHeatmapUpdate = 0; // Mark as rendered
-                }
-            }
-        }
-        
         // Initialize
         window.addEventListener('load', () => {
             resizeCanvases();
             connect();
-            animate(); // Start animation loop
+            
+            // Set up periodic rendering for smooth updates
+            setInterval(() => {
+                if (orderbookData) {
+                    renderOrderbook();
+                }
+            }, 1000); // Update every second for better performance
         });
         
         window.addEventListener('resize', resizeCanvases);
