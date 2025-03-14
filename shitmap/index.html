@@ -495,7 +495,7 @@
             
             try {
                 // Fetch candlestick data
-                const candleResponse = await fetch(`/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=${interval}`);
+                const candleResponse = await fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=${interval}`);
                 if (!candleResponse.ok) {
                     throw new Error(`HTTP error: ${candleResponse.status}`);
                 }
@@ -521,7 +521,7 @@
                 priceChart.update();
                 
                 // Fetch heatmap data
-                const heatmapResponse = await fetch(`/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=200`);
+                const heatmapResponse = await fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=200`);
                 if (!heatmapResponse.ok) {
                     throw new Error(`HTTP error: ${heatmapResponse.status}`);
                 }
