@@ -151,6 +151,39 @@
                 });
             }
             
+            // Create dynamic colorscale based on intensity
+            function generateColorscale(intensity) {
+                // More steps for higher intensity
+                const steps = intensity * 2;
+                const colorscale = [];
+                
+                // Start with dark blue
+                colorscale.push([0, 'rgb(25, 25, 60)']);
+                
+                // Create more distinct color gradations based on intensity
+                for (let i = 1; i < steps - 1; i++) {
+                    const ratio = i / (steps - 1);
+                    // Use original color progression from blue to yellow
+                    if (ratio < 0.33) {
+                        // Blue range
+                        colorscale.push([ratio, `rgb(${Math.round(ratio * 150)}, ${Math.round(ratio * 150)}, ${Math.round(100 + ratio * 155)})`]);
+                    } else if (ratio < 0.66) {
+                        // Green-blue transition
+                        const mid = (ratio - 0.33) * 3;
+                        colorscale.push([ratio, `rgb(${Math.round(50 + mid * 150)}, ${Math.round(50 + mid * 200)}, ${Math.round(255 - mid * 155)})`]);
+                    } else {
+                        // Yellow range
+                        const high = (ratio - 0.66) * 3;
+                        colorscale.push([ratio, `rgb(${Math.round(200 + high * 55)}, ${Math.round(200 + high * 55)}, ${Math.round(100 - high * 100)})`]);
+                    }
+                }
+                
+                // End with bright yellow
+                colorscale.push([1, 'rgb(255, 255, 0)']);
+                
+                return colorscale;
+            }
+            
             function renderChart(candlestickData, heatmapData) {
                 if (!candlestickData.length || !heatmapData.timestamps.length) {
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
@@ -200,35 +233,6 @@
                 
                 // Get color intensity value
                 const colorIntensity = parseInt(document.getElementById('colorIntensity').value);
-                
-                // Create dynamic colorscale based on intensity
-                const generateColorscale = (intensity) => {
-                    // More steps for higher intensity
-                    const steps = intensity * 2;
-                    const colorscale = [];
-                    
-                    // Start with dark blue
-                    colorscale.push([0, 'rgb(25, 25, 60)']);
-                    
-                    // Create more distinct color gradations based on intensity
-                    for (let i = 1; i < steps - 1; i++) {
-                        const ratio = i / (steps - 1);
-                        if (ratio < 0.5) {
-                            // Blue range
-                            const blueIntensity = Math.round(40 + ratio * 160);
-                            colorscale.push([ratio, `rgb(${ratio * 100}, ${ratio * 100 + 60}, ${blueIntensity})`]);
-                        } else {
-                            // Yellow-green to yellow range
-                            const yellowIntensity = Math.round(100 + (ratio - 0.5) * 300);
-                            colorscale.push([ratio, `rgb(${yellowIntensity}, ${yellowIntensity}, ${(1-ratio) * 150})`]);
-                        }
-                    }
-                    
-                    // End with bright yellow
-                    colorscale.push([1, 'rgb(250, 250, 50)']);
-                    
-                    return colorscale;
-                };
                 
                 const trace2 = {
                     x: timestamps,
