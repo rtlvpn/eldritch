@@ -124,130 +124,31 @@
                 
                 // Calculate time range in seconds
                 let duration;
-                let interval = 60; // Default 1-minute interval
-                
                 switch(timeRange) {
                     case '1h': duration = 3600; break;
                     case '3h': duration = 3600 * 3; break;
                     case '6h': duration = 3600 * 6; break;
-                    case '12h': 
-                        duration = 3600 * 12; 
-                        interval = 300; // 5-minute intervals for 12h
-                        break;
-                    case '24h': 
-                        duration = 3600 * 24; 
-                        interval = 900; // 15-minute intervals for 24h
-                        break;
+                    case '12h': duration = 3600 * 12; break;
+                    case '24h': duration = 3600 * 24; break;
                     default: duration = 3600;
                 }
                 
                 const endTime = Math.floor(Date.now() / 1000);
                 const startTime = endTime - duration;
                 
-                // For 24h and 12h, use WebSockets for streaming
-                if (timeRange === '24h' || timeRange === '12h') {
-                    loadDataWithWebSocket(startTime, endTime, buckets, interval);
-                } else {
-                    // For shorter ranges, use regular fetch
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=${interval}`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                    ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        renderChart(candlestickData, heatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        alert('Failed to load data. Please try again.');
-                    });
-                }
-            }
-            
-            function loadDataWithWebSocket(startTime, endTime, buckets, interval) {
-                // Show loading indicator
-                document.getElementById('chart').innerHTML = 
-                    '<div style="text-align:center;padding:20px;margin-top:100px;">'+
-                    '<p>Streaming data (0%)...</p>'+
-                    '<div style="width:300px;height:20px;background:#eee;margin:10px auto;border-radius:10px;overflow:hidden;">'+
-                    '<div id="progressBar" style="width:0%;height:100%;background:#4CAF50;transition:width 0.3s;"></div></div></div>';
-                
-                // Connect to WebSocket
-                const ws = new WebSocket('wss://heatmapeldritch.gleeze.com:3500');
-                
-                // Collect data chunks
-                let candlestickData = [];
-                let heatmapData = {timestamps: [], priceLevels: [], heatmap: []};
-                
-                // Handle incoming messages
-                ws.onmessage = function(event) {
-                    const data = JSON.parse(event.data);
-                    
-                    if (data.type === 'progress') {
-                        document.getElementById('progressBar').style.width = `${data.progress}%`;
-                        document.querySelector('#chart p').textContent = `Streaming data (${data.progress}%)...`;
-                    }
-                    else if (data.type === 'candlestick') {
-                        candlestickData = candlestickData.concat(data.data);
-                    }
-                    else if (data.type === 'heatmap') {
-                        // First chunk includes priceLevels
-                        if (data.priceLevels && heatmapData.priceLevels.length === 0) {
-                            heatmapData.priceLevels = data.priceLevels;
-                        }
-                        
-                        // Append timestamps and heatmap data
-                        if (data.timestamps) {
-                            heatmapData.timestamps = heatmapData.timestamps.concat(data.timestamps);
-                        }
-                        if (data.heatmap) {
-                            heatmapData.heatmap = heatmapData.heatmap.concat(data.heatmap);
-                        }
-                    }
-                    else if (data.type === 'complete') {
-                        renderChart(candlestickData, heatmapData);
-                        ws.close();
-                    }
-                    else if (data.type === 'error') {
-                        console.error('Server error:', data.message);
-                        document.getElementById('chart').innerHTML = 
-                            `<div style="text-align:center;padding:20px;color:red">Error: ${data.message}</div>`;
-                        ws.close();
-                    }
-                };
-                
-                // Handle connection open
-                ws.onopen = function() {
-                    ws.send(JSON.stringify({
-                        startTime: startTime,
-                        endTime: endTime,
-                        buckets: buckets,
-                        interval: interval
-                    }));
-                };
-                
-                // Handle errors
-                ws.onerror = function(error) {
-                    console.error('WebSocket error:', error);
-                    document.getElementById('chart').innerHTML = 
-                        '<div style="text-align:center;padding:20px;color:red">WebSocket connection failed. Trying standard method...</div>';
-                    
-                    // Fallback to regular fetch
-                    setTimeout(() => {
-                        Promise.all([
-                            fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=${interval}`),
-                            fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                        ])
-                        .then(responses => Promise.all(responses.map(res => res.json())))
-                        .then(([candlestickData, heatmapData]) => {
-                            renderChart(candlestickData, heatmapData);
-                        })
-                        .catch(err => {
-                            console.error('Error fetching data:', err);
-                            document.getElementById('chart').innerHTML = 'Failed to load data. Please try again.';
-                        });
-                    }, 1000);
-                };
+                // Fetch both candlestick and heatmap data
+                Promise.all([
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                ])
+                .then(responses => Promise.all(responses.map(res => res.json())))
+                .then(([candlestickData, heatmapData]) => {
+                    renderChart(candlestickData, heatmapData);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    alert('Failed to load data. Please try again.');
+                });
             }
             
             // Create dynamic colorscale based on intensity with 4 distinct color regions
