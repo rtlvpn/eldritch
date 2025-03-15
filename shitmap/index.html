@@ -58,12 +58,10 @@
                 <option value="6h">6 Hours</option>
                 <option value="12h">12 Hours</option>
                 <option value="24h">1 Day</option>
-                <option value="48h">2 Day</option>
             </select>
             
             <label for="buckets">Price Buckets:</label>
             <select id="buckets">
-                <option value="10">10</option>
                 <option value="50">50</option>
                 <option value="100" selected>100</option>
                 <option value="200">200</option>
@@ -148,6 +146,10 @@
                     heatmapZ.push(row);
                 }
                 
+                // Find the price range from priceLevels for consistent scaling
+                const minPrice = Math.min(...priceLevels);
+                const maxPrice = Math.max(...priceLevels);
+                
                 // Create the combined plot
                 const trace1 = {
                     x: times,
@@ -159,7 +161,8 @@
                         color: 'rgba(0, 100, 255, 1)',
                         width: 3
                     },
-                    yaxis: 'y2',
+                    // Use the same y-axis as the heatmap
+                    yaxis: 'y',
                     type: 'scatter'
                 };
                 
@@ -191,17 +194,11 @@
                     paper_bgcolor: '#ffffff',
                     height: 600,
                     yaxis: {
-                        title: 'Price Level',
-                        side: 'left',
-                        autorange: true,
-                        showgrid: true,
-                        zeroline: false
-                    },
-                    yaxis2: {
                         title: 'Price (USDT)',
-                        side: 'right',
-                        overlaying: 'y',
-                        showgrid: false,
+                        side: 'left',
+                        range: [minPrice, maxPrice], // Explicitly set the range to match priceLevels
+                        autorange: false,            // Disable autorange to use our explicit range
+                        showgrid: true,
                         zeroline: false
                     },
                     xaxis: {
@@ -209,7 +206,7 @@
                         showgrid: true
                     },
                     hovermode: 'closest',
-                    showlegend: false
+                    showlegend: true                 // Show legend to distinguish between price line and heatmap
                 };
                 
                 Plotly.newPlot('chart', [trace2, trace1], layout);
