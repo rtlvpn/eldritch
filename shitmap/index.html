@@ -151,35 +151,48 @@
                 });
             }
             
-            // Create dynamic colorscale based on intensity
+            // Create dynamic colorscale based on intensity with 4 distinct color regions
             function generateColorscale(intensity) {
                 // More steps for higher intensity
-                const steps = intensity * 2;
+                const steps = intensity * 3;  // Increased for more color steps
                 const colorscale = [];
                 
                 // Start with dark blue
-                colorscale.push([0, 'rgb(25, 25, 60)']);
+                colorscale.push([0, 'rgb(10, 10, 50)']);
                 
                 // Create more distinct color gradations based on intensity
                 for (let i = 1; i < steps - 1; i++) {
                     const ratio = i / (steps - 1);
-                    // Use original color progression from blue to yellow
-                    if (ratio < 0.33) {
-                        // Blue range
-                        colorscale.push([ratio, `rgb(${Math.round(ratio * 150)}, ${Math.round(ratio * 150)}, ${Math.round(100 + ratio * 155)})`]);
-                    } else if (ratio < 0.66) {
-                        // Green-blue transition
-                        const mid = (ratio - 0.33) * 3;
-                        colorscale.push([ratio, `rgb(${Math.round(50 + mid * 150)}, ${Math.round(50 + mid * 200)}, ${Math.round(255 - mid * 155)})`]);
-                    } else {
-                        // Yellow range
-                        const high = (ratio - 0.66) * 3;
-                        colorscale.push([ratio, `rgb(${Math.round(200 + high * 55)}, ${Math.round(200 + high * 55)}, ${Math.round(100 - high * 100)})`]);
+                    
+                    // Use 4 distinct color regions
+                    if (ratio < 0.25) {
+                        // Dark blue to blue range
+                        const blue = Math.round(50 + ratio * 4 * 150);
+                        colorscale.push([ratio, `rgb(20, ${Math.round(ratio * 4 * 100)}, ${blue})`]);
+                    } 
+                    else if (ratio < 0.5) {
+                        // Blue to teal/cyan range
+                        const r = Math.round((ratio - 0.25) * 4 * 100);
+                        const g = Math.round(100 + (ratio - 0.25) * 4 * 155);
+                        colorscale.push([ratio, `rgb(${r}, ${g}, 200)`]);
+                    }
+                    else if (ratio < 0.75) {
+                        // Teal/cyan to green-yellow range
+                        const adjusted = (ratio - 0.5) * 4;
+                        const r = Math.round(100 + adjusted * 155);
+                        const b = Math.round(200 - adjusted * 180);
+                        colorscale.push([ratio, `rgb(${r}, 255, ${b})`]);
+                    }
+                    else {
+                        // Green-yellow to bright yellow range
+                        const adjusted = (ratio - 0.75) * 4;
+                        const g = Math.round(255 - adjusted * 20);  // Slight decrease in green
+                        colorscale.push([ratio, `rgb(255, ${g}, ${Math.round(20 - adjusted * 20)})`]);
                     }
                 }
                 
                 // End with bright yellow
-                colorscale.push([1, 'rgb(255, 255, 0)']);
+                colorscale.push([1, 'rgb(255, 235, 0)']);
                 
                 return colorscale;
             }
