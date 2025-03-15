@@ -134,17 +134,19 @@
                 const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
                 const priceLevels = heatmapData.priceLevels;
                 
-                // Convert to matrix format
+                // Convert the heatmap result to a matrix format that Plotly can use
+                // Each row represents a price level, each column represents a timestamp
                 for (let i = 0; i < priceLevels.length; i++) {
                     const row = [];
                     for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                        const volume = heatmapData.heatmap[j].volumes[i] || 0;
+                        // Get the volume for this price level at this timestamp
+                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
                         row.push(volume);
                     }
                     heatmapZ.push(row);
                 }
                 
-                // Create the plot with more specific configurations
+                // Create the combined plot
                 const trace1 = {
                     x: times,
                     y: prices,
@@ -165,19 +167,19 @@
                     z: heatmapZ,
                     type: 'heatmap',
                     colorscale: [
-                        [0, 'rgb(25, 25, 60)'],
-                        [0.3, 'rgb(40, 60, 110)'],
-                        [0.5, 'rgb(70, 100, 170)'],
-                        [0.7, 'rgb(120, 160, 200)'],
-                        [0.85, 'rgb(200, 220, 100)'],
-                        [1, 'rgb(250, 250, 50)']
+                        [0, 'rgb(25, 25, 60)'],      // Dark blue/purple for low values
+                        [0.3, 'rgb(40, 60, 110)'],   // Medium blue
+                        [0.5, 'rgb(70, 100, 170)'],  // Lighter blue
+                        [0.7, 'rgb(120, 160, 200)'], // Cyan-ish
+                        [0.85, 'rgb(200, 220, 100)'],// Yellow-green
+                        [1, 'rgb(250, 250, 50)']     // Bright yellow for high values
                     ],
                     name: 'Order Density',
                     colorbar: {
                         title: 'Order Volume',
                         titleside: 'right'
                     },
-                    zsmooth: false,  // No smoothing to show exact values
+                    zsmooth: false,                  // Turn off smoothing to show discrete blocks
                     showscale: true
                 };
                 
@@ -191,8 +193,7 @@
                         side: 'left',
                         autorange: true,
                         showgrid: true,
-                        zeroline: false,
-                        type: 'linear'  // Ensure linear scale for precise price levels
+                        zeroline: false
                     },
                     yaxis2: {
                         title: 'Price (USDT)',
