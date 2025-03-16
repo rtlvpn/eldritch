@@ -85,9 +85,9 @@
             </select>
             
             <div class="slider-container">
-                <label for="colorIntensity">Color Contrast:</label>
-                <input type="range" id="colorIntensity" min="1" max="10" step="1" value="5">
-                <span id="intensityValue">5</span>
+                <label for="colorDensity">Color Density:</label>
+                <input type="range" id="colorDensity" min="1" max="10" step="1" value="5">
+                <span id="densityValue">5</span>
             </div>
             
             <button id="refreshBtn">Refresh Data</button>
@@ -111,14 +111,14 @@
             document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
             document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
             document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
-            document.getElementById('colorIntensity').addEventListener('input', function() {
-                document.getElementById('intensityValue').textContent = this.value;
+            document.getElementById('colorDensity').addEventListener('input', function() {
+                document.getElementById('densityValue').textContent = this.value;
                 // Only redraw the plot without fetching new data
                 const existingData = Plotly.data('chart');
                 if (existingData && existingData.length >= 2) {
-                    const colorIntensity = parseInt(this.value);
+                    const colorDensity = parseInt(this.value);
                     Plotly.restyle('chart', {
-                        'colorscale': [generateColorscale(colorIntensity)]
+                        'colorscale': [generateColorscale(colorDensity)]
                     }, [0]); // Apply to the heatmap trace only (index 0)
                 }
             });
@@ -206,24 +206,28 @@
                 }
             }
             
-            // Create dynamic colorscale based on intensity with 4 distinct color regions
-            function generateColorscale(intensity) {
-                // More steps for higher intensity
-                const steps = intensity * 3;  // Increased for more color steps
+            // Create dynamic colorscale based on density with better gradient distinction
+            function generateColorscale(density) {
                 const colorscale = [];
                 
-                // Start with dark blue
+                // Dark background for cells with minimal values
                 colorscale.push([0, 'rgb(10, 10, 50)']);
                 
-                // Create more distinct color gradations based on intensity
-                for (let i = 1; i < steps - 1; i++) {
-                    const ratio = i / (steps - 1);
+                // Use exponential scaling based on density value to emphasize differences
+                // Higher density value = better visualization of low-volume cells
+                const exponent = 11 - density; // Inverse relationship: higher slider = lower exponent
+                
+                // Create the gradient steps
+                for (let i = 1; i < 40; i++) {
+                    // Non-linear scaling to emphasize differences based on density setting
+                    let ratio = Math.pow(i / 40, 1/exponent);
                     
-                    // Use 4 distinct color regions
+                    // Use 4 distinct color regions with smoother transitions
                     if (ratio < 0.25) {
                         // Dark blue to blue range
                         const blue = Math.round(50 + ratio * 4 * 150);
-                        colorscale.push([ratio, `rgb(20, ${Math.round(ratio * 4 * 100)}, ${blue})`]);
+                        const green = Math.round(ratio * 4 * 100);
+                        colorscale.push([ratio, `rgb(20, ${green}, ${blue})`]);
                     } 
                     else if (ratio < 0.5) {
                         // Blue to teal/cyan range
@@ -241,7 +245,7 @@
                     else {
                         // Green-yellow to bright yellow range
                         const adjusted = (ratio - 0.75) * 4;
-                        const g = Math.round(255 - adjusted * 20);  // Slight decrease in green
+                        const g = Math.round(255 - adjusted * 20);
                         colorscale.push([ratio, `rgb(255, ${g}, ${Math.round(20 - adjusted * 20)})`]);
                     }
                 }
@@ -300,14 +304,14 @@
                 };
                 
                 // Get color intensity value
-                const colorIntensity = parseInt(document.getElementById('colorIntensity').value);
+                const colorDensity = parseInt(document.getElementById('colorDensity').value);
                 
                 const trace2 = {
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
                     type: 'heatmap',
-                    colorscale: generateColorscale(colorIntensity),
+                    colorscale: generateColorscale(colorDensity),
                     name: 'Order Density',
                     colorbar: {
                         title: 'Order Volume',
