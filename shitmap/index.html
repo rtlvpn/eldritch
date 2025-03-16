@@ -208,53 +208,54 @@
             
             // Create dynamic colorscale based on intensity with gradient from blue to red
             function generateColorscale(intensity) {
-                // Convert intensity to a power factor - higher intensity = steeper curve
-                // This will make low volumes more quickly transition to mid/high colors
-                const powerFactor = 1 + (intensity - 1) / 2;  // Range from 1 to 5.5
+                // Invert the power factor calculation so that higher intensity = flatter curve
+                // This will make colors distribute more evenly at higher intensity levels
+                const powerFactor = 3.0 - (intensity - 1) * 0.2;  // Range from 3.0 down to 1.2
                 
                 const colorscale = [];
                 const steps = 20;  // Fixed number of steps for smoother gradient
                 
-                // Start with dark blue
-                colorscale.push([0, 'rgb(10, 10, 50)']);
+                // Start with lighter blue at low volumes (even at low intensity)
+                colorscale.push([0, 'rgb(30, 30, 120)']);
                 
                 for (let i = 1; i < steps - 1; i++) {
                     // Apply power transformation to create non-linear color distribution
-                    // Lower intensity = more linear, higher intensity = more compressed at the low end
+                    // Higher intensity = more linear (all colors more visible), lower intensity = more compressed
                     let ratio = i / (steps - 1);
                     let transformedRatio = Math.pow(ratio, powerFactor);
                     
                     // Map 0-1 range to colors from blue -> cyan -> green -> yellow -> orange -> red
                     if (transformedRatio < 0.2) {
-                        // Dark blue to blue
-                        const blue = Math.round(50 + transformedRatio * 5 * 150);
-                        const green = Math.round(transformedRatio * 5 * 100);
-                        colorscale.push([ratio, `rgb(20, ${green}, ${blue})`]);
+                        // Blue to lighter blue
+                        const blue = Math.round(120 + transformedRatio * 5 * 135);
+                        const green = Math.round(30 + transformedRatio * 5 * 100);
+                        colorscale.push([ratio, `rgb(30, ${green}, ${blue})`]);
                     } 
                     else if (transformedRatio < 0.4) {
-                        // Blue to cyan
+                        // Lighter blue to cyan
                         const adjusted = (transformedRatio - 0.2) * 5;
-                        const red = Math.round(20 + adjusted * 80);
-                        const green = Math.round(100 + adjusted * 155);
-                        colorscale.push([ratio, `rgb(${red}, ${green}, 200)`]);
+                        const red = Math.round(30 + adjusted * 70);
+                        const green = Math.round(130 + adjusted * 125);
+                        const blue = Math.max(200, Math.round(255 - adjusted * 20));
+                        colorscale.push([ratio, `rgb(${red}, ${green}, ${blue})`]);
                     }
                     else if (transformedRatio < 0.6) {
-                        // Cyan to green-yellow
+                        // Cyan to bright green-yellow
                         const adjusted = (transformedRatio - 0.4) * 5;
                         const red = Math.round(100 + adjusted * 155);
-                        const blue = Math.round(200 - adjusted * 200);
+                        const blue = Math.round(235 - adjusted * 235);
                         colorscale.push([ratio, `rgb(${red}, 255, ${blue})`]);
                     }
                     else if (transformedRatio < 0.8) {
-                        // Yellow to orange
+                        // Bright yellow to orange
                         const adjusted = (transformedRatio - 0.6) * 5;
-                        const green = Math.round(255 - adjusted * 100);
+                        const green = Math.round(255 - adjusted * 155);
                         colorscale.push([ratio, `rgb(255, ${green}, 0)`]);
                     }
                     else {
                         // Orange to red
                         const adjusted = (transformedRatio - 0.8) * 5;
-                        const green = Math.round(155 - adjusted * 155);
+                        const green = Math.round(100 - adjusted * 100);
                         colorscale.push([ratio, `rgb(255, ${green}, 0)`]);
                     }
                 }
