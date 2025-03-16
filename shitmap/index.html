@@ -279,7 +279,7 @@
                 // Base colors (from dark blue to bright yellow)
                 const colors = [
                     'rgb(10, 10, 50)',      // Dark blue
-                    'rgb(20, 40, 150)',     // Blue
+                    'rgb(20, 40, 150)',     // #010102
                     'rgb(30, 100, 200)',    // Lighter blue
                     'rgb(40, 150, 220)',    // Cyan-blue
                     'rgb(80, 200, 200)',    // Cyan
@@ -365,31 +365,62 @@
                     name: 'Order Density',
                     colorbar: {
                         title: 'Order Volume',
-                        titleside: 'right'
+                        titleside: 'right',
+                        titlefont: { color: '#00ff9d' },
+                        tickfont: { color: '#00ff9d' }
                     },
                     zsmooth: false,
                     showscale: true
                 };
                 
                 const layout = {
-                    title: 'Milk Price and Orderbook Heatmap',
-                    plot_bgcolor: '#f8f9fa',
-                    paper_bgcolor: '#ffffff',
+                    title: {
+                        text: 'Milk Price and Orderbook Heatmap',
+                        font: {
+                            color: '#00ff9d',
+                            family: 'Courier New, monospace'
+                        }
+                    },
+                    plot_bgcolor: '#0a0a12',
+                    paper_bgcolor: '#0f0f1f',
                     height: 600,
                     yaxis: {
-                        title: 'Price (USDT)',
+                        title: {
+                            text: 'Price (USDT)',
+                            font: { color: '#00ff9d' }
+                        },
                         side: 'left',
-                        range: [minPrice, maxPrice], // Explicitly set the range to match priceLevels
-                        autorange: false,            // Disable autorange to use our explicit range
+                        range: [minPrice, maxPrice],
+                        autorange: false,
                         showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' },
                         zeroline: false
                     },
                     xaxis: {
-                        title: 'Time',
-                        showgrid: true
+                        title: {
+                            text: 'Time',
+                            font: { color: '#00ff9d' }
+                        },
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' }
                     },
                     hovermode: 'closest',
-                    showlegend: true                 // Show legend to distinguish between price line and heatmap
+                    showlegend: true,
+                    legend: {
+                        font: { color: '#00ff9d' },
+                        bgcolor: 'rgba(10, 10, 18, 0.8)',
+                        bordercolor: '#00ff9d',
+                        borderwidth: 1
+                    },
+                    margin: {
+                        l: 50,
+                        r: 50,
+                        b: 50,
+                        t: 50,
+                        pad: 4
+                    }
                 };
                 
                 Plotly.newPlot('chart', [trace2, trace1], layout);
