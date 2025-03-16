@@ -208,46 +208,56 @@
             
             // Create dynamic colorscale based on intensity with 4 distinct color regions
             function generateColorscale(intensity) {
-                // More steps for higher intensity
-                const steps = intensity * 3;  // Increased for more color steps
+                // Normalize intensity to a 0-1 scale for easier calculations
+                const normalizedIntensity = intensity / 10;
                 const colorscale = [];
+                const steps = 20;  // Fixed number of steps for smoother gradient
                 
-                // Start with dark blue
-                colorscale.push([0, 'rgb(10, 10, 50)']);
+                // Start with dark blue (darker for lower intensity)
+                const startBlue = Math.max(5, Math.round(normalizedIntensity * 40));
+                colorscale.push([0, `rgb(5, 5, ${startBlue})`]);
                 
-                // Create more distinct color gradations based on intensity
                 for (let i = 1; i < steps - 1; i++) {
                     const ratio = i / (steps - 1);
                     
-                    // Use 4 distinct color regions
+                    // Use 4 distinct color regions with intensity affecting brightness
                     if (ratio < 0.25) {
-                        // Dark blue to blue range
-                        const blue = Math.round(50 + ratio * 4 * 150);
-                        colorscale.push([ratio, `rgb(20, ${Math.round(ratio * 4 * 100)}, ${blue})`]);
+                        // Dark blue to blue range - more vibrant with higher intensity
+                        const blue = Math.round(50 + ratio * 4 * 150 * normalizedIntensity);
+                        const green = Math.round(ratio * 4 * 100 * normalizedIntensity);
+                        colorscale.push([ratio, `rgb(${Math.round(20 * normalizedIntensity)}, ${green}, ${blue})`]);
                     } 
                     else if (ratio < 0.5) {
                         // Blue to teal/cyan range
-                        const r = Math.round((ratio - 0.25) * 4 * 100);
-                        const g = Math.round(100 + (ratio - 0.25) * 4 * 155);
-                        colorscale.push([ratio, `rgb(${r}, ${g}, 200)`]);
+                        const adjustedRatio = (ratio - 0.25) * 4;
+                        const r = Math.round(adjustedRatio * 100 * normalizedIntensity);
+                        const g = Math.round((100 + adjustedRatio * 155) * normalizedIntensity);
+                        const b = Math.round(200 * normalizedIntensity);
+                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
                     }
                     else if (ratio < 0.75) {
                         // Teal/cyan to green-yellow range
                         const adjusted = (ratio - 0.5) * 4;
-                        const r = Math.round(100 + adjusted * 155);
-                        const b = Math.round(200 - adjusted * 180);
-                        colorscale.push([ratio, `rgb(${r}, 255, ${b})`]);
+                        const r = Math.round((100 + adjusted * 155) * normalizedIntensity);
+                        const g = Math.round(255 * normalizedIntensity);
+                        const b = Math.round((200 - adjusted * 180) * normalizedIntensity);
+                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
                     }
                     else {
                         // Green-yellow to bright yellow range
                         const adjusted = (ratio - 0.75) * 4;
-                        const g = Math.round(255 - adjusted * 20);  // Slight decrease in green
-                        colorscale.push([ratio, `rgb(255, ${g}, ${Math.round(20 - adjusted * 20)})`]);
+                        // Higher intensity = brighter yellows at the end
+                        const r = Math.round(255 * normalizedIntensity);
+                        const g = Math.round((255 - adjusted * 20) * normalizedIntensity);
+                        const b = Math.round((20 - adjusted * 20) * normalizedIntensity * 0.5);
+                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
                     }
                 }
                 
-                // End with bright yellow
-                colorscale.push([1, 'rgb(255, 235, 0)']);
+                // End with bright yellow (brighter for higher intensity)
+                const finalR = Math.round(255 * normalizedIntensity);
+                const finalG = Math.round(235 * normalizedIntensity);
+                colorscale.push([1, `rgb(${finalR}, ${finalG}, 0)`]);
                 
                 return colorscale;
             }
