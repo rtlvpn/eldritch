@@ -228,28 +228,22 @@
             function mergeHeatmapData(newData) {
                 if (!newData || !newData.timestamps || newData.timestamps.length === 0) return;
                 
-                // If this is the first data or price levels have changed, just replace everything
+                // If price levels structure has changed or this is first data, just replace everything
                 if (cachedHeatmapData.priceLevels.length === 0 || 
-                    cachedHeatmapData.priceLevels.length !== newData.priceLevels.length) {
-                    cachedHeatmapData = newData;
+                    !arraysEqual(cachedHeatmapData.priceLevels, newData.priceLevels)) {
+                    cachedHeatmapData = JSON.parse(JSON.stringify(newData)); // Deep copy
                     return;
                 }
                 
                 // Create a map of existing heatmap entries by timestamp
                 const existingHeatmapMap = new Map();
                 for (let i = 0; i < cachedHeatmapData.timestamps.length; i++) {
-                    existingHeatmapMap.set(cachedHeatmapData.timestamps[i], {
-                        timestamp: cachedHeatmapData.timestamps[i],
-                        volumes: cachedHeatmapData.heatmap[i].volumes
-                    });
+                    existingHeatmapMap.set(cachedHeatmapData.timestamps[i], cachedHeatmapData.heatmap[i]);
                 }
                 
                 // Add or update with new data
                 for (let i = 0; i < newData.timestamps.length; i++) {
-                    existingHeatmapMap.set(newData.timestamps[i], {
-                        timestamp: newData.timestamps[i],
-                        volumes: newData.heatmap[i].volumes
-                    });
+                    existingHeatmapMap.set(newData.timestamps[i], newData.heatmap[i]);
                 }
                 
                 // Convert map back to arrays
@@ -258,6 +252,15 @@
                 
                 cachedHeatmapData.timestamps = entries.map(entry => entry[0]);
                 cachedHeatmapData.heatmap = entries.map(entry => entry[1]);
+            }
+            
+            // Helper function to compare arrays
+            function arraysEqual(a, b) {
+                if (a.length !== b.length) return false;
+                for (let i = 0; i < a.length; i++) {
+                    if (a[i] !== b[i]) return false;
+                }
+                return true;
             }
             
             function trimOldData(startTime) {
