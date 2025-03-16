@@ -86,8 +86,8 @@
             
             <div class="slider-container">
                 <label for="colorIntensity">Color Contrast:</label>
-                <input type="range" id="colorIntensity" min="1" max="10" step="1" value="5">
-                <span id="intensityValue">5</span>
+                <input type="range" id="colorIntensity" min="1" max="10" step="1" value="1">
+                <span id="intensityValue">1</span>
             </div>
             
             <button id="refreshBtn">Refresh Data</button>
@@ -302,19 +302,39 @@
                 // Get color intensity value
                 const colorIntensity = parseInt(document.getElementById('colorIntensity').value);
                 
+                // Fixed colorscale - we'll adjust zmax instead to change visibility
+                const colorscale = [
+                    [0, 'rgb(10, 10, 50)'],
+                    [0.2, 'rgb(20, 20, 100)'],
+                    [0.4, 'rgb(30, 80, 200)'],
+                    [0.6, 'rgb(100, 180, 180)'],
+                    [0.8, 'rgb(180, 240, 80)'],
+                    [1, 'rgb(255, 235, 0)']
+                ];
+                
+                // Find max value in heatmapZ
+                const maxValue = Math.max(...heatmapZ.flat());
+                
+                // Adjust zmax based on intensity - lower intensity means lower zmax
+                // which makes more values fall into higher color range
+                const adjustedMax = maxValue * (colorIntensity / 2);
+                
                 const trace2 = {
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
                     type: 'heatmap',
-                    colorscale: generateColorscale(colorIntensity),
+                    colorscale: colorscale,
                     name: 'Order Density',
                     colorbar: {
                         title: 'Order Volume',
                         titleside: 'right'
                     },
                     zsmooth: false,
-                    showscale: true
+                    showscale: true,
+                    zauto: false,
+                    zmin: 0,
+                    zmax: adjustedMax
                 };
                 
                 const layout = {
