@@ -113,12 +113,12 @@
             document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
             document.getElementById('colorDensity').addEventListener('input', function() {
                 document.getElementById('densityValue').textContent = this.value;
-                // Only redraw the plot without fetching new data
+                // Only adjust the colorscale weighting without changing data
                 const existingData = Plotly.data('chart');
                 if (existingData && existingData.length >= 2) {
                     const colorDensity = parseInt(this.value);
                     Plotly.restyle('chart', {
-                        'colorscale': [generateColorscale(colorDensity)]
+                        'colorscale': [generateWeightedColorscale(colorDensity)]
                     }, [0]); // Apply to the heatmap trace only (index 0)
                 }
             });
@@ -206,52 +206,36 @@
                 }
             }
             
-            // Create dynamic colorscale based on density with better gradient distinction
-            function generateColorscale(density) {
+            // Generate a colorscale with weights adjusted by the density value
+            function generateWeightedColorscale(density) {
                 const colorscale = [];
                 
-                // Dark background for cells with minimal values
-                colorscale.push([0, 'rgb(10, 10, 50)']);
+                // Base colors (from dark blue to bright yellow)
+                const colors = [
+                    'rgb(10, 10, 50)',      // Dark blue
+                    'rgb(20, 40, 150)',     // Blue
+                    'rgb(30, 100, 200)',    // Lighter blue
+                    'rgb(40, 150, 220)',    // Cyan-blue
+                    'rgb(80, 200, 200)',    // Cyan
+                    'rgb(120, 220, 150)',   // Cyan-green
+                    'rgb(180, 240, 80)',    // Green-yellow
+                    'rgb(220, 250, 40)',    // Yellow-green
+                    'rgb(255, 235, 0)'      // Bright yellow
+                ];
                 
-                // Use exponential scaling based on density value to emphasize differences
-                // Higher density value = better visualization of low-volume cells
-                const exponent = 11 - density; // Inverse relationship: higher slider = lower exponent
+                // Set the baseline for minimal values
+                colorscale.push([0, colors[0]]);
                 
-                // Create the gradient steps
-                for (let i = 1; i < 40; i++) {
-                    // Non-linear scaling to emphasize differences based on density setting
-                    let ratio = Math.pow(i / 40, 1/exponent);
-                    
-                    // Use 4 distinct color regions with smoother transitions
-                    if (ratio < 0.25) {
-                        // Dark blue to blue range
-                        const blue = Math.round(50 + ratio * 4 * 150);
-                        const green = Math.round(ratio * 4 * 100);
-                        colorscale.push([ratio, `rgb(20, ${green}, ${blue})`]);
-                    } 
-                    else if (ratio < 0.5) {
-                        // Blue to teal/cyan range
-                        const r = Math.round((ratio - 0.25) * 4 * 100);
-                        const g = Math.round(100 + (ratio - 0.25) * 4 * 155);
-                        colorscale.push([ratio, `rgb(${r}, ${g}, 200)`]);
-                    }
-                    else if (ratio < 0.75) {
-                        // Teal/cyan to green-yellow range
-                        const adjusted = (ratio - 0.5) * 4;
-                        const r = Math.round(100 + adjusted * 155);
-                        const b = Math.round(200 - adjusted * 180);
-                        colorscale.push([ratio, `rgb(${r}, 255, ${b})`]);
-                    }
-                    else {
-                        // Green-yellow to bright yellow range
-                        const adjusted = (ratio - 0.75) * 4;
-                        const g = Math.round(255 - adjusted * 20);
-                        colorscale.push([ratio, `rgb(255, ${g}, ${Math.round(20 - adjusted * 20)})`]);
-                    }
+                // Apply non-linear distribution of colors based on density
+                // Higher density = more color weight to lower values
+                const power = (11 - density) / 2; // Convert to 0.5-5 range (inverse)
+                
+                for (let i = 1; i < colors.length; i++) {
+                    // Calculate position with weighting based on density
+                    // This emphasizes lower values when density is high
+                    let position = Math.pow(i / (colors.length - 1), power);
+                    colorscale.push([position, colors[i]]);
                 }
-                
-                // End with bright yellow
-                colorscale.push([1, 'rgb(255, 235, 0)']);
                 
                 return colorscale;
             }
@@ -303,7 +287,7 @@
                     type: 'scatter'
                 };
                 
-                // Get color intensity value
+                // Get color density value
                 const colorDensity = parseInt(document.getElementById('colorDensity').value);
                 
                 const trace2 = {
@@ -311,7 +295,7 @@
                     y: priceLevels,
                     z: heatmapZ,
                     type: 'heatmap',
-                    colorscale: generateColorscale(colorDensity),
+                    colorscale: generateWeightedColorscale(colorDensity),
                     name: 'Order Density',
                     colorbar: {
                         title: 'Order Volume',
