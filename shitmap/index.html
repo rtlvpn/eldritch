@@ -206,58 +206,61 @@
                 }
             }
             
-            // Create dynamic colorscale based on intensity with 4 distinct color regions
+            // Create dynamic colorscale based on intensity with gradient from blue to red
             function generateColorscale(intensity) {
-                // Normalize intensity to a 0-1 scale for easier calculations
-                const normalizedIntensity = intensity / 10;
+                // Convert intensity to a power factor - higher intensity = steeper curve
+                // This will make low volumes more quickly transition to mid/high colors
+                const powerFactor = 1 + (intensity - 1) / 2;  // Range from 1 to 5.5
+                
                 const colorscale = [];
                 const steps = 20;  // Fixed number of steps for smoother gradient
                 
-                // Start with dark blue (darker for lower intensity)
-                const startBlue = Math.max(5, Math.round(normalizedIntensity * 40));
-                colorscale.push([0, `rgb(5, 5, ${startBlue})`]);
+                // Start with dark blue
+                colorscale.push([0, 'rgb(10, 10, 50)']);
                 
                 for (let i = 1; i < steps - 1; i++) {
-                    const ratio = i / (steps - 1);
+                    // Apply power transformation to create non-linear color distribution
+                    // Lower intensity = more linear, higher intensity = more compressed at the low end
+                    let ratio = i / (steps - 1);
+                    let transformedRatio = Math.pow(ratio, powerFactor);
                     
-                    // Use 4 distinct color regions with intensity affecting brightness
-                    if (ratio < 0.25) {
-                        // Dark blue to blue range - more vibrant with higher intensity
-                        const blue = Math.round(50 + ratio * 4 * 150 * normalizedIntensity);
-                        const green = Math.round(ratio * 4 * 100 * normalizedIntensity);
-                        colorscale.push([ratio, `rgb(${Math.round(20 * normalizedIntensity)}, ${green}, ${blue})`]);
+                    // Map 0-1 range to colors from blue -> cyan -> green -> yellow -> orange -> red
+                    if (transformedRatio < 0.2) {
+                        // Dark blue to blue
+                        const blue = Math.round(50 + transformedRatio * 5 * 150);
+                        const green = Math.round(transformedRatio * 5 * 100);
+                        colorscale.push([ratio, `rgb(20, ${green}, ${blue})`]);
                     } 
-                    else if (ratio < 0.5) {
-                        // Blue to teal/cyan range
-                        const adjustedRatio = (ratio - 0.25) * 4;
-                        const r = Math.round(adjustedRatio * 100 * normalizedIntensity);
-                        const g = Math.round((100 + adjustedRatio * 155) * normalizedIntensity);
-                        const b = Math.round(200 * normalizedIntensity);
-                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
+                    else if (transformedRatio < 0.4) {
+                        // Blue to cyan
+                        const adjusted = (transformedRatio - 0.2) * 5;
+                        const red = Math.round(20 + adjusted * 80);
+                        const green = Math.round(100 + adjusted * 155);
+                        colorscale.push([ratio, `rgb(${red}, ${green}, 200)`]);
                     }
-                    else if (ratio < 0.75) {
-                        // Teal/cyan to green-yellow range
-                        const adjusted = (ratio - 0.5) * 4;
-                        const r = Math.round((100 + adjusted * 155) * normalizedIntensity);
-                        const g = Math.round(255 * normalizedIntensity);
-                        const b = Math.round((200 - adjusted * 180) * normalizedIntensity);
-                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
+                    else if (transformedRatio < 0.6) {
+                        // Cyan to green-yellow
+                        const adjusted = (transformedRatio - 0.4) * 5;
+                        const red = Math.round(100 + adjusted * 155);
+                        const blue = Math.round(200 - adjusted * 200);
+                        colorscale.push([ratio, `rgb(${red}, 255, ${blue})`]);
+                    }
+                    else if (transformedRatio < 0.8) {
+                        // Yellow to orange
+                        const adjusted = (transformedRatio - 0.6) * 5;
+                        const green = Math.round(255 - adjusted * 100);
+                        colorscale.push([ratio, `rgb(255, ${green}, 0)`]);
                     }
                     else {
-                        // Green-yellow to bright yellow range
-                        const adjusted = (ratio - 0.75) * 4;
-                        // Higher intensity = brighter yellows at the end
-                        const r = Math.round(255 * normalizedIntensity);
-                        const g = Math.round((255 - adjusted * 20) * normalizedIntensity);
-                        const b = Math.round((20 - adjusted * 20) * normalizedIntensity * 0.5);
-                        colorscale.push([ratio, `rgb(${r}, ${g}, ${b})`]);
+                        // Orange to red
+                        const adjusted = (transformedRatio - 0.8) * 5;
+                        const green = Math.round(155 - adjusted * 155);
+                        colorscale.push([ratio, `rgb(255, ${green}, 0)`]);
                     }
                 }
                 
-                // End with bright yellow (brighter for higher intensity)
-                const finalR = Math.round(255 * normalizedIntensity);
-                const finalG = Math.round(235 * normalizedIntensity);
-                colorscale.push([1, `rgb(${finalR}, ${finalG}, 0)`]);
+                // End with bright red for highest values
+                colorscale.push([1, 'rgb(255, 0, 0)']);
                 
                 return colorscale;
             }
