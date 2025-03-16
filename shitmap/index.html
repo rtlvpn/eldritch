@@ -128,27 +128,24 @@
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
                 
-                // If time range changed, we need a full refresh
-                if (timeRange !== currentTimeRange) {
-                    fullRefresh = true;
+                // If time range or buckets changed, we need a full refresh
+                if (timeRange !== currentTimeRange || fullRefresh) {
                     currentTimeRange = timeRange;
-                }
-                
-                // Calculate time range in seconds
-                let duration;
-                switch(timeRange) {
-                    case '1h': duration = 3600; break;
-                    case '3h': duration = 3600 * 3; break;
-                    case '6h': duration = 3600 * 6; break;
-                    case '12h': duration = 3600 * 12; break;
-                    case '24h': duration = 3600 * 24; break;
-                    default: duration = 3600;
-                }
-                
-                const endTime = Math.floor(Date.now() / 1000);
-                const startTime = endTime - duration;
-                
-                if (fullRefresh) {
+                    
+                    // Calculate time range in seconds
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        default: duration = 3600;
+                    }
+                    
+                    const endTime = Math.floor(Date.now() / 1000);
+                    const startTime = endTime - duration;
+                    
                     // Full refresh - fetch all data
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
@@ -156,6 +153,7 @@
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -166,120 +164,40 @@
                         alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Incremental update - only fetch new data since last update
-                    const incrementalStartTime = lastFetchTime;
-                    
-                    if (endTime - incrementalStartTime < 10) {
-                        // Less than 10 seconds since last update, no need to fetch
-                        return;
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
+                    const endTime = Math.floor(Date.now() / 1000);
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        default: duration = 3600;
                     }
                     
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
+                    const startTime = endTime - duration;
+                    
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${incrementalStartTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${incrementalStartTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([newCandlestickData, newHeatmapData]) => {
-                        if (newCandlestickData.length === 0 && newHeatmapData.timestamps.length === 0) {
-                            // No new data, no need to update
-                            return;
-                        }
-                        
-                        // Merge new data with cached data
-                        mergeCandlestickData(newCandlestickData);
-                        mergeHeatmapData(newHeatmapData);
-                        
-                        // Update last fetch time
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
-                        
-                        // Trim data outside the time window
-                        trimOldData(startTime);
-                        
-                        // Render the updated data
                         renderChart(cachedCandlestickData, cachedHeatmapData);
                     })
                     .catch(error => {
-                        console.error('Error fetching incremental data:', error);
-                        // On error, fall back to full refresh
-                        loadData(true);
+                        console.error('Error fetching data:', error);
+                        // Silently fail, will retry on next auto-update
                     });
                 }
-            }
-            
-            function mergeCandlestickData(newData) {
-                if (!newData || newData.length === 0) return;
-                
-                // Create a map of existing data by timestamp
-                const existingDataMap = new Map();
-                cachedCandlestickData.forEach(item => {
-                    existingDataMap.set(item.timestamp, item);
-                });
-                
-                // Add or update with new data
-                newData.forEach(item => {
-                    existingDataMap.set(item.timestamp, item);
-                });
-                
-                // Convert map back to array and sort by timestamp
-                cachedCandlestickData = Array.from(existingDataMap.values())
-                    .sort((a, b) => a.timestamp - b.timestamp);
-            }
-            
-            function mergeHeatmapData(newData) {
-                if (!newData || !newData.timestamps || newData.timestamps.length === 0) return;
-                
-                // If price levels structure has changed or this is first data, just replace everything
-                if (cachedHeatmapData.priceLevels.length === 0 || 
-                    !arraysEqual(cachedHeatmapData.priceLevels, newData.priceLevels)) {
-                    cachedHeatmapData = JSON.parse(JSON.stringify(newData)); // Deep copy
-                    return;
-                }
-                
-                // Create a map of existing heatmap entries by timestamp
-                const existingHeatmapMap = new Map();
-                for (let i = 0; i < cachedHeatmapData.timestamps.length; i++) {
-                    existingHeatmapMap.set(cachedHeatmapData.timestamps[i], cachedHeatmapData.heatmap[i]);
-                }
-                
-                // Add or update with new data
-                for (let i = 0; i < newData.timestamps.length; i++) {
-                    existingHeatmapMap.set(newData.timestamps[i], newData.heatmap[i]);
-                }
-                
-                // Convert map back to arrays
-                const entries = Array.from(existingHeatmapMap.entries())
-                    .sort((a, b) => a[0] - b[0]);  // Sort by timestamp
-                
-                cachedHeatmapData.timestamps = entries.map(entry => entry[0]);
-                cachedHeatmapData.heatmap = entries.map(entry => entry[1]);
-            }
-            
-            // Helper function to compare arrays
-            function arraysEqual(a, b) {
-                if (a.length !== b.length) return false;
-                for (let i = 0; i < a.length; i++) {
-                    if (a[i] !== b[i]) return false;
-                }
-                return true;
-            }
-            
-            function trimOldData(startTime) {
-                // Trim candlestick data
-                cachedCandlestickData = cachedCandlestickData.filter(item => {
-                    // Convert timestamp from milliseconds to seconds for comparison
-                    return Math.floor(item.timestamp / 1000) >= startTime;
-                });
-                
-                // Trim heatmap data
-                const validIndices = [];
-                for (let i = 0; i < cachedHeatmapData.timestamps.length; i++) {
-                    if (cachedHeatmapData.timestamps[i] >= startTime) {
-                        validIndices.push(i);
-                    }
-                }
-                
-                cachedHeatmapData.timestamps = validIndices.map(i => cachedHeatmapData.timestamps[i]);
-                cachedHeatmapData.heatmap = validIndices.map(i => cachedHeatmapData.heatmap[i]);
             }
             
             // Create dynamic colorscale based on intensity with 4 distinct color regions
