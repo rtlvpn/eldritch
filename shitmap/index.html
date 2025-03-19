@@ -24,6 +24,32 @@
             box-shadow: 0 0 20px rgba(0, 255, 157, 0.2), 0 0 40px rgba(0, 255, 157, 0.1) inset;
             padding: 20px;
         }
+        .charts-wrapper {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+        }
+        .main-chart-container {
+            width: 75%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+        .cvp-chart-container {
+            width: 25%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+        .chart-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
         h1 {
             text-align: center;
             color: #00ff9d;
@@ -33,13 +59,6 @@
             padding-bottom: 10px;
             margin-bottom: 20px;
             font-weight: bold;
-        }
-        .chart-container {
-            width: 100%;
-            height: 600px;
-            border: 1px solid rgba(0, 255, 157, 0.3);
-            margin-top: 20px;
-            background-color: rgba(10, 10, 20, 0.5);
         }
         .controls {
             margin-bottom: 20px;
@@ -125,6 +144,12 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
+        .checkbox-container {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
@@ -157,9 +182,17 @@
             </div>
             
             <button id="refreshBtn">Refresh Data</button>
+            
+            <div class="checkbox-container">
+                <input type="checkbox" id="showCVP" checked>
+                <label for="showCVP">Show Volume Profile</label>
+            </div>
         </div>
         
-        <div id="chart" class="chart-container"></div>
+        <div class="charts-wrapper">
+            <div id="chart" class="main-chart-container"></div>
+            <div id="cvpChart" class="cvp-chart-container"></div>
+        </div>
     </div>
 
     <script>
@@ -373,46 +406,6 @@
                     showscale: true
                 };
                 
-                // Calculate volume profile for the CVP
-                const showCVP = document.getElementById('showCVP').checked;
-                const traces = [trace2, trace1];
-                
-                if (showCVP) {
-                    // Calculate aggregate volume for each price level
-                    const volumeByPrice = new Array(priceLevels.length).fill(0);
-                    
-                    for (let i = 0; i < priceLevels.length; i++) {
-                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
-                        }
-                    }
-                    
-                    // Normalize the volume data for better visualization - make it smaller (only 5% of chart width)
-                    const maxVolume = Math.max(...volumeByPrice);
-                    const normalizedVolume = volumeByPrice.map(vol => vol / maxVolume * 0.05);
-                    
-                    // Create the CVP trace - positioned on the right side
-                    const cvpTrace = {
-                        x: normalizedVolume,
-                        y: priceLevels,
-                        type: 'bar',
-                        orientation: 'h',
-                        name: 'Volume Profile',
-                        marker: {
-                            color: 'rgba(0, 255, 157, 0.7)',
-                            line: {
-                                color: 'rgba(0, 255, 157, 1)',
-                                width: 1
-                            }
-                        },
-                        xaxis: 'x2',
-                        yaxis: 'y',
-                        showlegend: true
-                    };
-                    
-                    traces.push(cvpTrace);
-                }
-                
                 const layout = {
                     title: {
                         text: 'Milk Price and Orderbook Heatmap',
@@ -444,8 +437,7 @@
                         },
                         showgrid: true,
                         gridcolor: 'rgba(0, 255, 157, 0.1)',
-                        tickfont: { color: '#00ff9d' },
-                        domain: [0, showCVP ? 0.95 : 1]  // Give more space to main chart
+                        tickfont: { color: '#00ff9d' }
                     },
                     hovermode: 'closest',
                     showlegend: true,
@@ -464,20 +456,80 @@
                     }
                 };
                 
-                // Add a second x-axis for the CVP if enabled - properly positioned on the right
-                if (showCVP) {
-                    layout.xaxis2 = {
-                        title: '',  // No title for the volume axis to save space
-                        showgrid: false,
-                        showticklabels: false,
-                        overlaying: 'x',
-                        side: 'right',
-                        domain: [0.95, 1],  // Place at right edge, very compact
-                        range: [0, 0.06]  // Fixed range for the normalized volume
-                    };
-                }
+                Plotly.newPlot('chart', [trace2, trace1], layout);
                 
-                Plotly.newPlot('chart', traces, layout);
+                // Create the volume profile chart if enabled
+                const showCVP = document.getElementById('showCVP').checked;
+                if (showCVP) {
+                    // Calculate aggregate volume for each price level
+                    const volumeByPrice = new Array(priceLevels.length).fill(0);
+                    
+                    for (let i = 0; i < priceLevels.length; i++) {
+                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        }
+                    }
+                    
+                    // Create the Volume Profile trace as a vertical bar chart
+                    const cvpTrace = {
+                        y: priceLevels,
+                        x: volumeByPrice,
+                        type: 'bar',
+                        orientation: 'h',
+                        name: 'Volume Profile',
+                        marker: {
+                            color: 'rgba(0, 255, 157, 0.7)',
+                            line: {
+                                color: 'rgba(0, 255, 157, 1)',
+                                width: 1
+                            }
+                        }
+                    };
+                    
+                    const cvpLayout = {
+                        title: {
+                            text: 'Volume Profile',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        },
+                        plot_bgcolor: '#0a0a12',
+                        paper_bgcolor: '#0f0f1f',
+                        height: 600,
+                        yaxis: {
+                            title: '',
+                            side: 'right',
+                            range: [minPrice, maxPrice],
+                            autorange: false,
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' },
+                            zeroline: false
+                        },
+                        xaxis: {
+                            title: {
+                                text: 'Volume',
+                                font: { color: '#00ff9d' }
+                            },
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        margin: {
+                            l: 0,
+                            r: 50,
+                            b: 50,
+                            t: 50,
+                            pad: 4
+                        }
+                    };
+                    
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout);
+                    document.getElementById('cvpChart').style.display = 'block';
+                } else {
+                    document.getElementById('cvpChart').style.display = 'none';
+                }
             }
         });
     </script>
