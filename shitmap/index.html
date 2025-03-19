@@ -125,30 +125,6 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
-        .checkbox-container {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background-color: rgba(0, 0, 0, 0.2);
-            padding: 5px 10px;
-            border-radius: 4px;
-        }
-        .checkbox-container input[type="checkbox"] {
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border: 1px solid #00ff9d;
-            border-radius: 4px;
-            background-color: #0f0f23;
-        }
-        .checkbox-container input[type="checkbox"]:checked {
-            background-color: #00ff9d;
-        }
-        .checkbox-container label {
-            color: #00ff9d;
-            font-weight: bold;
-            text-shadow: 0 0 5px rgba(0, 255, 157, 0.5);
-        }
     </style>
 </head>
 <body>
@@ -181,11 +157,6 @@
             </div>
             
             <button id="refreshBtn">Refresh Data</button>
-            
-            <div class="checkbox-container">
-                <input type="checkbox" id="showCVP" checked>
-                <label for="showCVP">Show Volume Profile</label>
-            </div>
         </div>
         
         <div id="chart" class="chart-container"></div>
@@ -216,10 +187,6 @@
                         'colorscale': [generateWeightedColorscale(colorDensity)]
                     }, [0]); // Apply to the heatmap trace only (index 0)
                 }
-            });
-            document.getElementById('showCVP').addEventListener('change', function() {
-                // Re-render chart on CVP toggle
-                renderChart(cachedCandlestickData, cachedHeatmapData);
             });
             
             // Auto refresh every minute - use incremental update
@@ -420,11 +387,11 @@
                         }
                     }
                     
-                    // Normalize the volume data for better visualization
+                    // Normalize the volume data for better visualization - make it smaller (only 5% of chart width)
                     const maxVolume = Math.max(...volumeByPrice);
-                    const normalizedVolume = volumeByPrice.map(vol => vol / maxVolume * 0.15); // Scale to be 15% of chart width
+                    const normalizedVolume = volumeByPrice.map(vol => vol / maxVolume * 0.05);
                     
-                    // Create the CVP trace
+                    // Create the CVP trace - positioned on the right side
                     const cvpTrace = {
                         x: normalizedVolume,
                         y: priceLevels,
@@ -478,7 +445,7 @@
                         showgrid: true,
                         gridcolor: 'rgba(0, 255, 157, 0.1)',
                         tickfont: { color: '#00ff9d' },
-                        domain: [0, showCVP ? 0.85 : 1]  // Adjust domain if CVP is shown
+                        domain: [0, showCVP ? 0.95 : 1]  // Give more space to main chart
                     },
                     hovermode: 'closest',
                     showlegend: true,
@@ -497,19 +464,16 @@
                     }
                 };
                 
-                // Add a second x-axis for the CVP if enabled
+                // Add a second x-axis for the CVP if enabled - properly positioned on the right
                 if (showCVP) {
                     layout.xaxis2 = {
-                        title: {
-                            text: 'Volume',
-                            font: { color: '#00ff9d' }
-                        },
+                        title: '',  // No title for the volume axis to save space
                         showgrid: false,
                         showticklabels: false,
                         overlaying: 'x',
                         side: 'right',
-                        domain: [0.85, 1],
-                        range: [0, 0.16]  // Fixed range for the normalized volume
+                        domain: [0.95, 1],  // Place at right edge, very compact
+                        range: [0, 0.06]  // Fixed range for the normalized volume
                     };
                 }
                 
