@@ -28,6 +28,7 @@
             display: flex;
             gap: 20px;
             width: 100%;
+            transition: all 0.3s ease;
         }
         .main-chart-container {
             width: 75%;
@@ -35,6 +36,7 @@
             border: 1px solid rgba(0, 255, 157, 0.3);
             margin-top: 20px;
             background-color: rgba(10, 10, 20, 0.5);
+            transition: width 0.3s ease;
         }
         .cvp-chart-container {
             width: 25%;
@@ -42,6 +44,7 @@
             border: 1px solid rgba(0, 255, 157, 0.3);
             margin-top: 20px;
             background-color: rgba(10, 10, 20, 0.5);
+            transition: all 0.3s ease;
         }
         .chart-container {
             width: 100%;
@@ -214,6 +217,36 @@
                     }, [0]); // Apply to the heatmap trace only (index 0)
                 }
             });
+            
+            // Add event listener for the CVP checkbox
+            document.getElementById('showCVP').addEventListener('change', function() {
+                toggleCVPDisplay();
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+            });
+            
+            // Function to toggle CVP display and adjust main chart width
+            function toggleCVPDisplay() {
+                const showCVP = document.getElementById('showCVP').checked;
+                const mainChart = document.getElementById('chart');
+                const cvpChart = document.getElementById('cvpChart');
+                
+                if (showCVP) {
+                    mainChart.style.width = '75%';
+                    cvpChart.style.display = 'block';
+                } else {
+                    mainChart.style.width = '100%';
+                    cvpChart.style.display = 'none';
+                }
+                
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            }
+            
+            // Initialize the display state
+            toggleCVPDisplay();
             
             // Auto refresh every minute - use incremental update
             setInterval(() => loadData(false), 60000);
@@ -446,10 +479,11 @@
                         b: 50,
                         t: 50,
                         pad: 4
-                    }
+                    },
+                    autosize: true
                 };
                 
-                Plotly.newPlot('chart', [trace2, trace1], layout);
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -515,13 +549,11 @@
                             b: 50,
                             t: 50,
                             pad: 4
-                        }
+                        },
+                        autosize: true
                     };
                     
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout);
-                    document.getElementById('cvpChart').style.display = 'block';
-                } else {
-                    document.getElementById('cvpChart').style.display = 'none';
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
                 }
             }
         });
