@@ -223,21 +223,34 @@
             // Function to check for HTTP/3 support
             function checkHttp3Support() {
                 const statusEl = document.getElementById('http3Status');
+                statusEl.textContent = 'Protocol: Checking...';
+                statusEl.style.color = '#ffffff';
                 
-                // Send a test request to the server
+                console.log('Testing HTTP protocol support...');
+                
+                // Use the timerange endpoint as a test
                 fetch('https://heatmapeldritch.gleeze.com:3500/api/timerange', {
                     method: 'GET',
                     headers: {
-                        'Alt-Used': 'heatmapeldritch.gleeze.com:3500'
+                        'Alt-Used': 'heatmapeldritch.gleeze.com:3500',
+                        'Cache-Control': 'no-cache'
                     }
                 })
                 .then(response => {
-                    // Check the response headers for HTTP/3 indicators
-                    const httpVersion = response.headers.get('x-http-version') || 
-                                        response.headers.get('x-http-protocol') || 
-                                        'HTTP/1.1';
+                    console.log('Response received:', response);
+                    console.log('Headers:', [...response.headers.entries()]);
                     
-                    if (httpVersion.includes('3') || httpVersion.includes('quic')) {
+                    // Check multiple header variations for maximum compatibility
+                    const httpVersion = 
+                        response.headers.get('x-http-version') || 
+                        response.headers.get('x-http-protocol') || 
+                        response.headers.get('x-protocol-details') ||
+                        response.proto ||
+                        'HTTP/1.1';
+                    
+                    console.log('Detected HTTP version:', httpVersion);
+                    
+                    if (httpVersion.includes('3') || httpVersion.includes('quic') || httpVersion.includes('QUIC')) {
                         isHttp3Supported = true;
                         statusEl.textContent = 'Protocol: HTTP/3';
                         statusEl.style.color = '#00ffaa'; // Bright green
@@ -251,13 +264,30 @@
                         statusEl.style.color = '#ff9900'; // Orange
                         statusEl.title = 'Using HTTP/1.1';
                     }
-                    console.log('HTTP Protocol detected:', httpVersion);
+                    
                     return response.json();
+                })
+                .then(data => {
+                    console.log('Timerange data:', data);
                 })
                 .catch(error => {
                     console.error('Error detecting HTTP version:', error);
-                    statusEl.textContent = 'Protocol: Error';
+                    statusEl.textContent = 'Protocol: Unknown';
                     statusEl.style.color = '#ff0066'; // Red
+                    statusEl.title = 'Could not detect protocol: ' + error.message;
+                    
+                    // Try again with HTTP instead of HTTPS as fallback
+                    console.log('Retrying with HTTP...');
+                    fetch('http://heatmapeldritch.gleeze.com:3000/api/timerange')
+                        .then(response => {
+                            statusEl.textContent = 'Protocol: HTTP Only';
+                            statusEl.style.color = '#ff6600';
+                            statusEl.title = 'HTTPS connection failed, using HTTP';
+                            console.log('Fallback HTTP response:', response);
+                        })
+                        .catch(err => {
+                            console.error('All protocol detection attempts failed:', err);
+                        });
                 });
             }
             
