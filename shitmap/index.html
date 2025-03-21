@@ -4,14 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
-    
-    <!-- Preconnect to the server with HTTP/3 hint -->
-    <link rel="preconnect" href="https://heatmapeldritch.gleeze.com:443" crossorigin>
-    <link rel="dns-prefetch" href="https://heatmapeldritch.gleeze.com:443">
-    
-    <!-- HTTP/3 early hints -->
-    <meta http-equiv="origin-trial" content="AsOZRsOUSJBGXNs3l10jQQfq6dIzTD1NMkACSlUYTbtgwigoCqhI+7iH9AxHYBcwF/75MxKPglWyayaLBYX3hQYAAABeeyJvcmlnaW4iOiJodHRwczovL2hlYXRtYXBlbGRyaXRjaC5nbGVlemUuY29tOjM1MDAiLCJmZWF0dXJlIjoiSFRUUDMiLCJleHBpcnkiOjE2ODk4MTU5OTl9">
-    
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
@@ -155,23 +147,6 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
-        
-        /* Status indicator style */
-        .status-container {
-            margin-left: auto;
-            background-color: rgba(0, 0, 0, 0.3);
-            padding: 5px 10px;
-            border-radius: 4px;
-            border-left: 3px solid #00ff9d;
-            font-size: 0.9em;
-        }
-        
-        #http3Status {
-            font-family: 'Courier New', monospace;
-            font-weight: bold;
-            cursor: help;
-            color: #00ffaa;
-        }
     </style>
 </head>
 <body>
@@ -208,10 +183,6 @@
                 <input type="checkbox" id="showCVP" checked>
                 <label for="showCVP">Show Volume Profile</label>
             </div>
-            
-            <div class="status-container">
-                <span id="http3Status" title="Using HTTP/3 for faster loading">HTTP/3 Enabled</span>
-            </div>
         </div>
         
         <div class="charts-wrapper">
@@ -221,25 +192,6 @@
     </div>
 
     <script>
-        // Configure fetch to always request HTTP/3
-        const originalFetch = window.fetch;
-        window.fetch = function(url, options = {}) {
-            // Create default options if none provided
-            options = options || {};
-            options.headers = options.headers || {};
-            
-            // Add headers to encourage HTTP/3
-            options.headers['Alt-Used'] = 'heatmapeldritch.gleeze.com:443';
-            
-            // Use HTTP/3 specific connection options when supported
-            if ('connection' in options) {
-                options.connection = 'h3';
-            }
-            
-            // Call the original fetch with our enhanced options
-            return originalFetch(url, options);
-        };
-        
         document.addEventListener('DOMContentLoaded', function() {
             // Keep track of the last timestamp we've fetched
             let lastFetchTime = 0;
@@ -323,7 +275,7 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch all data - Use the enhanced fetch for HTTP/3
+                    // Full refresh - fetch all data
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
@@ -341,7 +293,8 @@
                         alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Auto-update case using HTTP/3 as well
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -355,6 +308,8 @@
                         default: duration = 3600;
                     }
                     
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
                     const startTime = endTime - duration;
                     
                     Promise.all([
@@ -363,6 +318,7 @@
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
