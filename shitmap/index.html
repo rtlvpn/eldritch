@@ -249,80 +249,86 @@
             toggleCVPDisplay();
             
             // Auto refresh every minute - use incremental update
-            setInterval(() => loadData(false), 120000);
+            setInterval(() => loadData(false), 60000);
             
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
                 
-                // Show loading indicator for long time ranges
-                if (timeRange === '48h' || timeRange === '168h') {
-                    // Add a loading indicator to your UI
-                    const statusEl = document.getElementById('status') || document.createElement('div');
-                    statusEl.id = 'status';
-                    statusEl.textContent = 'Loading large dataset, please wait...';
-                    document.body.appendChild(statusEl);
-                }
-                
-                // Calculate time range in seconds
-                let duration;
-                switch(timeRange) {
-                    case '1h': duration = 3600; break;
-                    case '3h': duration = 3600 * 3; break;
-                    case '6h': duration = 3600 * 6; break;
-                    case '12h': duration = 3600 * 12; break;
-                    case '24h': duration = 3600 * 24; break;
-                    case '48h': duration = 3600 * 48; break;
-                    case '168h': duration = 3600 * 168; break;
-                    default: duration = 3600;
-                }
-                
-                const endTime = Math.floor(Date.now() / 1000);
-                const startTime = endTime - duration;
-                
-                // Use Promise.all with timeout for large datasets
-                const fetchWithTimeout = (url, timeoutMs = 180000) => {
-                    return Promise.race([
-                        fetch(url),
-                        new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-                        )
-                    ]).then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP error! status: ${response.status}`);
-                        }
-                        return response.json();
+                // If time range or buckets changed, we need a full refresh
+                if (timeRange !== currentTimeRange || fullRefresh) {
+                    currentTimeRange = timeRange;
+                    
+                    // Calculate time range in seconds
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    const endTime = Math.floor(Date.now() / 1000);
+                    const startTime = endTime - duration;
+                    
+                    // Full refresh - fetch all data
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        alert('Failed to load data. Please try again.');
                     });
-                };
-                
-                // For very large datasets, increase timeout
-                const timeout = (timeRange === '168h') ? 180000 : 60000;
-                
-                Promise.all([
-                    fetchWithTimeout(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`, timeout),
-                    fetchWithTimeout(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`, timeout)
-                ])
-                .then(([candlestickData, heatmapData]) => {
-                    // Remove loading indicator if it exists
-                    const statusEl = document.getElementById('status');
-                    if (statusEl) statusEl.remove();
+                } else {
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
+                    const endTime = Math.floor(Date.now() / 1000);
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
                     
-                    // Continue with your existing data processing
-                    cachedCandlestickData = candlestickData;
-                    cachedHeatmapData = heatmapData;
-                    lastFetchTime = endTime;
-                    renderChart(cachedCandlestickData, cachedHeatmapData);
-                })
-                .catch(error => {
-                    console.error('Error fetching data:', error);
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
+                    const startTime = endTime - duration;
                     
-                    // Show error message to user
-                    const statusEl = document.getElementById('status') || document.createElement('div');
-                    statusEl.id = 'status';
-                    statusEl.textContent = `Error loading data: ${error.message}. Try refreshing or selecting a shorter time period.`;
-                    statusEl.style.color = 'red';
-                    document.body.appendChild(statusEl);
-                });
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        // Silently fail, will retry on next auto-update
+                    });
+                }
             }
             
             // Generate a colorscale with weights adjusted by the density value
