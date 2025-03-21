@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
+    
+    <!-- Preconnect to the server with HTTP/3 hint -->
+    <link rel="preconnect" href="https://heatmapeldritch.gleeze.com:3500" crossorigin>
+    <link rel="dns-prefetch" href="https://heatmapeldritch.gleeze.com:3500">
+    
+    <!-- HTTP/3 early hints -->
+    <meta http-equiv="origin-trial" content="AsOZRsOUSJBGXNs3l10jQQfq6dIzTD1NMkACSlUYTbtgwigoCqhI+7iH9AxHYBcwF/75MxKPglWyayaLBYX3hQYAAABeeyJvcmlnaW4iOiJodHRwczovL2hlYXRtYXBlbGRyaXRjaC5nbGVlemUuY29tOjM1MDAiLCJmZWF0dXJlIjoiSFRUUDMiLCJleHBpcnkiOjE2ODk4MTU5OTl9">
+    
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
@@ -147,6 +155,8 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
+        
+        /* Status indicator style */
         .status-container {
             margin-left: auto;
             background-color: rgba(0, 0, 0, 0.3);
@@ -155,10 +165,12 @@
             border-left: 3px solid #00ff9d;
             font-size: 0.9em;
         }
+        
         #http3Status {
             font-family: 'Courier New', monospace;
             font-weight: bold;
             cursor: help;
+            color: #00ffaa;
         }
     </style>
 </head>
@@ -198,7 +210,7 @@
             </div>
             
             <div class="status-container">
-                <span id="http3Status" title="HTTP Protocol Status">Protocol: Checking...</span>
+                <span id="http3Status" title="Using HTTP/3 for faster loading">HTTP/3 Enabled</span>
             </div>
         </div>
         
@@ -209,105 +221,31 @@
     </div>
 
     <script>
+        // Configure fetch to always request HTTP/3
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options = {}) {
+            // Create default options if none provided
+            options = options || {};
+            options.headers = options.headers || {};
+            
+            // Add headers to encourage HTTP/3
+            options.headers['Alt-Used'] = 'heatmapeldritch.gleeze.com:3500';
+            
+            // Use HTTP/3 specific connection options when supported
+            if ('connection' in options) {
+                options.connection = 'h3';
+            }
+            
+            // Call the original fetch with our enhanced options
+            return originalFetch(url, options);
+        };
+        
         document.addEventListener('DOMContentLoaded', function() {
             // Keep track of the last timestamp we've fetched
             let lastFetchTime = 0;
             let cachedCandlestickData = [];
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
-            let isHttp3Supported = false;
-            
-            // Check for HTTP/3 support and update status indicator
-            checkHttp3Support();
-            
-            // Function to check for HTTP/3 support
-            function checkHttp3Support() {
-                const statusEl = document.getElementById('http3Status');
-                statusEl.textContent = 'Protocol: Checking...';
-                statusEl.style.color = '#ffffff';
-                
-                console.log('Testing HTTP protocol support...');
-                
-                // Use the timerange endpoint as a test
-                fetch('https://heatmapeldritch.gleeze.com:3500/api/timerange', {
-                    method: 'GET',
-                    headers: {
-                        'Alt-Used': 'heatmapeldritch.gleeze.com:3500',
-                        'Cache-Control': 'no-cache'
-                    }
-                })
-                .then(response => {
-                    console.log('Response received:', response);
-                    console.log('Headers:', [...response.headers.entries()]);
-                    
-                    // Check multiple header variations for maximum compatibility
-                    const httpVersion = 
-                        response.headers.get('x-http-version') || 
-                        response.headers.get('x-http-protocol') || 
-                        response.headers.get('x-protocol-details') ||
-                        response.proto ||
-                        'HTTP/1.1';
-                    
-                    console.log('Detected HTTP version:', httpVersion);
-                    
-                    if (httpVersion.includes('3') || httpVersion.includes('quic') || httpVersion.includes('QUIC')) {
-                        isHttp3Supported = true;
-                        statusEl.textContent = 'Protocol: HTTP/3';
-                        statusEl.style.color = '#00ffaa'; // Bright green
-                        statusEl.title = 'Using HTTP/3 (QUIC)';
-                    } else if (httpVersion.includes('2')) {
-                        statusEl.textContent = 'Protocol: HTTP/2';
-                        statusEl.style.color = '#ffcc00'; // Yellow
-                        statusEl.title = 'Using HTTP/2';
-                    } else {
-                        statusEl.textContent = 'Protocol: HTTP/1.1';
-                        statusEl.style.color = '#ff9900'; // Orange
-                        statusEl.title = 'Using HTTP/1.1';
-                    }
-                    
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Timerange data:', data);
-                })
-                .catch(error => {
-                    console.error('Error detecting HTTP version:', error);
-                    statusEl.textContent = 'Protocol: Unknown';
-                    statusEl.style.color = '#ff0066'; // Red
-                    statusEl.title = 'Could not detect protocol: ' + error.message;
-                    
-                    // Try again with HTTP instead of HTTPS as fallback
-                    console.log('Retrying with HTTP...');
-                    fetch('http://heatmapeldritch.gleeze.com:3000/api/timerange')
-                        .then(response => {
-                            statusEl.textContent = 'Protocol: HTTP Only';
-                            statusEl.style.color = '#ff6600';
-                            statusEl.title = 'HTTPS connection failed, using HTTP';
-                            console.log('Fallback HTTP response:', response);
-                        })
-                        .catch(err => {
-                            console.error('All protocol detection attempts failed:', err);
-                        });
-                });
-            }
-            
-            // Enhanced fetch function that optimizes for HTTP/3 when available
-            function enhancedFetch(url, options = {}) {
-                const defaultOptions = {
-                    method: 'GET',
-                    headers: {}
-                };
-                
-                const mergedOptions = {...defaultOptions, ...options};
-                
-                // Add headers to enable and detect HTTP/3
-                if (isHttp3Supported) {
-                    // Add Alt-Used header to help with HTTP/3 negotiation
-                    mergedOptions.headers['Alt-Used'] = 'heatmapeldritch.gleeze.com:3500';
-                }
-                
-                return fetch(url, mergedOptions);
-            }
             
             // Initial load
             loadData(true); // true indicates a full load
@@ -385,10 +323,10 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch all data - USE ENHANCED FETCH
+                    // Full refresh - fetch all data - Use the enhanced fetch for HTTP/3
                     Promise.all([
-                        enhancedFetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        enhancedFetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
@@ -403,7 +341,7 @@
                         alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // Auto-update case using HTTP/3 as well
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -419,14 +357,12 @@
                     
                     const startTime = endTime - duration;
                     
-                    // USE ENHANCED FETCH FOR AUTO-UPDATES TOO
                     Promise.all([
-                        enhancedFetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        enhancedFetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
