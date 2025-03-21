@@ -6,8 +6,8 @@
     <title>Milk Price and Orderbook Heatmap</title>
     
     <!-- Preconnect to the server with HTTP/3 hint -->
-    <link rel="preconnect" href="https://heatmapeldritch.gleeze.com:3500" crossorigin>
-    <link rel="dns-prefetch" href="https://heatmapeldritch.gleeze.com:3500">
+    <link rel="preconnect" href="https://heatmapeldritch.gleeze.com:443" crossorigin>
+    <link rel="dns-prefetch" href="https://heatmapeldritch.gleeze.com:443">
     
     <!-- HTTP/3 early hints -->
     <meta http-equiv="origin-trial" content="AsOZRsOUSJBGXNs3l10jQQfq6dIzTD1NMkACSlUYTbtgwigoCqhI+7iH9AxHYBcwF/75MxKPglWyayaLBYX3hQYAAABeeyJvcmlnaW4iOiJodHRwczovL2hlYXRtYXBlbGRyaXRjaC5nbGVlemUuY29tOjM1MDAiLCJmZWF0dXJlIjoiSFRUUDMiLCJleHBpcnkiOjE2ODk4MTU5OTl9">
@@ -229,7 +229,7 @@
             options.headers = options.headers || {};
             
             // Add headers to encourage HTTP/3
-            options.headers['Alt-Used'] = 'heatmapeldritch.gleeze.com:3500';
+            options.headers['Alt-Used'] = 'heatmapeldritch.gleeze.com:443';
             
             // Use HTTP/3 specific connection options when supported
             if ('connection' in options) {
@@ -325,8 +325,8 @@
                     
                     // Full refresh - fetch all data - Use the enhanced fetch for HTTP/3
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
@@ -358,8 +358,8 @@
                     const startTime = endTime - duration;
                     
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
