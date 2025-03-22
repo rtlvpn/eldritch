@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="https://unpkg.com/@msgpack/msgpack@2.8.0/dist.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <script src="https://unpkg.com/@msgpack/msgpack"></script>
+    <link rel="icon" href="data:,">
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -279,9 +280,15 @@
                     // Full refresh - fetch data with MessagePack for heatmap
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                            .then(res => res.json()),
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res.json();
+                            }),
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                            .then(res => res.arrayBuffer())
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res.arrayBuffer();
+                            })
                             .then(buffer => MessagePackDecoder.decode(buffer))
                     ])
                     .then(([candlestickData, heatmapData]) => {
@@ -315,9 +322,15 @@
                     
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                            .then(res => res.json()),
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res.json();
+                            }),
                         fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                            .then(res => res.arrayBuffer())
+                            .then(res => {
+                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                                return res.arrayBuffer();
+                            })
                             .then(buffer => MessagePackDecoder.decode(buffer))
                     ])
                     .then(([candlestickData, heatmapData]) => {
@@ -337,8 +350,8 @@
             // Add MessagePack decoder utility
             const MessagePackDecoder = {
                 decode: function(buffer) {
-                    // Use the msgpack library to decode the buffer
-                    return msgpack.decode(new Uint8Array(buffer));
+                    // The @msgpack/msgpack library exposes itself as MessagePack, not msgpack
+                    return MessagePack.decode(new Uint8Array(buffer));
                 }
             };
             
