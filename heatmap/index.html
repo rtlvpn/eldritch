@@ -1,559 +1,1168 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Order Book Heatmap</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-    <script src="https://cdn.jsdelivr.net/npm/luxon@3.3.0/build/global/luxon.min.js"></script>
-    <style>
-        :root {
-            --bg-color: #121826;
-            --panel-color: #1a2035;
-            --border-color: #2a3349;
-            --text-color: #c8d3f5;
-            --text-dim: #7a88cf;
-            --bid-color: rgba(52, 168, 83, 0.8);
-            --ask-color: rgba(234, 67, 53, 0.8);
-            --bid-color-light: rgba(52, 168, 83, 0.3);
-            --ask-color-light: rgba(234, 67, 53, 0.3);
-            --grid-color: rgba(122, 136, 207, 0.1);
-            --highlight-color: #2d3f76;
-        }
+package main
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+import (
+	"context"
+	"crypto/tls"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            line-height: 1.6;
-            min-height: 100vh;
-            overflow: hidden;
-        }
+	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/quic-go/quic-go/http3"
+	"github.com/vmihailenco/msgpack/v5"
+	"golang.org/x/time/rate"
+)
 
-        #app-container {
-            display: grid;
-            grid-template-columns: 220px 1fr;
-            grid-template-rows: 60px 1fr;
-            height: 100vh;
-            width: 100vw;
-        }
+// Config holds all application configuration
+type Config struct {
+	Symbol         string
+	Interval       time.Duration
+	OrderbookDepth int
+	DatabasePath   string
+	BinanceBaseURL string
+	RetryDelay     time.Duration
+	MaxRetries     int
+	APIPort        int
+	APIPortHTTPS   int
+	APIPortHTTP3   int
+	CertPath       string
+	PrivKeyPath    string
+}
 
-        #header {
-            grid-column: 1 / 3;
-            grid-row: 1;
-            padding: 0 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background-color: var(--panel-color);
-            border-bottom: 1px solid var(--border-color);
-            z-index: 10;
-        }
+// TickerResponse represents Binance ticker response
+type TickerResponse struct {
+	Symbol string `json:"symbol"`
+	Price  string `json:"price"`
+}
 
-        #sidebar {
-            grid-column: 1;
-            grid-row: 2;
-            background-color: var(--panel-color);
-            border-right: 1px solid var(--border-color);
-            padding: 15px;
-            overflow-y: auto;
-        }
+// OrderbookResponse represents Binance orderbook response
+type OrderbookResponse struct {
+	LastUpdateID int         `json:"lastUpdateId"`
+	Bids         [][2]string `json:"bids"`
+	Asks         [][2]string `json:"asks"`
+}
 
-        #main-content {
-            grid-column: 2;
-            grid-row: 2;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
+// OHLCData represents candlestick data
+type OHLCData struct {
+	Timestamp int64   `json:"timestamp"`
+	Open      float64 `json:"open"`
+	High      float64 `json:"high"`
+	Low       float64 `json:"low"`
+	Close     float64 `json:"close"`
+}
 
-        .chart-container {
-            position: relative;
-            flex: 1;
-            min-height: 0;
-        }
+// TimeRange represents min and max timestamps in the database
+type TimeRange struct {
+	MinTime int64 `json:"min_time"`
+	MaxTime int64 `json:"max_time"`
+}
 
-        #price-chart {
-            height: 40%;
-            border-bottom: 1px solid var(--border-color);
-        }
+// HeatmapItem represents a single timestamp's heatmap data
+type HeatmapItem struct {
+	Timestamp int64     `json:"timestamp"`
+	Volumes   []float64 `json:"volumes"`
+}
 
-        #heatmap-container {
-            height: 60%;
-            position: relative;
-        }
+// HeatmapResponse represents the full heatmap data structure
+type HeatmapResponse struct {
+	Timestamps  []int64       `json:"timestamps"`
+	PriceLevels []float64     `json:"priceLevels"`
+	Heatmap     []HeatmapItem `json:"heatmap"`
+}
 
-        #heatmap-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
+// Global variables
+var (
+	config       Config
+	db           *sql.DB
+	isCollecting bool
+	collectMutex sync.Mutex
+)
 
-        #price-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 5;
-        }
+func main() {
+	// Initialize configuration
+	config = Config{
+		Symbol:         "TRXUSDT",
+		Interval:       60 * time.Second,
+		OrderbookDepth: 5000,
+		DatabasePath:   filepath.Join("data", "trx_orderbook.db"),
+		BinanceBaseURL: "https://api.binance.com/api/v3",
+		RetryDelay:     5 * time.Second,
+		MaxRetries:     3,
+		APIPort:        getEnvAsInt("PORT", 3000),
+		APIPortHTTPS:   getEnvAsInt("HTTPS_PORT", 3500),
+		APIPortHTTP3:   getEnvAsInt("HTTP3_PORT", 3500),
+		CertPath:       getEnv("CERT_PATH", "/etc/letsencrypt/live/heatmapeldritch.gleeze.com/fullchain.pem"),
+		PrivKeyPath:    getEnv("PRIVKEY_PATH", "/etc/letsencrypt/live/heatmapeldritch.gleeze.com/privkey.pem"),
+	}
 
-        .control-group {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid var(--border-color);
-        }
+	// Ensure data directory exists
+	dataDir := filepath.Dir(config.DatabasePath)
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
+	}
 
-        .control-group h3 {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            color: var(--text-dim);
-        }
+	// Initialize database
+	var err error
+	db, err = sql.Open("sqlite3", config.DatabasePath)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
 
-        .control-item {
-            margin-bottom: 10px;
-        }
+	// Set connection pool parameters
+	db.SetMaxOpenConns(1) // SQLite supports only one writer at a time
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(time.Hour)
 
-        label {
-            display: block;
-            font-size: 13px;
-            margin-bottom: 5px;
-        }
+	log.Printf("Connected to database at %s", config.DatabasePath)
 
-        select, input {
-            width: 100%;
-            padding: 8px 10px;
-            border-radius: 4px;
-            background-color: var(--bg-color);
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-            font-size: 13px;
-        }
+	// Initialize database tables
+	initializeDatabase()
 
-        select:focus, input:focus {
-            outline: none;
-            border-color: #7a88cf;
-        }
+	startApplication()
+}
 
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            font-size: 13px;
-        }
+// Helper functions for environment variables
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
+func getEnvAsInt(key string, fallback int) int {
+	strVal := getEnv(key, "")
+	if value, err := strconv.Atoi(strVal); err == nil {
+		return value
+	}
+	return fallback
+}
 
-        .connected {
-            background-color: var(--bid-color);
-        }
+// Initialize database tables and indexes
+func initializeDatabase() {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS ticker_data (
+			timestamp INTEGER PRIMARY KEY,
+			price REAL NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS orderbook_data (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			timestamp INTEGER NOT NULL,
+			price_level REAL NOT NULL,
+			quantity REAL NOT NULL,
+			side TEXT NOT NULL,
+			FOREIGN KEY (timestamp) REFERENCES ticker_data (timestamp)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_orderbook_timestamp ON orderbook_data (timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_orderbook_side ON orderbook_data (side)`,
+		`CREATE INDEX IF NOT EXISTS idx_orderbook_price_level ON orderbook_data (price_level)`,
+		`CREATE INDEX IF NOT EXISTS idx_orderbook_timestamp_price ON orderbook_data (timestamp, price_level)`,
+		`PRAGMA journal_mode = WAL`,
+		`PRAGMA synchronous = NORMAL`,
+		`PRAGMA cache_size = -32000`, // 32MB cache
+		`PRAGMA temp_store = MEMORY`,
+		`PRAGMA mmap_size = 268435456`, // 256MB mmap
+	}
 
-        .disconnected {
-            background-color: var(--ask-color);
-        }
+	for _, stmt := range statements {
+		_, err := db.Exec(stmt)
+		if err != nil {
+			log.Fatalf("Database initialization error: %v", err)
+		}
+	}
 
-        .loading {
-            background-color: #fbbc05;
-        }
+	log.Println("Database initialized successfully")
+}
 
-        .price-label {
-            position: absolute;
-            right: 10px;
-            padding: 4px 8px;
-            background-color: var(--panel-color);
-            border: 1px solid var(--border-color);
-            font-size: 12px;
-            border-radius: 4px;
-            font-weight: 600;
-        }
+// API functions
+func fetchTickerPrice(ctx context.Context, retries int) (float64, error) {
+	url := fmt.Sprintf("%s/ticker/price?symbol=%s", config.BinanceBaseURL, config.Symbol)
 
-        .bid-label {
-            color: var(--bid-color);
-        }
+	for i := 0; i <= retries; i++ {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return 0, err
+		}
 
-        .ask-label {
-            color: var(--ask-color);
-        }
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			if i < retries {
+				log.Printf("Error fetching ticker price, retrying (%d attempts left): %v", retries-i, err)
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return 0, err
+		}
+		defer resp.Body.Close()
 
-        .tooltip {
-            position: absolute;
-            display: none;
-            background-color: var(--panel-color);
-            border: 1px solid var(--border-color);
-            padding: 8px 12px;
-            border-radius: 4px;
-            pointer-events: none;
-            font-size: 12px;
-            z-index: 100;
-        }
+		if resp.StatusCode != http.StatusOK {
+			body, _ := ioutil.ReadAll(resp.Body)
+			if i < retries {
+				log.Printf("Error fetching ticker price (status %d), retrying (%d attempts left): %s",
+					resp.StatusCode, retries-i, string(body))
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		}
 
-        .stat-value {
-            font-weight: 600;
-            font-size: 16px;
-        }
+		var tickerResp TickerResponse
+		if err := json.NewDecoder(resp.Body).Decode(&tickerResp); err != nil {
+			if i < retries {
+				log.Printf("Error decoding ticker response, retrying (%d attempts left): %v", retries-i, err)
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return 0, err
+		}
 
-        .stat-label {
-            font-size: 12px;
-            color: var(--text-dim);
-        }
+		price, err := strconv.ParseFloat(tickerResp.Price, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid price format: %v", err)
+		}
+		return price, nil
+	}
 
-        .stat-box {
-            display: flex;
-            flex-direction: column;
-            margin-right: 20px;
-        }
+	return 0, fmt.Errorf("failed to fetch ticker price after %d attempts", retries+1)
+}
 
-        .stats-container {
-            display: flex;
-        }
+func fetchOrderbook(ctx context.Context, retries int) (OrderbookResponse, error) {
+	url := fmt.Sprintf("%s/depth?symbol=%s&limit=%d",
+		config.BinanceBaseURL, config.Symbol, config.OrderbookDepth)
 
-        #symbol-picker {
-            font-weight: 600;
-            font-size: 18px;
-            background-color: transparent;
-            border: none;
-            color: var(--text-color);
-            cursor: pointer;
-        }
+	var orderbook OrderbookResponse
 
-        .time-selector {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 10px;
-        }
+	for i := 0; i <= retries; i++ {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return orderbook, err
+		}
 
-        .time-button {
-            padding: 4px 8px;
-            background-color: var(--bg-color);
-            border: 1px solid var(--border-color);
-            color: var(--text-dim);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        }
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			if i < retries {
+				log.Printf("Error fetching orderbook, retrying (%d attempts left): %v", retries-i, err)
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return orderbook, err
+		}
+		defer resp.Body.Close()
 
-        .time-button.active {
-            background-color: var(--highlight-color);
-            color: var(--text-color);
-            border-color: var(--text-dim);
-        }
+		if resp.StatusCode != http.StatusOK {
+			body, _ := ioutil.ReadAll(resp.Body)
+			if i < retries {
+				log.Printf("Error fetching orderbook (status %d), retrying (%d attempts left): %s",
+					resp.StatusCode, retries-i, string(body))
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return orderbook, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+		}
 
-        .legend {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            font-size: 12px;
-            margin-top: 10px;
-        }
+		if err := json.NewDecoder(resp.Body).Decode(&orderbook); err != nil {
+			if i < retries {
+				log.Printf("Error decoding orderbook response, retrying (%d attempts left): %v", retries-i, err)
+				time.Sleep(config.RetryDelay)
+				continue
+			}
+			return orderbook, err
+		}
 
-        .legend-item {
-            display: flex;
-            align-items: center;
-        }
+		return orderbook, nil
+	}
 
-        .legend-color {
-            width: 12px;
-            height: 12px;
-            margin-right: 5px;
-            border-radius: 2px;
-        }
+	return orderbook, fmt.Errorf("failed to fetch orderbook after %d attempts", retries+1)
+}
 
-        /* Loading Spinner */
-        .loading-overlay {
-            position: absolute;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(18, 24, 38, 0.7);
-            z-index: 999;
-        }
+// Database operations
+func saveData(timestamp int64, price float64, orderbook OrderbookResponse) bool {
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Error beginning transaction: %v", err)
+		return false
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		}
+	}()
 
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-left-color: var(--text-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
+	// Insert ticker data
+	_, err = tx.Exec("INSERT INTO ticker_data (timestamp, price) VALUES (?, ?)", timestamp, price)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Error inserting ticker data: %v", err)
+		return false
+	}
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+	// Prepare statement for orderbook data
+	stmt, err := tx.Prepare("INSERT INTO orderbook_data (timestamp, price_level, quantity, side) VALUES (?, ?, ?, ?)")
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Error preparing orderbook statement: %v", err)
+		return false
+	}
+	defer stmt.Close()
 
-        /* Order book side panel */
-        #orderbook-panel {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 180px;
-            height: 100%;
-            background-color: var(--panel-color);
-            border-left: 1px solid var(--border-color);
-            font-size: 12px;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
+	// Insert bids
+	for _, bid := range orderbook.Bids {
+		priceLevel, _ := strconv.ParseFloat(bid[0], 64)
+		quantity, _ := strconv.ParseFloat(bid[1], 64)
+		_, err = stmt.Exec(timestamp, priceLevel, quantity, "buy")
+		if err != nil {
+			tx.Rollback()
+			log.Printf("Error inserting bid data: %v", err)
+			return false
+		}
+	}
 
-        .orderbook-header {
-            padding: 8px;
-            background-color: var(--bg-color);
-            font-weight: 600;
-            display: flex;
-            justify-content: space-between;
-        }
+	// Insert asks
+	for _, ask := range orderbook.Asks {
+		priceLevel, _ := strconv.ParseFloat(ask[0], 64)
+		quantity, _ := strconv.ParseFloat(ask[1], 64)
+		_, err = stmt.Exec(timestamp, priceLevel, quantity, "sell")
+		if err != nil {
+			tx.Rollback()
+			log.Printf("Error inserting ask data: %v", err)
+			return false
+		}
+	}
 
-        .spread-info {
-            padding: 6px 8px;
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-            border-top: 1px solid var(--border-color);
-            font-size: 11px;
-        }
+	if err = tx.Commit(); err != nil {
+		log.Printf("Error committing transaction: %v", err)
+		return false
+	}
 
-        .orderbook-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+	return true
+}
 
-        .orderbook-side {
-            flex: 1;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-        }
+// Query functions
+func getLatestTickerData() map[string]interface{} {
+	row := db.QueryRow("SELECT * FROM ticker_data ORDER BY timestamp DESC LIMIT 1")
 
-        .orderbook-asks {
-            flex-direction: column-reverse;
-        }
+	var timestamp int64
+	var price float64
+	var createdAt string
 
-        .orderbook-level {
-            display: flex;
-            padding: 2px 8px;
-            font-family: monospace;
-            position: relative;
-            height: 18px;
-        }
+	if err := row.Scan(&timestamp, &price, &createdAt); err != nil {
+		log.Printf("Error getting latest ticker data: %v", err)
+		return nil
+	}
 
-        .orderbook-price {
-            width: 50%;
-            z-index: 1;
-        }
+	return map[string]interface{}{
+		"timestamp":  timestamp,
+		"price":      price,
+		"created_at": createdAt,
+	}
+}
 
-        .orderbook-volume {
-            width: 50%;
-            text-align: right;
-            z-index: 1;
-        }
+func getOrderbookSnapshot(timestamp int64) []map[string]interface{} {
+	rows, err := db.Query(`
+		SELECT price_level, quantity, side
+		FROM orderbook_data
+		WHERE timestamp = ?
+		ORDER BY side, price_level
+	`, timestamp)
 
-        .orderbook-bar {
-            position: absolute;
-            top: 0;
-            right: 0;
-            height: 100%;
-            z-index: 0;
-        }
+	if err != nil {
+		log.Printf("Error getting orderbook snapshot: %v", err)
+		return []map[string]interface{}{}
+	}
+	defer rows.Close()
 
-        .bid-bar {
-            background-color: var(--bid-color-light);
-        }
+	result := []map[string]interface{}{}
+	for rows.Next() {
+		var priceLevel, quantity float64
+		var side string
 
-        .ask-bar {
-            background-color: var(--ask-color-light);
-        }
+		if err := rows.Scan(&priceLevel, &quantity, &side); err != nil {
+			log.Printf("Error scanning orderbook row: %v", err)
+			continue
+		}
 
-        .orderbook-price.bid {
-            color: var(--bid-color);
-        }
+		result = append(result, map[string]interface{}{
+			"price_level": priceLevel,
+			"quantity":    quantity,
+			"side":        side,
+		})
+	}
 
-        .orderbook-price.ask {
-            color: var(--ask-color);
-        }
+	return result
+}
 
-        .crosshair {
-            position: absolute;
-            pointer-events: none;
-            z-index: 10;
-        }
+func getCandlestickData(startTime, endTime int64, interval int) []OHLCData {
+	query := `
+		WITH time_intervals AS (
+			SELECT 
+				(timestamp / ?) * ? AS interval_start,
+				MAX(timestamp) AS max_time,
+				MIN(timestamp) AS min_time,
+				MAX(price) AS high,
+				MIN(price) AS low,
+				FIRST_VALUE(price) OVER (PARTITION BY (timestamp / ?) * ? ORDER BY timestamp) AS open,
+				LAST_VALUE(price) OVER (PARTITION BY (timestamp / ?) * ? ORDER BY timestamp 
+					RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS close
+			FROM ticker_data
+			WHERE timestamp BETWEEN ? AND ?
+			GROUP BY interval_start
+		)
+		SELECT 
+			interval_start * 1000 AS timestamp,
+			open, high, low, close
+		FROM time_intervals
+		ORDER BY interval_start
+	`
 
-        .crosshair-x {
-            border-top: 1px dashed var(--text-dim);
-            width: 100%;
-        }
+	rows, err := db.Query(query, interval, interval, interval, interval, interval, interval, startTime, endTime)
+	if err != nil {
+		log.Printf("Error getting candlestick data: %v", err)
+		return []OHLCData{}
+	}
+	defer rows.Close()
 
-        .crosshair-y {
-            border-left: 1px dashed var(--text-dim);
-            height: 100%;
-        }
+	result := []OHLCData{}
+	for rows.Next() {
+		var ohlc OHLCData
+		if err := rows.Scan(&ohlc.Timestamp, &ohlc.Open, &ohlc.High, &ohlc.Low, &ohlc.Close); err != nil {
+			log.Printf("Error scanning candlestick row: %v", err)
+			continue
+		}
+		result = append(result, ohlc)
+	}
 
-        .crosshair-label {
-            position: absolute;
-            background-color: var(--panel-color);
-            border: 1px solid var(--border-color);
-            padding: 2px 6px;
-            font-size: 11px;
-            border-radius: 2px;
-        }
-    </style>
-</head>
-<body>
-    <div id="app-container">
-        <header id="header">
-            <div class="app-info">
-                <select id="symbol-picker">
-                    <option value="BTCUSDT">BTCUSDT</option>
-                    <option value="ETHUSDT">ETHUSDT</option>
-                    <option value="TRXUSDT" selected>TRXUSDT</option>
-                    <option value="SOLUSDT">SOLUSDT</option>
-                    <option value="BNBUSDT">BNBUSDT</option>
-                </select>
-            </div>
-            <div class="stats-container">
-                <div class="stat-box">
-                    <div class="stat-value" id="price-value">--</div>
-                    <div class="stat-label">Price</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-value" id="spread-value">--</div>
-                    <div class="stat-label">Spread</div>
-                </div>
-                <div class="stat-box">
-                    <div class="stat-value" id="imbalance-value">--</div>
-                    <div class="stat-label">Imbalance</div>
-                </div>
-            </div>
-            <div class="status-indicator">
-                <div class="status-dot disconnected" id="connection-status"></div>
-                <span id="status-text">Disconnected</span>
-            </div>
-        </header>
-        
-        <aside id="sidebar">
-            <div class="control-group">
-                <h3>Timeframe</h3>
-                <div class="time-selector">
-                    <button class="time-button" data-minutes="5">5m</button>
-                    <button class="time-button" data-minutes="15">15m</button>
-                    <button class="time-button active" data-minutes="60">1h</button>
-                    <button class="time-button" data-minutes="240">4h</button>
-                    <button class="time-button" data-minutes="1440">1d</button>
-                </div>
-                <div class="control-item">
-                    <label for="auto-refresh">Auto Refresh</label>
-                    <select id="auto-refresh">
-                        <option value="none">Off</option>
-                        <option value="2000" selected>2 sec</option>
-                        <option value="5000">5 sec</option>
-                        <option value="10000">10 sec</option>
-                    </select>
-                </div>
-            </div>
+	return result
+}
 
-            <div class="control-group">
-                <h3>Heatmap Settings</h3>
-                <div class="control-item">
-                    <label for="bucket-size">Price Bucket Size</label>
-                    <input type="number" id="bucket-size" min="0.00001" step="0.00001" value="0.001">
-                </div>
-                <div class="control-item">
-                    <label for="max-buckets">Max Buckets</label>
-                    <input type="number" id="max-buckets" min="50" max="500" step="10" value="200">
-                </div>
-                <div class="control-item">
-                    <label for="color-intensity">Color Intensity</label>
-                    <input type="range" id="color-intensity" min="0.1" max="2" step="0.1" value="1">
-                </div>
-            </div>
+func getHeatmapData(startTime, endTime int64, priceBuckets int) HeatmapResponse {
+	var response HeatmapResponse
 
-            <div class="control-group">
-                <h3>Display Options</h3>
-                <div class="control-item">
-                    <label>
-                        <input type="checkbox" id="show-price-line" checked>
-                        Show Price Line
-                    </label>
-                </div>
-                <div class="control-item">
-                    <label>
-                        <input type="checkbox" id="show-cvd" checked>
-                        Show CVD
-                    </label>
-                </div>
-                <div class="control-item">
-                    <label>
-                        <input type="checkbox" id="show-crosshair" checked>
-                        Show Crosshair
-                    </label>
-                </div>
-            </div>
+	// 1. Get the price range - simple and fast query
+	var minPrice, maxPrice sql.NullFloat64
+	err := db.QueryRow(`
+		SELECT MIN(price) AS min_price, MAX(price) AS max_price
+		FROM ticker_data
+		WHERE timestamp BETWEEN ? AND ?
+	`, startTime, endTime).Scan(&minPrice, &maxPrice)
 
-            <div class="legend">
-                <div class="legend-item">
-                    <div class="legend-color" style="background-color: var(--bid-color);"></div>
-                    <span>Bids</span>
-                </div>
-                <div class="legend-item">
-                    <div class="legend-color" style="background-color: var(--ask-color);"></div>
-                    <span>Asks</span>
-                </div>
-            </div>
-        </aside>
-        
-        <main id="main-content">
-            <div id="price-chart" class="chart-container">
-                <svg id="price-chart-svg" width="100%" height="100%"></svg>
-                <div class="loading-overlay" id="price-loading">
-                    <div class="spinner"></div>
-                </div>
-            </div>
-            <div id="heatmap-container" class="chart-container">
-                <canvas id="heatmap-canvas"></canvas>
-                <div id="price-overlay"></div>
-                <div id="orderbook-panel">
-                    <div class="orderbook-header">
-                        <span>Price</span>
-                        <span>Volume</span>
-                    </div>
-                    <div class="orderbook-container">
-                        <div class="orderbook-side orderbook-asks" id="orderbook-asks"></div>
-                        <div class="spread-info" id="orderbook-spread">Spread: <span id="ob-spread-value">--</span></div>
-                        <div class="orderbook-side orderbook-bids" id="orderbook-bids"></div>
-                    </div>
-                </div>
-                <div class="tooltip" id="heatmap-tooltip"></div>
-                <div class="loading-overlay" id="heatmap-loading">
-                    <div class="spinner"></div>
-                </div>
-                <div class="crosshair" id="crosshair-x"></div>
-                <div class="crosshair" id="crosshair-y"></div>
-                <div class="crosshair-label" id="crosshair-price-label"></div>
-                <div class="crosshair-label" id="crosshair-time-label"></div>
-            </div>
-        </main>
-    </div>
+	if err != nil || !minPrice.Valid || !maxPrice.Valid {
+		log.Printf("Error getting price range: %v", err)
+		return response
+	}
 
-    <script src="apps.js"></script>
-</body>
-</html>
+	// Add margin to price range
+	margin := (maxPrice.Float64 - minPrice.Float64) * 0.30
+	min := minPrice.Float64 - margin
+	max := maxPrice.Float64 + margin
+	priceStep := (max - min) / float64(priceBuckets)
+
+	// 2. First get just the timestamps - this is very fast in SQLite with an index
+	rows, err := db.Query(`
+		SELECT DISTINCT timestamp 
+		FROM ticker_data
+		WHERE timestamp BETWEEN ? AND ?
+		ORDER BY timestamp
+	`, startTime, endTime)
+
+	if err != nil {
+		log.Printf("Error getting timestamps: %v", err)
+		return response
+	}
+
+	var timestamps []int64
+	for rows.Next() {
+		var ts int64
+		if err := rows.Scan(&ts); err != nil {
+			log.Printf("Error scanning timestamp: %v", err)
+			continue
+		}
+		timestamps = append(timestamps, ts)
+	}
+	rows.Close()
+
+	if len(timestamps) == 0 {
+		return response
+	}
+
+	// 3. Generate price levels
+	priceLevels := make([]float64, priceBuckets)
+	for i := 0; i < priceBuckets; i++ {
+		priceLevels[i] = min + float64(i)*priceStep
+	}
+
+	// 4. Prepare the efficient query once - avoiding repeated preparations
+	stmt, err := db.Prepare(`
+		SELECT 
+			CAST((price_level - ?) / ? AS INTEGER) AS bucket_index,
+			SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) AS volume
+		FROM orderbook_data
+		WHERE timestamp = ? AND price_level BETWEEN ? AND ?
+		GROUP BY bucket_index
+		HAVING bucket_index BETWEEN 0 AND ?
+	`)
+
+	if err != nil {
+		log.Printf("Error preparing statement: %v", err)
+		return response
+	}
+	defer stmt.Close()
+
+	// 5. Create the return structures once and reuse
+	heatmapItems := make([]HeatmapItem, 0, len(timestamps))
+
+	// 6. Use batching for timestamps - processing chunks of timestamps at a time
+	batchSize := 50 // Adjust based on testing
+	for i := 0; i < len(timestamps); i += batchSize {
+		end := i + batchSize
+		if end > len(timestamps) {
+			end = len(timestamps)
+		}
+
+		for j := i; j < end; j++ {
+			ts := timestamps[j]
+
+			// Execute the prepared statement for each timestamp
+			bucketRows, err := stmt.Query(min, priceStep, ts, min, max, priceBuckets-1)
+			if err != nil {
+				log.Printf("Error querying for timestamp %d: %v", ts, err)
+				continue
+			}
+
+			// Initialize volumes array with zeros
+			volumes := make([]float64, priceBuckets)
+
+			// Fill in the non-zero values
+			for bucketRows.Next() {
+				var bucketIndex int
+				var volume float64
+				if err := bucketRows.Scan(&bucketIndex, &volume); err != nil {
+					log.Printf("Error scanning bucket row: %v", err)
+					continue
+				}
+
+				if bucketIndex >= 0 && bucketIndex < priceBuckets {
+					volumes[bucketIndex] = volume
+				}
+			}
+			bucketRows.Close()
+
+			heatmapItems = append(heatmapItems, HeatmapItem{
+				Timestamp: ts,
+				Volumes:   volumes,
+			})
+		}
+	}
+
+	// 7. Construct the final response
+	response = HeatmapResponse{
+		Timestamps:  timestamps,
+		PriceLevels: priceLevels,
+		Heatmap:     heatmapItems,
+	}
+
+	return response
+}
+
+// Data collection
+func collectData() {
+	timestamp := time.Now().Unix()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	log.Printf("[%s] Fetching data for %s", time.Now().Format(time.RFC3339), config.Symbol)
+
+	price, err := fetchTickerPrice(ctx, config.MaxRetries)
+	if err != nil {
+		log.Printf("Failed to fetch ticker price: %v", err)
+		return
+	}
+
+	orderbook, err := fetchOrderbook(ctx, config.MaxRetries)
+	if err != nil {
+		log.Printf("Failed to fetch orderbook: %v", err)
+		return
+	}
+
+	if saveData(timestamp, price, orderbook) {
+		log.Printf("Data saved successfully. Price: %f, Bids: %d, Asks: %d",
+			price, len(orderbook.Bids), len(orderbook.Asks))
+	}
+}
+
+func scheduleDataCollection() {
+	collectMutex.Lock()
+	if isCollecting {
+		collectMutex.Unlock()
+		return
+	}
+	isCollecting = true
+	collectMutex.Unlock()
+
+	collectData()
+
+	collectMutex.Lock()
+	isCollecting = false
+	collectMutex.Unlock()
+}
+
+// Rate limiting middleware
+func rateLimiterMiddleware(next http.Handler) http.Handler {
+	limiter := rate.NewLimiter(rate.Every(15*time.Minute/100), 1) // 100 requests per 15 minutes
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// CORS middleware with support for HTTP/3 headers
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+
+		// Allow the Alt-Used header required for HTTP/3
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization, Alt-Used, Connection")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Enhanced HTTP version middleware with detailed request logging
+func httpVersionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Start time for request duration tracking
+		startTime := time.Now()
+
+		// Format Alt-Svc header for port 443 specifically
+		host := r.Host
+		if strings.Contains(host, ":") {
+			host = strings.Split(host, ":")[0] // Extract just the hostname
+		}
+
+		// Using port 443 specifically for HTTP/3
+		w.Header().Set("Alt-Svc", fmt.Sprintf(`h3="%s:443"; ma=2592000, h3-29="%s:443"; ma=2592000`,
+			host, host))
+
+		// Determine protocol with detailed info
+		proto := r.Proto
+		var protoDetails string
+
+		if r.ProtoMajor == 3 || strings.Contains(r.Proto, "QUIC") || strings.Contains(r.Proto, "h3") {
+			proto = "HTTP/3"
+			protoDetails = "QUIC/HTTP3"
+		} else if r.ProtoMajor == 2 {
+			proto = "HTTP/2"
+			protoDetails = r.Proto
+		} else {
+			proto = "HTTP/1.1"
+			protoDetails = r.Proto
+		}
+
+		// Add protocol info to response headers
+		w.Header().Set("X-HTTP-Version", proto)
+		w.Header().Set("X-HTTP-Protocol", proto)
+		w.Header().Set("X-Protocol-Details", protoDetails)
+
+		// Create a response wrapper to capture status code
+		rww := &responseWriterWrapper{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK, // Default status code
+		}
+
+		// Pass the wrapped response writer to the next handler
+		next.ServeHTTP(rww, r)
+
+		// Calculate request duration
+		duration := time.Since(startTime)
+
+		// Log detailed request information including protocol, path, status code, and duration
+		log.Printf("[%s] %s %s %s → %d (%s) in %s (TLS: %v, RemoteAddr: %s)",
+			proto,
+			r.Method,
+			r.URL.Path,
+			r.Host,
+			rww.statusCode,
+			http.StatusText(rww.statusCode),
+			duration.Round(time.Millisecond),
+			r.TLS != nil,
+			r.RemoteAddr)
+	})
+}
+
+// Response writer wrapper to capture status code
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rww *responseWriterWrapper) WriteHeader(code int) {
+	rww.statusCode = code
+	rww.ResponseWriter.WriteHeader(code)
+}
+
+// Enhanced API handlers with detailed logging for each endpoint
+func handleLatestTicker(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+	log.Printf("[%s] Processing latest ticker request from %s", requestID, r.RemoteAddr)
+
+	data := getLatestTickerData()
+	if data == nil {
+		log.Printf("[%s] No ticker data available", requestID)
+		json.NewEncoder(w).Encode(map[string]string{"error": "No data available"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		log.Printf("[%s] Error encoding ticker response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned latest ticker data", requestID)
+	}
+}
+
+func handleCandlesticks(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+
+	endTime, _ := strconv.ParseInt(r.URL.Query().Get("endTime"), 10, 64)
+	if endTime == 0 {
+		endTime = time.Now().Unix()
+	}
+
+	startTime, _ := strconv.ParseInt(r.URL.Query().Get("startTime"), 10, 64)
+	if startTime == 0 {
+		startTime = endTime - 3600 // Default to last hour
+	}
+
+	interval, _ := strconv.Atoi(r.URL.Query().Get("interval"))
+	if interval == 0 {
+		interval = 60 // Default to 1 minute
+	}
+
+	log.Printf("[%s] Candlesticks request: startTime=%d, endTime=%d, interval=%d",
+		requestID, startTime, endTime, interval)
+
+	data := getCandlestickData(startTime, endTime, interval)
+
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		log.Printf("[%s] Error encoding candlestick response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned %d candlestick records", requestID, len(data))
+	}
+}
+
+func handleOrderbook(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+
+	vars := mux.Vars(r)
+	timestamp, err := strconv.ParseInt(vars["timestamp"], 10, 64)
+	if err != nil {
+		log.Printf("[%s] Invalid timestamp: %v", requestID, err)
+		http.Error(w, "Invalid timestamp", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("[%s] Orderbook request for timestamp %d", requestID, timestamp)
+
+	data := getOrderbookSnapshot(timestamp)
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(data)
+	if err != nil {
+		log.Printf("[%s] Error encoding orderbook response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned orderbook with %d entries", requestID, len(data))
+	}
+}
+
+func handleHeatmap(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+
+	endTime, _ := strconv.ParseInt(r.URL.Query().Get("endTime"), 10, 64)
+	if endTime == 0 {
+		endTime = time.Now().Unix()
+	}
+
+	startTime, _ := strconv.ParseInt(r.URL.Query().Get("startTime"), 10, 64)
+	if startTime == 0 {
+		startTime = endTime - 3600 // Default to last hour
+	}
+
+	buckets, _ := strconv.Atoi(r.URL.Query().Get("buckets"))
+	if buckets == 0 {
+		buckets = 100 // Default to 100 buckets
+	}
+
+	log.Printf("[%s] Heatmap request: startTime=%d, endTime=%d, buckets=%d",
+		requestID, startTime, endTime, buckets)
+
+	startProcess := time.Now()
+	data := getHeatmapData(startTime, endTime, buckets)
+	processingTime := time.Since(startProcess)
+
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(data)
+	if err != nil {
+		log.Printf("[%s] Error encoding heatmap response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned heatmap with %d timestamps and %d price levels in %s",
+			requestID, len(data.Timestamps), len(data.PriceLevels), processingTime.Round(time.Millisecond))
+	}
+}
+
+func handleTimeRange(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+	log.Printf("[%s] Processing timerange request from %s via %s",
+		requestID, r.RemoteAddr, getProtocolString(r))
+
+	var timeRange TimeRange
+	err := db.QueryRow(`
+		SELECT MIN(timestamp) AS min_time, MAX(timestamp) AS max_time
+		FROM ticker_data
+	`).Scan(&timeRange.MinTime, &timeRange.MaxTime)
+
+	if err != nil {
+		log.Printf("[%s] Error getting time range: %v", requestID, err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(timeRange); err != nil {
+		log.Printf("[%s] Error encoding timerange response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned timerange: min=%d, max=%d",
+			requestID, timeRange.MinTime, timeRange.MaxTime)
+	}
+}
+
+// Handle heatmap data in MessagePack format
+func handleHeatmapMsgpack(w http.ResponseWriter, r *http.Request) {
+	requestID := generateRequestID()
+	log.Printf("[%s] Processing heatmap msgpack request from %s via %s",
+		requestID, r.RemoteAddr, getProtocolString(r))
+
+	// Parse query parameters
+	query := r.URL.Query()
+	startTime, err := strconv.ParseInt(query.Get("startTime"), 10, 64)
+	if err != nil || startTime == 0 {
+		startTime = time.Now().Add(-1 * time.Hour).Unix()
+	}
+
+	endTime, err := strconv.ParseInt(query.Get("endTime"), 10, 64)
+	if err != nil || endTime == 0 {
+		endTime = time.Now().Unix()
+	}
+
+	buckets, err := strconv.Atoi(query.Get("buckets"))
+	if err != nil || buckets == 0 {
+		buckets = 100 // Default bucket count
+	}
+
+	log.Printf("[%s] Heatmap msgpack request: startTime=%d, endTime=%d, buckets=%d",
+		requestID, startTime, endTime, buckets)
+
+	startProcess := time.Now()
+	data := getHeatmapData(startTime, endTime, buckets)
+	processingTime := time.Since(startProcess)
+
+	// Set content type for MessagePack
+	w.Header().Set("Content-Type", "application/msgpack")
+
+	// Encode data as MessagePack
+	encodedData, err := msgpack.Marshal(data)
+	if err != nil {
+		log.Printf("[%s] Error encoding heatmap response to msgpack: %v", requestID, err)
+		http.Error(w, "Encoding error", http.StatusInternalServerError)
+		return
+	}
+
+	// Write the encoded data to the response
+	_, err = w.Write(encodedData)
+	if err != nil {
+		log.Printf("[%s] Error writing msgpack heatmap response: %v", requestID, err)
+	} else {
+		log.Printf("[%s] Successfully returned msgpack heatmap with %d timestamps and %d price levels in %s (%d bytes)",
+			requestID, len(data.Timestamps), len(data.PriceLevels), processingTime.Round(time.Millisecond), len(encodedData))
+	}
+}
+
+// Helper function to generate a short request ID
+func generateRequestID() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
+
+// Helper function to get a clean protocol string
+func getProtocolString(r *http.Request) string {
+	if r.ProtoMajor == 3 || strings.Contains(r.Proto, "QUIC") || strings.Contains(r.Proto, "h3") {
+		return "HTTP/3"
+	} else if r.ProtoMajor == 2 {
+		return "HTTP/2"
+	}
+	return "HTTP/1.1"
+}
+
+// Enhanced server initialization with TLS configuration logging
+func initializeAPI() (*http.Server, *http.Server, *http3.Server) {
+	router := mux.NewRouter()
+
+	// Apply middleware to all routes
+	router.Use(corsMiddleware)
+	router.Use(httpVersionMiddleware)
+
+	// Apply rate limiting to API routes only
+	apiRouter := router.PathPrefix("/api").Subrouter()
+	apiRouter.Use(rateLimiterMiddleware)
+
+	// API routes
+	apiRouter.HandleFunc("/ticker/latest", handleLatestTicker).Methods("GET")
+	apiRouter.HandleFunc("/candlesticks", handleCandlesticks).Methods("GET")
+	apiRouter.HandleFunc("/orderbook/{timestamp}", handleOrderbook).Methods("GET")
+	apiRouter.HandleFunc("/heatmap", handleHeatmap).Methods("GET")
+	apiRouter.HandleFunc("/timerange", handleTimeRange).Methods("GET")
+	apiRouter.HandleFunc("/heatmap/msgpack", handleHeatmapMsgpack).Methods("GET")
+
+	// Serve static files
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("public")))
+
+	// Log registered routes
+	log.Println("Registered API routes:")
+	log.Println(" - /api/ticker/latest")
+	log.Println(" - /api/candlesticks")
+	log.Println(" - /api/orderbook/{timestamp}")
+	log.Println(" - /api/heatmap")
+	log.Println(" - /api/timerange")
+	log.Println(" - /api/heatmap/msgpack")
+	log.Println(" - / (static files)")
+
+	// HTTP server
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", config.APIPort),
+		Handler: router,
+	}
+
+	// HTTPS and HTTP/3 servers
+	var httpsServer *http.Server
+	var http3Server *http3.Server
+
+	// Check if certificates exist
+	certPath := config.CertPath
+	keyPath := config.PrivKeyPath
+
+	certExists := false
+	keyExists := false
+
+	if _, err := os.Stat(certPath); err == nil {
+		certExists = true
+		log.Printf("Found certificate file at %s", certPath)
+	} else {
+		log.Printf("Certificate file not found at %s: %v", certPath, err)
+	}
+
+	if _, err := os.Stat(keyPath); err == nil {
+		keyExists = true
+		log.Printf("Found private key file at %s", keyPath)
+	} else {
+		log.Printf("Private key file not found at %s: %v", keyPath, err)
+	}
+
+	if certExists && keyExists {
+		// Create TLS config with modern cipher suites
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			},
+			// Enable HTTP/3 ALPN
+			NextProtos: []string{"h3", "h3-29", "h3-27", "h2", "http/1.1"},
+		}
+
+		// Log TLS configuration
+		log.Printf("TLS Configuration: Min Version: %v, ALPN Protocols: %v, Cipher Suites: %d configured",
+			tlsVersionToString(tlsConfig.MinVersion), tlsConfig.NextProtos, len(tlsConfig.CipherSuites))
+
+		// Create HTTPS server
+		httpsServer = &http.Server{
+			Addr:      fmt.Sprintf(":%d", config.APIPortHTTPS),
+			Handler:   router,
+			TLSConfig: tlsConfig,
+		}
+
+		// Create HTTP/3 server with the same TLS config
+		http3Server = &http3.Server{
+			Addr:            fmt.Sprintf(":%d", 443), // Explicitly use port 443
+			Handler:         router,
+			TLSConfig:       tlsConfig,
+			EnableDatagrams: true,
+		}
+
+		log.Printf("Created TLS-enabled servers with certificates %s and key %s", certPath, keyPath)
+	} else {
+		log.Printf("Cannot create HTTPS/HTTP3 servers: certificate or key missing")
+	}
+
+	return httpServer, httpsServer, http3Server
+}
+
+// Helper function to convert TLS version to string
+func tlsVersionToString(version uint16) string {
+	switch version {
+	case tls.VersionTLS10:
+		return "TLS 1.0"
+	case tls.VersionTLS11:
+		return "TLS 1.1"
+	case tls.VersionTLS12:
+		return "TLS 1.2"
+	case tls.VersionTLS13:
+		return "TLS 1.3"
+	default:
+		return fmt.Sprintf("Unknown (%d)", version)
+	}
+}
+
+// Enhanced startup function with more detailed server logging
+func startApplication() {
+	log.Println("==============================================")
+	log.Println("TRXUSDT Orderbook Heatmap Recorder Starting")
+	log.Printf("Symbol: %s", config.Symbol)
+	log.Printf("Interval: %d seconds", config.Interval/time.Second)
+	log.Printf("Orderbook Depth: %d", config.OrderbookDepth)
+	log.Printf("HTTP Port: %d", config.APIPort)
+	log.Printf("HTTPS Port: %d", config.APIPortHTTPS)
+	log.Printf("HTTP/3 Port: %d", config.APIPortHTTP3)
+	log.Println("==============================================")
+
+	// Initialize API servers
+	httpServer, httpsServer, http3Server := initializeAPI()
+
+	// Start HTTP server
+	log.Printf("Starting HTTP server on port %d", config.APIPort)
+	go func() {
+		startTime := time.Now()
+		log.Printf("HTTP server listening on port %d", config.APIPort)
+
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error after running for %s: %v",
+				time.Since(startTime).Round(time.Second), err)
+		} else {
+			log.Printf("HTTP server shutdown after running for %s",
+				time.Since(startTime).Round(time.Second))
+		}
+	}()
+
+	// Start HTTPS server if certificates exist
+	if httpsServer != nil {
+		log.Printf("Starting HTTPS server on port %d", config.APIPortHTTPS)
+		go func() {
+			startTime := time.Now()
+			log.Printf("HTTPS server (HTTP/2) listening on port %d", config.APIPortHTTPS)
+
+			if err := httpsServer.ListenAndServeTLS(config.CertPath, config.PrivKeyPath); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTPS server error after running for %s: %v",
+					time.Since(startTime).Round(time.Second), err)
+			} else {
+				log.Printf("HTTPS server shutdown after running for %s",
+					time.Since(startTime).Round(time.Second))
+			}
+		}()
+
+		// Start HTTP/3 server if certificates exist
+		if http3Server != nil {
+			log.Printf("Starting HTTP/3 server on port %d", config.APIPortHTTP3)
+			go func() {
+				startTime := time.Now()
+				log.Printf("HTTP/3 server initializing on port %d", config.APIPortHTTP3)
+
+				// Start HTTP/3 server
+				if err := http3Server.ListenAndServeTLS(config.CertPath, config.PrivKeyPath); err != nil {
+					log.Printf("HTTP/3 server error after running for %s: %v",
+						time.Since(startTime).Round(time.Second), err)
+				} else {
+					log.Printf("HTTP/3 server shutdown after running for %s",
+						time.Since(startTime).Round(time.Second))
+				}
+			}()
+
+			// Additional logging to confirm HTTP/3 is running
+			time.Sleep(1 * time.Second)
+			log.Printf("HTTP/3 server should now be running on port %d", config.APIPortHTTP3)
+		}
+	} else {
+		log.Printf("SSL certificates not found. HTTPS and HTTP/3 servers not started.")
+	}
+
+	log.Println("All servers initialized")
+	log.Println("==============================================")
+
+	// Execute immediately on startup
+	scheduleDataCollection()
+
+	// Schedule recurring execution
+	ticker := time.NewTicker(config.Interval)
+
+	// Set up graceful shutdown
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	// Main loop
+	for {
+		select {
+		case <-ticker.C:
+			go scheduleDataCollection()
+		case <-stop:
+			log.Println("Shutting down application...")
+			ticker.Stop()
+
+			// Shutdown HTTP, HTTPS and HTTP/3 servers
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			httpServer.Shutdown(ctx)
+			if httpsServer != nil {
+				httpsServer.Shutdown(ctx)
+			}
+			// Note: HTTP/3 server doesn't have the same Shutdown method
+			// It will close when the application exits
+
+			log.Println("Database connection closed")
+			return
+		}
+	}
+}
