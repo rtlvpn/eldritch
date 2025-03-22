@@ -281,24 +281,50 @@
                     const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
                         .then(res => res.json());
                     
-                    // Now fetch the heatmap data as MessagePack if supported
+                    // Try the MessagePack endpoint with better error handling
                     const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                         .then(response => {
                             if (!response.ok) {
-                                throw new Error('Network response was not ok');
+                                throw new Error(`Network response was not ok: ${response.status}`);
                             }
                             return response.arrayBuffer();
                         })
                         .then(buffer => {
-                            // Use msgpack to decode the buffer
-                            const data = msgpack.decode(new Uint8Array(buffer));
-                            return data;
+                            try {
+                                // Decode MessagePack and validate structure
+                                const data = msgpack.decode(new Uint8Array(buffer));
+                                console.log("MessagePack data received:", data);
+                                
+                                // Ensure the data has the expected structure
+                                if (!data || typeof data !== 'object' || !Array.isArray(data.timestamps)) {
+                                    console.error("Invalid MessagePack data structure:", data);
+                                    throw new Error('Invalid data structure');
+                                }
+                                
+                                return {
+                                    timestamps: data.timestamps || [],
+                                    priceLevels: data.priceLevels || [],
+                                    heatmap: data.heatmap || []
+                                };
+                            } catch (decodeError) {
+                                console.error("Error decoding MessagePack:", decodeError);
+                                throw decodeError;
+                            }
                         })
                         .catch(error => {
-                            console.warn('Error fetching MessagePack data, falling back to JSON:', error);
-                            // Fallback to JSON if MessagePack fails
+                            console.warn(`Falling back to JSON due to error: ${error.message}`);
+                            // Fallback to JSON with explicit structure validation
                             return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                                .then(res => res.json());
+                                .then(res => res.json())
+                                .then(data => {
+                                    console.log("JSON fallback data:", data);
+                                    // Ensure consistent structure even with JSON fallback
+                                    return {
+                                        timestamps: data.timestamps || [],
+                                        priceLevels: data.priceLevels || [],
+                                        heatmap: data.heatmap || []
+                                    };
+                                });
                         });
                     
                     // Wait for both promises to resolve
@@ -308,11 +334,28 @@
                             cachedCandlestickData = candlestickData;
                             cachedHeatmapData = heatmapData;
                             lastFetchTime = endTime;
-                            renderChart(cachedCandlestickData, cachedHeatmapData);
+                            
+                            // Verify data before rendering
+                            if (!Array.isArray(candlestickData)) {
+                                console.error("Invalid candlestick data:", candlestickData);
+                                candlestickData = [];
+                            }
+                            
+                            if (!heatmapData || !Array.isArray(heatmapData.timestamps)) {
+                                console.error("Invalid heatmap data structure:", heatmapData);
+                                heatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
+                            }
+                            
+                            renderChart(candlestickData, heatmapData);
                         })
                         .catch(error => {
                             console.error('Error fetching data:', error);
-                            alert('Failed to load data. Please try again.');
+                            // Show error message to user
+                            document.getElementById('chart').innerHTML = `
+                                <div style="color: #ff6b6b; padding: 20px; text-align: center">
+                                    Failed to load data: ${error.message}<br>
+                                    Please try again later.
+                                </div>`;
                         });
                 } else {
                     // Auto-update case: Get a full refresh but with a shorter interval
@@ -404,156 +447,79 @@
             }
             
             function renderChart(candlestickData, heatmapData) {
-                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                // Defensive programming: ensure we have valid data
+                if (!Array.isArray(candlestickData) || candlestickData.length === 0 || 
+                    !heatmapData || !Array.isArray(heatmapData.timestamps) || heatmapData.timestamps.length === 0) {
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
                     return;
                 }
-                
-                // Prepare price data
-                const times = candlestickData.map(item => new Date(item.timestamp));
-                const prices = candlestickData.map(item => item.close);
-                
-                // Prepare heatmap data
-                const heatmapZ = [];
-                const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
-                const priceLevels = heatmapData.priceLevels;
-                
-                // Convert the heatmap result to a matrix format that Plotly can use
-                // Each row represents a price level, each column represents a timestamp
-                for (let i = 0; i < priceLevels.length; i++) {
-                    const row = [];
-                    for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                        // Get the volume for this price level at this timestamp
-                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
-                        row.push(volume);
-                    }
-                    heatmapZ.push(row);
-                }
-                
-                // Find the price range from priceLevels for consistent scaling
-                const minPrice = Math.min(...priceLevels);
-                const maxPrice = Math.max(...priceLevels);
-                
-                // Create the combined plot
-                const trace1 = {
-                    x: times,
-                    y: prices,
-                    mode: 'lines',
-                    name: 'Price',
-                    line: {
-                        shape: 'spline',
-                        color: 'rgba(255, 214, 137, 1)',
-                        width: 3
-                    },
-                    // Use the same y-axis as the heatmap
-                    yaxis: 'y',
-                    type: 'scatter'
-                };
-                
-                // Get color density value
-                const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                
-                const trace2 = {
-                    x: timestamps,
-                    y: priceLevels,
-                    z: heatmapZ,
-                    type: 'heatmap',
-                    colorscale: generateWeightedColorscale(colorDensity),
-                    name: 'Order Density',
-                    colorbar: {
-                        title: 'Order Volume',
-                        titleside: 'right',
-                        titlefont: { color: '#00ff9d' },
-                        tickfont: { color: '#00ff9d' }
-                    },
-                    zsmooth: false,
-                    showscale: true
-                };
-                
-                const layout = {
-                    title: {
-                        text: 'Milk Price and Orderbook Heatmap',
-                        font: {
-                            color: '#00ff9d',
-                            family: 'Courier New, monospace'
-                        }
-                    },
-                    plot_bgcolor: '#0a0a12',
-                    paper_bgcolor: '#0f0f1f',
-                    height: 600,
-                    yaxis: {
-                        title: {
-                            text: 'Price (USDT)',
-                            font: { color: '#00ff9d' }
-                        },
-                        side: 'left',
-                        range: [minPrice, maxPrice],
-                        autorange: false,
-                        showgrid: true,
-                        gridcolor: 'rgba(0, 255, 157, 0.1)',
-                        tickfont: { color: '#00ff9d' },
-                        zeroline: false
-                    },
-                    xaxis: {
-                        title: {
-                            text: 'Time',
-                            font: { color: '#00ff9d' }
-                        },
-                        showgrid: true,
-                        gridcolor: 'rgba(0, 255, 157, 0.1)',
-                        tickfont: { color: '#00ff9d' }
-                    },
-                    hovermode: 'closest',
-                    showlegend: true,
-                    legend: {
-                        font: { color: '#00ff9d' },
-                        bgcolor: 'rgba(10, 10, 18, 0.8)',
-                        bordercolor: '#00ff9d',
-                        borderwidth: 1
-                    },
-                    margin: {
-                        l: 50,
-                        r: 50,
-                        b: 50,
-                        t: 50,
-                        pad: 4
-                    },
-                    autosize: true
-                };
-                
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
-                
-                // Create the volume profile chart if enabled
-                const showCVP = document.getElementById('showCVP').checked;
-                if (showCVP) {
-                    // Calculate aggregate volume for each price level
-                    const volumeByPrice = new Array(priceLevels.length).fill(0);
+
+                try {
+                    // Prepare price data
+                    const times = candlestickData.map(item => new Date(item.timestamp));
+                    const prices = candlestickData.map(item => item.close);
                     
+                    // Prepare heatmap data
+                    const heatmapZ = [];
+                    const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                    const priceLevels = heatmapData.priceLevels || [];
+                    
+                    // Convert the heatmap result to a matrix format that Plotly can use
                     for (let i = 0; i < priceLevels.length; i++) {
-                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        const row = [];
+                        for (let j = 0; j < (heatmapData.heatmap || []).length; j++) {
+                            // Safe access with defaults
+                            const heatmapItem = heatmapData.heatmap[j] || {};
+                            const volumes = heatmapItem.volumes || [];
+                            const volume = i < volumes.length ? Math.abs(volumes[i]) : 0;
+                            row.push(volume);
                         }
+                        heatmapZ.push(row);
                     }
                     
-                    // Create the Volume Profile trace as a vertical bar chart
-                    const cvpTrace = {
-                        y: priceLevels,
-                        x: volumeByPrice,
-                        type: 'bar',
-                        orientation: 'h',
-                        name: 'Volume Profile',
-                        marker: {
-                            color: 'rgba(0, 255, 157, 0.7)',
-                            line: {
-                                color: 'rgba(0, 255, 157, 1)',
-                                width: 1
-                            }
-                        }
+                    // Find the price range from priceLevels for consistent scaling
+                    const minPrice = Math.min(...priceLevels);
+                    const maxPrice = Math.max(...priceLevels);
+                    
+                    // Create the combined plot
+                    const trace1 = {
+                        x: times,
+                        y: prices,
+                        mode: 'lines',
+                        name: 'Price',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 214, 137, 1)',
+                            width: 3
+                        },
+                        // Use the same y-axis as the heatmap
+                        yaxis: 'y',
+                        type: 'scatter'
                     };
                     
-                    const cvpLayout = {
+                    // Get color density value
+                    const colorDensity = parseInt(document.getElementById('colorDensity').value);
+                    
+                    const trace2 = {
+                        x: timestamps,
+                        y: priceLevels,
+                        z: heatmapZ,
+                        type: 'heatmap',
+                        colorscale: generateWeightedColorscale(colorDensity),
+                        name: 'Order Density',
+                        colorbar: {
+                            title: 'Order Volume',
+                            titleside: 'right',
+                            titlefont: { color: '#00ff9d' },
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        zsmooth: false,
+                        showscale: true
+                    };
+                    
+                    const layout = {
                         title: {
-                            text: 'Volume Profile',
+                            text: 'Milk Price and Orderbook Heatmap',
                             font: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace'
@@ -563,8 +529,11 @@
                         paper_bgcolor: '#0f0f1f',
                         height: 600,
                         yaxis: {
-                            title: '',
-                            side: 'right',
+                            title: {
+                                text: 'Price (USDT)',
+                                font: { color: '#00ff9d' }
+                            },
+                            side: 'left',
                             range: [minPrice, maxPrice],
                             autorange: false,
                             showgrid: true,
@@ -574,15 +543,23 @@
                         },
                         xaxis: {
                             title: {
-                                text: 'Volume',
+                                text: 'Time',
                                 font: { color: '#00ff9d' }
                             },
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
                             tickfont: { color: '#00ff9d' }
                         },
+                        hovermode: 'closest',
+                        showlegend: true,
+                        legend: {
+                            font: { color: '#00ff9d' },
+                            bgcolor: 'rgba(10, 10, 18, 0.8)',
+                            bordercolor: '#00ff9d',
+                            borderwidth: 1
+                        },
                         margin: {
-                            l: 0,
+                            l: 50,
                             r: 50,
                             b: 50,
                             t: 50,
@@ -591,7 +568,84 @@
                         autosize: true
                     };
                     
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                    Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                    
+                    // Create the volume profile chart if enabled
+                    const showCVP = document.getElementById('showCVP').checked;
+                    if (showCVP) {
+                        // Calculate aggregate volume for each price level
+                        const volumeByPrice = new Array(priceLevels.length).fill(0);
+                        
+                        for (let i = 0; i < priceLevels.length; i++) {
+                            for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                                volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                            }
+                        }
+                        
+                        // Create the Volume Profile trace as a vertical bar chart
+                        const cvpTrace = {
+                            y: priceLevels,
+                            x: volumeByPrice,
+                            type: 'bar',
+                            orientation: 'h',
+                            name: 'Volume Profile',
+                            marker: {
+                                color: 'rgba(0, 255, 157, 0.7)',
+                                line: {
+                                    color: 'rgba(0, 255, 157, 1)',
+                                    width: 1
+                                }
+                            }
+                        };
+                        
+                        const cvpLayout = {
+                            title: {
+                                text: 'Volume Profile',
+                                font: {
+                                    color: '#00ff9d',
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            plot_bgcolor: '#0a0a12',
+                            paper_bgcolor: '#0f0f1f',
+                            height: 600,
+                            yaxis: {
+                                title: '',
+                                side: 'right',
+                                range: [minPrice, maxPrice],
+                                autorange: false,
+                                showgrid: true,
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' },
+                                zeroline: false
+                            },
+                            xaxis: {
+                                title: {
+                                    text: 'Volume',
+                                    font: { color: '#00ff9d' }
+                                },
+                                showgrid: true,
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' }
+                            },
+                            margin: {
+                                l: 0,
+                                r: 50,
+                                b: 50,
+                                t: 50,
+                                pad: 4
+                            },
+                            autosize: true
+                        };
+                        
+                        Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                    }
+                } catch (error) {
+                    console.error('Error rendering chart:', error);
+                    document.getElementById('chart').innerHTML = `
+                        <div style="color: #ff6b6b; padding: 20px; text-align: center">
+                            Error rendering chart: ${error.message}
+                        </div>`;
                 }
             }
         });
