@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
-    <script src="https://unpkg.com/@msgpack/msgpack"></script>
+    <script src="https://unpkg.com/msgpack-lite@0.1.26/dist/msgpack.min.js"></script>
     <link rel="icon" href="data:,">
     <style>
         body {
@@ -351,9 +351,9 @@
             const MessagePackDecoder = {
                 decode: function(buffer) {
                     try {
-                        // The library exposes decode in the msgpack namespace
+                        // msgpack-lite exposes a global 'msgpack' variable
                         const decoded = msgpack.decode(new Uint8Array(buffer));
-                        console.log("Decoded data structure:", decoded);
+                        console.log("Successfully decoded MessagePack data");
                         
                         // Ensure the data has the expected structure
                         if (!decoded || !decoded.timestamps) {
