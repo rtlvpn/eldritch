@@ -1,1168 +1,600 @@
-package main
-
-import (
-	"context"
-	"crypto/tls"
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"log"
-	"math/rand"
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
-
-	"github.com/gorilla/mux"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/quic-go/quic-go/http3"
-	"github.com/vmihailenco/msgpack/v5"
-	"golang.org/x/time/rate"
-)
-
-// Config holds all application configuration
-type Config struct {
-	Symbol         string
-	Interval       time.Duration
-	OrderbookDepth int
-	DatabasePath   string
-	BinanceBaseURL string
-	RetryDelay     time.Duration
-	MaxRetries     int
-	APIPort        int
-	APIPortHTTPS   int
-	APIPortHTTP3   int
-	CertPath       string
-	PrivKeyPath    string
-}
-
-// TickerResponse represents Binance ticker response
-type TickerResponse struct {
-	Symbol string `json:"symbol"`
-	Price  string `json:"price"`
-}
-
-// OrderbookResponse represents Binance orderbook response
-type OrderbookResponse struct {
-	LastUpdateID int         `json:"lastUpdateId"`
-	Bids         [][2]string `json:"bids"`
-	Asks         [][2]string `json:"asks"`
-}
-
-// OHLCData represents candlestick data
-type OHLCData struct {
-	Timestamp int64   `json:"timestamp"`
-	Open      float64 `json:"open"`
-	High      float64 `json:"high"`
-	Low       float64 `json:"low"`
-	Close     float64 `json:"close"`
-}
-
-// TimeRange represents min and max timestamps in the database
-type TimeRange struct {
-	MinTime int64 `json:"min_time"`
-	MaxTime int64 `json:"max_time"`
-}
-
-// HeatmapItem represents a single timestamp's heatmap data
-type HeatmapItem struct {
-	Timestamp int64     `json:"timestamp"`
-	Volumes   []float64 `json:"volumes"`
-}
-
-// HeatmapResponse represents the full heatmap data structure
-type HeatmapResponse struct {
-	Timestamps  []int64       `json:"timestamps"`
-	PriceLevels []float64     `json:"priceLevels"`
-	Heatmap     []HeatmapItem `json:"heatmap"`
-}
-
-// Global variables
-var (
-	config       Config
-	db           *sql.DB
-	isCollecting bool
-	collectMutex sync.Mutex
-)
-
-func main() {
-	// Initialize configuration
-	config = Config{
-		Symbol:         "TRXUSDT",
-		Interval:       60 * time.Second,
-		OrderbookDepth: 5000,
-		DatabasePath:   filepath.Join("data", "trx_orderbook.db"),
-		BinanceBaseURL: "https://api.binance.com/api/v3",
-		RetryDelay:     5 * time.Second,
-		MaxRetries:     3,
-		APIPort:        getEnvAsInt("PORT", 3000),
-		APIPortHTTPS:   getEnvAsInt("HTTPS_PORT", 3500),
-		APIPortHTTP3:   getEnvAsInt("HTTP3_PORT", 3500),
-		CertPath:       getEnv("CERT_PATH", "/etc/letsencrypt/live/heatmapeldritch.gleeze.com/fullchain.pem"),
-		PrivKeyPath:    getEnv("PRIVKEY_PATH", "/etc/letsencrypt/live/heatmapeldritch.gleeze.com/privkey.pem"),
-	}
-
-	// Ensure data directory exists
-	dataDir := filepath.Dir(config.DatabasePath)
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		log.Fatalf("Failed to create data directory: %v", err)
-	}
-
-	// Initialize database
-	var err error
-	db, err = sql.Open("sqlite3", config.DatabasePath)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
-
-	// Set connection pool parameters
-	db.SetMaxOpenConns(1) // SQLite supports only one writer at a time
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(time.Hour)
-
-	log.Printf("Connected to database at %s", config.DatabasePath)
-
-	// Initialize database tables
-	initializeDatabase()
-
-	startApplication()
-}
-
-// Helper functions for environment variables
-func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-	return fallback
-}
-
-func getEnvAsInt(key string, fallback int) int {
-	strVal := getEnv(key, "")
-	if value, err := strconv.Atoi(strVal); err == nil {
-		return value
-	}
-	return fallback
-}
-
-// Initialize database tables and indexes
-func initializeDatabase() {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS ticker_data (
-			timestamp INTEGER PRIMARY KEY,
-			price REAL NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS orderbook_data (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			timestamp INTEGER NOT NULL,
-			price_level REAL NOT NULL,
-			quantity REAL NOT NULL,
-			side TEXT NOT NULL,
-			FOREIGN KEY (timestamp) REFERENCES ticker_data (timestamp)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_orderbook_timestamp ON orderbook_data (timestamp)`,
-		`CREATE INDEX IF NOT EXISTS idx_orderbook_side ON orderbook_data (side)`,
-		`CREATE INDEX IF NOT EXISTS idx_orderbook_price_level ON orderbook_data (price_level)`,
-		`CREATE INDEX IF NOT EXISTS idx_orderbook_timestamp_price ON orderbook_data (timestamp, price_level)`,
-		`PRAGMA journal_mode = WAL`,
-		`PRAGMA synchronous = NORMAL`,
-		`PRAGMA cache_size = -32000`, // 32MB cache
-		`PRAGMA temp_store = MEMORY`,
-		`PRAGMA mmap_size = 268435456`, // 256MB mmap
-	}
-
-	for _, stmt := range statements {
-		_, err := db.Exec(stmt)
-		if err != nil {
-			log.Fatalf("Database initialization error: %v", err)
-		}
-	}
-
-	log.Println("Database initialized successfully")
-}
-
-// API functions
-func fetchTickerPrice(ctx context.Context, retries int) (float64, error) {
-	url := fmt.Sprintf("%s/ticker/price?symbol=%s", config.BinanceBaseURL, config.Symbol)
-
-	for i := 0; i <= retries; i++ {
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			return 0, err
-		}
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			if i < retries {
-				log.Printf("Error fetching ticker price, retrying (%d attempts left): %v", retries-i, err)
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return 0, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
-			if i < retries {
-				log.Printf("Error fetching ticker price (status %d), retrying (%d attempts left): %s",
-					resp.StatusCode, retries-i, string(body))
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return 0, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-		}
-
-		var tickerResp TickerResponse
-		if err := json.NewDecoder(resp.Body).Decode(&tickerResp); err != nil {
-			if i < retries {
-				log.Printf("Error decoding ticker response, retrying (%d attempts left): %v", retries-i, err)
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return 0, err
-		}
-
-		price, err := strconv.ParseFloat(tickerResp.Price, 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid price format: %v", err)
-		}
-		return price, nil
-	}
-
-	return 0, fmt.Errorf("failed to fetch ticker price after %d attempts", retries+1)
-}
-
-func fetchOrderbook(ctx context.Context, retries int) (OrderbookResponse, error) {
-	url := fmt.Sprintf("%s/depth?symbol=%s&limit=%d",
-		config.BinanceBaseURL, config.Symbol, config.OrderbookDepth)
-
-	var orderbook OrderbookResponse
-
-	for i := 0; i <= retries; i++ {
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			return orderbook, err
-		}
-
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			if i < retries {
-				log.Printf("Error fetching orderbook, retrying (%d attempts left): %v", retries-i, err)
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return orderbook, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := ioutil.ReadAll(resp.Body)
-			if i < retries {
-				log.Printf("Error fetching orderbook (status %d), retrying (%d attempts left): %s",
-					resp.StatusCode, retries-i, string(body))
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return orderbook, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&orderbook); err != nil {
-			if i < retries {
-				log.Printf("Error decoding orderbook response, retrying (%d attempts left): %v", retries-i, err)
-				time.Sleep(config.RetryDelay)
-				continue
-			}
-			return orderbook, err
-		}
-
-		return orderbook, nil
-	}
-
-	return orderbook, fmt.Errorf("failed to fetch orderbook after %d attempts", retries+1)
-}
-
-// Database operations
-func saveData(timestamp int64, price float64, orderbook OrderbookResponse) bool {
-	tx, err := db.Begin()
-	if err != nil {
-		log.Printf("Error beginning transaction: %v", err)
-		return false
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		}
-	}()
-
-	// Insert ticker data
-	_, err = tx.Exec("INSERT INTO ticker_data (timestamp, price) VALUES (?, ?)", timestamp, price)
-	if err != nil {
-		tx.Rollback()
-		log.Printf("Error inserting ticker data: %v", err)
-		return false
-	}
-
-	// Prepare statement for orderbook data
-	stmt, err := tx.Prepare("INSERT INTO orderbook_data (timestamp, price_level, quantity, side) VALUES (?, ?, ?, ?)")
-	if err != nil {
-		tx.Rollback()
-		log.Printf("Error preparing orderbook statement: %v", err)
-		return false
-	}
-	defer stmt.Close()
-
-	// Insert bids
-	for _, bid := range orderbook.Bids {
-		priceLevel, _ := strconv.ParseFloat(bid[0], 64)
-		quantity, _ := strconv.ParseFloat(bid[1], 64)
-		_, err = stmt.Exec(timestamp, priceLevel, quantity, "buy")
-		if err != nil {
-			tx.Rollback()
-			log.Printf("Error inserting bid data: %v", err)
-			return false
-		}
-	}
-
-	// Insert asks
-	for _, ask := range orderbook.Asks {
-		priceLevel, _ := strconv.ParseFloat(ask[0], 64)
-		quantity, _ := strconv.ParseFloat(ask[1], 64)
-		_, err = stmt.Exec(timestamp, priceLevel, quantity, "sell")
-		if err != nil {
-			tx.Rollback()
-			log.Printf("Error inserting ask data: %v", err)
-			return false
-		}
-	}
-
-	if err = tx.Commit(); err != nil {
-		log.Printf("Error committing transaction: %v", err)
-		return false
-	}
-
-	return true
-}
-
-// Query functions
-func getLatestTickerData() map[string]interface{} {
-	row := db.QueryRow("SELECT * FROM ticker_data ORDER BY timestamp DESC LIMIT 1")
-
-	var timestamp int64
-	var price float64
-	var createdAt string
-
-	if err := row.Scan(&timestamp, &price, &createdAt); err != nil {
-		log.Printf("Error getting latest ticker data: %v", err)
-		return nil
-	}
-
-	return map[string]interface{}{
-		"timestamp":  timestamp,
-		"price":      price,
-		"created_at": createdAt,
-	}
-}
-
-func getOrderbookSnapshot(timestamp int64) []map[string]interface{} {
-	rows, err := db.Query(`
-		SELECT price_level, quantity, side
-		FROM orderbook_data
-		WHERE timestamp = ?
-		ORDER BY side, price_level
-	`, timestamp)
-
-	if err != nil {
-		log.Printf("Error getting orderbook snapshot: %v", err)
-		return []map[string]interface{}{}
-	}
-	defer rows.Close()
-
-	result := []map[string]interface{}{}
-	for rows.Next() {
-		var priceLevel, quantity float64
-		var side string
-
-		if err := rows.Scan(&priceLevel, &quantity, &side); err != nil {
-			log.Printf("Error scanning orderbook row: %v", err)
-			continue
-		}
-
-		result = append(result, map[string]interface{}{
-			"price_level": priceLevel,
-			"quantity":    quantity,
-			"side":        side,
-		})
-	}
-
-	return result
-}
-
-func getCandlestickData(startTime, endTime int64, interval int) []OHLCData {
-	query := `
-		WITH time_intervals AS (
-			SELECT 
-				(timestamp / ?) * ? AS interval_start,
-				MAX(timestamp) AS max_time,
-				MIN(timestamp) AS min_time,
-				MAX(price) AS high,
-				MIN(price) AS low,
-				FIRST_VALUE(price) OVER (PARTITION BY (timestamp / ?) * ? ORDER BY timestamp) AS open,
-				LAST_VALUE(price) OVER (PARTITION BY (timestamp / ?) * ? ORDER BY timestamp 
-					RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS close
-			FROM ticker_data
-			WHERE timestamp BETWEEN ? AND ?
-			GROUP BY interval_start
-		)
-		SELECT 
-			interval_start * 1000 AS timestamp,
-			open, high, low, close
-		FROM time_intervals
-		ORDER BY interval_start
-	`
-
-	rows, err := db.Query(query, interval, interval, interval, interval, interval, interval, startTime, endTime)
-	if err != nil {
-		log.Printf("Error getting candlestick data: %v", err)
-		return []OHLCData{}
-	}
-	defer rows.Close()
-
-	result := []OHLCData{}
-	for rows.Next() {
-		var ohlc OHLCData
-		if err := rows.Scan(&ohlc.Timestamp, &ohlc.Open, &ohlc.High, &ohlc.Low, &ohlc.Close); err != nil {
-			log.Printf("Error scanning candlestick row: %v", err)
-			continue
-		}
-		result = append(result, ohlc)
-	}
-
-	return result
-}
-
-func getHeatmapData(startTime, endTime int64, priceBuckets int) HeatmapResponse {
-	var response HeatmapResponse
-
-	// 1. Get the price range - simple and fast query
-	var minPrice, maxPrice sql.NullFloat64
-	err := db.QueryRow(`
-		SELECT MIN(price) AS min_price, MAX(price) AS max_price
-		FROM ticker_data
-		WHERE timestamp BETWEEN ? AND ?
-	`, startTime, endTime).Scan(&minPrice, &maxPrice)
-
-	if err != nil || !minPrice.Valid || !maxPrice.Valid {
-		log.Printf("Error getting price range: %v", err)
-		return response
-	}
-
-	// Add margin to price range
-	margin := (maxPrice.Float64 - minPrice.Float64) * 0.30
-	min := minPrice.Float64 - margin
-	max := maxPrice.Float64 + margin
-	priceStep := (max - min) / float64(priceBuckets)
-
-	// 2. First get just the timestamps - this is very fast in SQLite with an index
-	rows, err := db.Query(`
-		SELECT DISTINCT timestamp 
-		FROM ticker_data
-		WHERE timestamp BETWEEN ? AND ?
-		ORDER BY timestamp
-	`, startTime, endTime)
-
-	if err != nil {
-		log.Printf("Error getting timestamps: %v", err)
-		return response
-	}
-
-	var timestamps []int64
-	for rows.Next() {
-		var ts int64
-		if err := rows.Scan(&ts); err != nil {
-			log.Printf("Error scanning timestamp: %v", err)
-			continue
-		}
-		timestamps = append(timestamps, ts)
-	}
-	rows.Close()
-
-	if len(timestamps) == 0 {
-		return response
-	}
-
-	// 3. Generate price levels
-	priceLevels := make([]float64, priceBuckets)
-	for i := 0; i < priceBuckets; i++ {
-		priceLevels[i] = min + float64(i)*priceStep
-	}
-
-	// 4. Prepare the efficient query once - avoiding repeated preparations
-	stmt, err := db.Prepare(`
-		SELECT 
-			CAST((price_level - ?) / ? AS INTEGER) AS bucket_index,
-			SUM(CASE WHEN side = 'buy' THEN quantity ELSE -quantity END) AS volume
-		FROM orderbook_data
-		WHERE timestamp = ? AND price_level BETWEEN ? AND ?
-		GROUP BY bucket_index
-		HAVING bucket_index BETWEEN 0 AND ?
-	`)
-
-	if err != nil {
-		log.Printf("Error preparing statement: %v", err)
-		return response
-	}
-	defer stmt.Close()
-
-	// 5. Create the return structures once and reuse
-	heatmapItems := make([]HeatmapItem, 0, len(timestamps))
-
-	// 6. Use batching for timestamps - processing chunks of timestamps at a time
-	batchSize := 50 // Adjust based on testing
-	for i := 0; i < len(timestamps); i += batchSize {
-		end := i + batchSize
-		if end > len(timestamps) {
-			end = len(timestamps)
-		}
-
-		for j := i; j < end; j++ {
-			ts := timestamps[j]
-
-			// Execute the prepared statement for each timestamp
-			bucketRows, err := stmt.Query(min, priceStep, ts, min, max, priceBuckets-1)
-			if err != nil {
-				log.Printf("Error querying for timestamp %d: %v", ts, err)
-				continue
-			}
-
-			// Initialize volumes array with zeros
-			volumes := make([]float64, priceBuckets)
-
-			// Fill in the non-zero values
-			for bucketRows.Next() {
-				var bucketIndex int
-				var volume float64
-				if err := bucketRows.Scan(&bucketIndex, &volume); err != nil {
-					log.Printf("Error scanning bucket row: %v", err)
-					continue
-				}
-
-				if bucketIndex >= 0 && bucketIndex < priceBuckets {
-					volumes[bucketIndex] = volume
-				}
-			}
-			bucketRows.Close()
-
-			heatmapItems = append(heatmapItems, HeatmapItem{
-				Timestamp: ts,
-				Volumes:   volumes,
-			})
-		}
-	}
-
-	// 7. Construct the final response
-	response = HeatmapResponse{
-		Timestamps:  timestamps,
-		PriceLevels: priceLevels,
-		Heatmap:     heatmapItems,
-	}
-
-	return response
-}
-
-// Data collection
-func collectData() {
-	timestamp := time.Now().Unix()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	log.Printf("[%s] Fetching data for %s", time.Now().Format(time.RFC3339), config.Symbol)
-
-	price, err := fetchTickerPrice(ctx, config.MaxRetries)
-	if err != nil {
-		log.Printf("Failed to fetch ticker price: %v", err)
-		return
-	}
-
-	orderbook, err := fetchOrderbook(ctx, config.MaxRetries)
-	if err != nil {
-		log.Printf("Failed to fetch orderbook: %v", err)
-		return
-	}
-
-	if saveData(timestamp, price, orderbook) {
-		log.Printf("Data saved successfully. Price: %f, Bids: %d, Asks: %d",
-			price, len(orderbook.Bids), len(orderbook.Asks))
-	}
-}
-
-func scheduleDataCollection() {
-	collectMutex.Lock()
-	if isCollecting {
-		collectMutex.Unlock()
-		return
-	}
-	isCollecting = true
-	collectMutex.Unlock()
-
-	collectData()
-
-	collectMutex.Lock()
-	isCollecting = false
-	collectMutex.Unlock()
-}
-
-// Rate limiting middleware
-func rateLimiterMiddleware(next http.Handler) http.Handler {
-	limiter := rate.NewLimiter(rate.Every(15*time.Minute/100), 1) // 100 requests per 15 minutes
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !limiter.Allow() {
-			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// CORS middleware with support for HTTP/3 headers
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow any origin
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-
-		// Allow the Alt-Used header required for HTTP/3
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization, Alt-Used, Connection")
-
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// Enhanced HTTP version middleware with detailed request logging
-func httpVersionMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Start time for request duration tracking
-		startTime := time.Now()
-
-		// Format Alt-Svc header for port 443 specifically
-		host := r.Host
-		if strings.Contains(host, ":") {
-			host = strings.Split(host, ":")[0] // Extract just the hostname
-		}
-
-		// Using port 443 specifically for HTTP/3
-		w.Header().Set("Alt-Svc", fmt.Sprintf(`h3="%s:443"; ma=2592000, h3-29="%s:443"; ma=2592000`,
-			host, host))
-
-		// Determine protocol with detailed info
-		proto := r.Proto
-		var protoDetails string
-
-		if r.ProtoMajor == 3 || strings.Contains(r.Proto, "QUIC") || strings.Contains(r.Proto, "h3") {
-			proto = "HTTP/3"
-			protoDetails = "QUIC/HTTP3"
-		} else if r.ProtoMajor == 2 {
-			proto = "HTTP/2"
-			protoDetails = r.Proto
-		} else {
-			proto = "HTTP/1.1"
-			protoDetails = r.Proto
-		}
-
-		// Add protocol info to response headers
-		w.Header().Set("X-HTTP-Version", proto)
-		w.Header().Set("X-HTTP-Protocol", proto)
-		w.Header().Set("X-Protocol-Details", protoDetails)
-
-		// Create a response wrapper to capture status code
-		rww := &responseWriterWrapper{
-			ResponseWriter: w,
-			statusCode:     http.StatusOK, // Default status code
-		}
-
-		// Pass the wrapped response writer to the next handler
-		next.ServeHTTP(rww, r)
-
-		// Calculate request duration
-		duration := time.Since(startTime)
-
-		// Log detailed request information including protocol, path, status code, and duration
-		log.Printf("[%s] %s %s %s → %d (%s) in %s (TLS: %v, RemoteAddr: %s)",
-			proto,
-			r.Method,
-			r.URL.Path,
-			r.Host,
-			rww.statusCode,
-			http.StatusText(rww.statusCode),
-			duration.Round(time.Millisecond),
-			r.TLS != nil,
-			r.RemoteAddr)
-	})
-}
-
-// Response writer wrapper to capture status code
-type responseWriterWrapper struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rww *responseWriterWrapper) WriteHeader(code int) {
-	rww.statusCode = code
-	rww.ResponseWriter.WriteHeader(code)
-}
-
-// Enhanced API handlers with detailed logging for each endpoint
-func handleLatestTicker(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-	log.Printf("[%s] Processing latest ticker request from %s", requestID, r.RemoteAddr)
-
-	data := getLatestTickerData()
-	if data == nil {
-		log.Printf("[%s] No ticker data available", requestID)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No data available"})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(data)
-	if err != nil {
-		log.Printf("[%s] Error encoding ticker response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned latest ticker data", requestID)
-	}
-}
-
-func handleCandlesticks(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-
-	endTime, _ := strconv.ParseInt(r.URL.Query().Get("endTime"), 10, 64)
-	if endTime == 0 {
-		endTime = time.Now().Unix()
-	}
-
-	startTime, _ := strconv.ParseInt(r.URL.Query().Get("startTime"), 10, 64)
-	if startTime == 0 {
-		startTime = endTime - 3600 // Default to last hour
-	}
-
-	interval, _ := strconv.Atoi(r.URL.Query().Get("interval"))
-	if interval == 0 {
-		interval = 60 // Default to 1 minute
-	}
-
-	log.Printf("[%s] Candlesticks request: startTime=%d, endTime=%d, interval=%d",
-		requestID, startTime, endTime, interval)
-
-	data := getCandlestickData(startTime, endTime, interval)
-
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(data)
-	if err != nil {
-		log.Printf("[%s] Error encoding candlestick response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned %d candlestick records", requestID, len(data))
-	}
-}
-
-func handleOrderbook(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-
-	vars := mux.Vars(r)
-	timestamp, err := strconv.ParseInt(vars["timestamp"], 10, 64)
-	if err != nil {
-		log.Printf("[%s] Invalid timestamp: %v", requestID, err)
-		http.Error(w, "Invalid timestamp", http.StatusBadRequest)
-		return
-	}
-
-	log.Printf("[%s] Orderbook request for timestamp %d", requestID, timestamp)
-
-	data := getOrderbookSnapshot(timestamp)
-
-	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(data)
-	if err != nil {
-		log.Printf("[%s] Error encoding orderbook response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned orderbook with %d entries", requestID, len(data))
-	}
-}
-
-func handleHeatmap(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-
-	endTime, _ := strconv.ParseInt(r.URL.Query().Get("endTime"), 10, 64)
-	if endTime == 0 {
-		endTime = time.Now().Unix()
-	}
-
-	startTime, _ := strconv.ParseInt(r.URL.Query().Get("startTime"), 10, 64)
-	if startTime == 0 {
-		startTime = endTime - 3600 // Default to last hour
-	}
-
-	buckets, _ := strconv.Atoi(r.URL.Query().Get("buckets"))
-	if buckets == 0 {
-		buckets = 100 // Default to 100 buckets
-	}
-
-	log.Printf("[%s] Heatmap request: startTime=%d, endTime=%d, buckets=%d",
-		requestID, startTime, endTime, buckets)
-
-	startProcess := time.Now()
-	data := getHeatmapData(startTime, endTime, buckets)
-	processingTime := time.Since(startProcess)
-
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(data)
-	if err != nil {
-		log.Printf("[%s] Error encoding heatmap response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned heatmap with %d timestamps and %d price levels in %s",
-			requestID, len(data.Timestamps), len(data.PriceLevels), processingTime.Round(time.Millisecond))
-	}
-}
-
-func handleTimeRange(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-	log.Printf("[%s] Processing timerange request from %s via %s",
-		requestID, r.RemoteAddr, getProtocolString(r))
-
-	var timeRange TimeRange
-	err := db.QueryRow(`
-		SELECT MIN(timestamp) AS min_time, MAX(timestamp) AS max_time
-		FROM ticker_data
-	`).Scan(&timeRange.MinTime, &timeRange.MaxTime)
-
-	if err != nil {
-		log.Printf("[%s] Error getting time range: %v", requestID, err)
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(timeRange); err != nil {
-		log.Printf("[%s] Error encoding timerange response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned timerange: min=%d, max=%d",
-			requestID, timeRange.MinTime, timeRange.MaxTime)
-	}
-}
-
-// Handle heatmap data in MessagePack format
-func handleHeatmapMsgpack(w http.ResponseWriter, r *http.Request) {
-	requestID := generateRequestID()
-	log.Printf("[%s] Processing heatmap msgpack request from %s via %s",
-		requestID, r.RemoteAddr, getProtocolString(r))
-
-	// Parse query parameters
-	query := r.URL.Query()
-	startTime, err := strconv.ParseInt(query.Get("startTime"), 10, 64)
-	if err != nil || startTime == 0 {
-		startTime = time.Now().Add(-1 * time.Hour).Unix()
-	}
-
-	endTime, err := strconv.ParseInt(query.Get("endTime"), 10, 64)
-	if err != nil || endTime == 0 {
-		endTime = time.Now().Unix()
-	}
-
-	buckets, err := strconv.Atoi(query.Get("buckets"))
-	if err != nil || buckets == 0 {
-		buckets = 100 // Default bucket count
-	}
-
-	log.Printf("[%s] Heatmap msgpack request: startTime=%d, endTime=%d, buckets=%d",
-		requestID, startTime, endTime, buckets)
-
-	startProcess := time.Now()
-	data := getHeatmapData(startTime, endTime, buckets)
-	processingTime := time.Since(startProcess)
-
-	// Set content type for MessagePack
-	w.Header().Set("Content-Type", "application/msgpack")
-
-	// Encode data as MessagePack
-	encodedData, err := msgpack.Marshal(data)
-	if err != nil {
-		log.Printf("[%s] Error encoding heatmap response to msgpack: %v", requestID, err)
-		http.Error(w, "Encoding error", http.StatusInternalServerError)
-		return
-	}
-
-	// Write the encoded data to the response
-	_, err = w.Write(encodedData)
-	if err != nil {
-		log.Printf("[%s] Error writing msgpack heatmap response: %v", requestID, err)
-	} else {
-		log.Printf("[%s] Successfully returned msgpack heatmap with %d timestamps and %d price levels in %s (%d bytes)",
-			requestID, len(data.Timestamps), len(data.PriceLevels), processingTime.Round(time.Millisecond), len(encodedData))
-	}
-}
-
-// Helper function to generate a short request ID
-func generateRequestID() string {
-	b := make([]byte, 4)
-	rand.Read(b)
-	return fmt.Sprintf("%x", b)
-}
-
-// Helper function to get a clean protocol string
-func getProtocolString(r *http.Request) string {
-	if r.ProtoMajor == 3 || strings.Contains(r.Proto, "QUIC") || strings.Contains(r.Proto, "h3") {
-		return "HTTP/3"
-	} else if r.ProtoMajor == 2 {
-		return "HTTP/2"
-	}
-	return "HTTP/1.1"
-}
-
-// Enhanced server initialization with TLS configuration logging
-func initializeAPI() (*http.Server, *http.Server, *http3.Server) {
-	router := mux.NewRouter()
-
-	// Apply middleware to all routes
-	router.Use(corsMiddleware)
-	router.Use(httpVersionMiddleware)
-
-	// Apply rate limiting to API routes only
-	apiRouter := router.PathPrefix("/api").Subrouter()
-	apiRouter.Use(rateLimiterMiddleware)
-
-	// API routes
-	apiRouter.HandleFunc("/ticker/latest", handleLatestTicker).Methods("GET")
-	apiRouter.HandleFunc("/candlesticks", handleCandlesticks).Methods("GET")
-	apiRouter.HandleFunc("/orderbook/{timestamp}", handleOrderbook).Methods("GET")
-	apiRouter.HandleFunc("/heatmap", handleHeatmap).Methods("GET")
-	apiRouter.HandleFunc("/timerange", handleTimeRange).Methods("GET")
-	apiRouter.HandleFunc("/heatmap/msgpack", handleHeatmapMsgpack).Methods("GET")
-
-	// Serve static files
-	router.PathPrefix("/").Handler(http.FileServer(http.Dir("public")))
-
-	// Log registered routes
-	log.Println("Registered API routes:")
-	log.Println(" - /api/ticker/latest")
-	log.Println(" - /api/candlesticks")
-	log.Println(" - /api/orderbook/{timestamp}")
-	log.Println(" - /api/heatmap")
-	log.Println(" - /api/timerange")
-	log.Println(" - /api/heatmap/msgpack")
-	log.Println(" - / (static files)")
-
-	// HTTP server
-	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", config.APIPort),
-		Handler: router,
-	}
-
-	// HTTPS and HTTP/3 servers
-	var httpsServer *http.Server
-	var http3Server *http3.Server
-
-	// Check if certificates exist
-	certPath := config.CertPath
-	keyPath := config.PrivKeyPath
-
-	certExists := false
-	keyExists := false
-
-	if _, err := os.Stat(certPath); err == nil {
-		certExists = true
-		log.Printf("Found certificate file at %s", certPath)
-	} else {
-		log.Printf("Certificate file not found at %s: %v", certPath, err)
-	}
-
-	if _, err := os.Stat(keyPath); err == nil {
-		keyExists = true
-		log.Printf("Found private key file at %s", keyPath)
-	} else {
-		log.Printf("Private key file not found at %s: %v", keyPath, err)
-	}
-
-	if certExists && keyExists {
-		// Create TLS config with modern cipher suites
-		tlsConfig := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			CipherSuites: []uint16{
-				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			},
-			// Enable HTTP/3 ALPN
-			NextProtos: []string{"h3", "h3-29", "h3-27", "h2", "http/1.1"},
-		}
-
-		// Log TLS configuration
-		log.Printf("TLS Configuration: Min Version: %v, ALPN Protocols: %v, Cipher Suites: %d configured",
-			tlsVersionToString(tlsConfig.MinVersion), tlsConfig.NextProtos, len(tlsConfig.CipherSuites))
-
-		// Create HTTPS server
-		httpsServer = &http.Server{
-			Addr:      fmt.Sprintf(":%d", config.APIPortHTTPS),
-			Handler:   router,
-			TLSConfig: tlsConfig,
-		}
-
-		// Create HTTP/3 server with the same TLS config
-		http3Server = &http3.Server{
-			Addr:            fmt.Sprintf(":%d", 443), // Explicitly use port 443
-			Handler:         router,
-			TLSConfig:       tlsConfig,
-			EnableDatagrams: true,
-		}
-
-		log.Printf("Created TLS-enabled servers with certificates %s and key %s", certPath, keyPath)
-	} else {
-		log.Printf("Cannot create HTTPS/HTTP3 servers: certificate or key missing")
-	}
-
-	return httpServer, httpsServer, http3Server
-}
-
-// Helper function to convert TLS version to string
-func tlsVersionToString(version uint16) string {
-	switch version {
-	case tls.VersionTLS10:
-		return "TLS 1.0"
-	case tls.VersionTLS11:
-		return "TLS 1.1"
-	case tls.VersionTLS12:
-		return "TLS 1.2"
-	case tls.VersionTLS13:
-		return "TLS 1.3"
-	default:
-		return fmt.Sprintf("Unknown (%d)", version)
-	}
-}
-
-// Enhanced startup function with more detailed server logging
-func startApplication() {
-	log.Println("==============================================")
-	log.Println("TRXUSDT Orderbook Heatmap Recorder Starting")
-	log.Printf("Symbol: %s", config.Symbol)
-	log.Printf("Interval: %d seconds", config.Interval/time.Second)
-	log.Printf("Orderbook Depth: %d", config.OrderbookDepth)
-	log.Printf("HTTP Port: %d", config.APIPort)
-	log.Printf("HTTPS Port: %d", config.APIPortHTTPS)
-	log.Printf("HTTP/3 Port: %d", config.APIPortHTTP3)
-	log.Println("==============================================")
-
-	// Initialize API servers
-	httpServer, httpsServer, http3Server := initializeAPI()
-
-	// Start HTTP server
-	log.Printf("Starting HTTP server on port %d", config.APIPort)
-	go func() {
-		startTime := time.Now()
-		log.Printf("HTTP server listening on port %d", config.APIPort)
-
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error after running for %s: %v",
-				time.Since(startTime).Round(time.Second), err)
-		} else {
-			log.Printf("HTTP server shutdown after running for %s",
-				time.Since(startTime).Round(time.Second))
-		}
-	}()
-
-	// Start HTTPS server if certificates exist
-	if httpsServer != nil {
-		log.Printf("Starting HTTPS server on port %d", config.APIPortHTTPS)
-		go func() {
-			startTime := time.Now()
-			log.Printf("HTTPS server (HTTP/2) listening on port %d", config.APIPortHTTPS)
-
-			if err := httpsServer.ListenAndServeTLS(config.CertPath, config.PrivKeyPath); err != nil && err != http.ErrServerClosed {
-				log.Printf("HTTPS server error after running for %s: %v",
-					time.Since(startTime).Round(time.Second), err)
-			} else {
-				log.Printf("HTTPS server shutdown after running for %s",
-					time.Since(startTime).Round(time.Second))
-			}
-		}()
-
-		// Start HTTP/3 server if certificates exist
-		if http3Server != nil {
-			log.Printf("Starting HTTP/3 server on port %d", config.APIPortHTTP3)
-			go func() {
-				startTime := time.Now()
-				log.Printf("HTTP/3 server initializing on port %d", config.APIPortHTTP3)
-
-				// Start HTTP/3 server
-				if err := http3Server.ListenAndServeTLS(config.CertPath, config.PrivKeyPath); err != nil {
-					log.Printf("HTTP/3 server error after running for %s: %v",
-						time.Since(startTime).Round(time.Second), err)
-				} else {
-					log.Printf("HTTP/3 server shutdown after running for %s",
-						time.Since(startTime).Round(time.Second))
-				}
-			}()
-
-			// Additional logging to confirm HTTP/3 is running
-			time.Sleep(1 * time.Second)
-			log.Printf("HTTP/3 server should now be running on port %d", config.APIPortHTTP3)
-		}
-	} else {
-		log.Printf("SSL certificates not found. HTTPS and HTTP/3 servers not started.")
-	}
-
-	log.Println("All servers initialized")
-	log.Println("==============================================")
-
-	// Execute immediately on startup
-	scheduleDataCollection()
-
-	// Schedule recurring execution
-	ticker := time.NewTicker(config.Interval)
-
-	// Set up graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	// Main loop
-	for {
-		select {
-		case <-ticker.C:
-			go scheduleDataCollection()
-		case <-stop:
-			log.Println("Shutting down application...")
-			ticker.Stop()
-
-			// Shutdown HTTP, HTTPS and HTTP/3 servers
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			httpServer.Shutdown(ctx)
-			if httpsServer != nil {
-				httpsServer.Shutdown(ctx)
-			}
-			// Note: HTTP/3 server doesn't have the same Shutdown method
-			// It will close when the application exits
-
-			log.Println("Database connection closed")
-			return
-		}
-	}
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milk Price and Orderbook Heatmap</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/msgpack-lite@0.1.26/dist/msgpack.min.js"></script>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #121212;
+            color: #00ff9d;
+            background-image: linear-gradient(rgba(8, 8, 16, 0.97), rgba(8, 8, 16, 0.97)), 
+                              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 157, 0.05) 2px, rgba(0, 255, 157, 0.05) 4px);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #1a1a2e;
+            border-radius: 8px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2), 0 0 40px rgba(0, 255, 157, 0.1) inset;
+            padding: 20px;
+        }
+        .charts-wrapper {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        .main-chart-container {
+            width: 75%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: width 0.3s ease;
+        }
+        .cvp-chart-container {
+            width: 25%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: all 0.3s ease;
+        }
+        .chart-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+        h1 {
+            text-align: center;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.7);
+            letter-spacing: 2px;
+            border-bottom: 1px solid #00ff9d;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        select, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg fill='%2300ff9d' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            padding-right: 30px;
+        }
+        select:focus, button:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        button {
+            background-color: #1a1a2e;
+            color: #00ff9d;
+            border: 1px solid #00ff9d;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+        }
+        button:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.4);
+        }
+        label {
+            color: #00ff9d;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 255, 157, 0.5);
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .slider-container label {
+            width: 120px;
+        }
+        .slider-container input[type="range"] {
+            width: 100px;
+            appearance: none;
+            height: 6px;
+            background: #0f0f23;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+        }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #00ff9d;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+        }
+        .slider-container span {
+            width: 30px;
+            text-align: center;
+            background-color: #0f0f23;
+            padding: 2px 8px;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Milk Price and Orderbook Heatmap</h1>
+        
+        <div class="controls">
+            <label for="timeRange">Time Range:</label>
+            <select id="timeRange">
+                <option value="1h">1 Hour</option>
+                <option value="3h">3 Hours</option>
+                <option value="6h">6 Hours</option>
+                <option value="12h">12 Hours</option>
+                <option value="24h">1 Day</option>
+                <option value="48h">2 Days</option>
+                <option value="168h">7 Days</option>
+            </select>
+            
+            <label for="buckets">Price Buckets:</label>
+            <select id="buckets">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+            </select>
+            
+            <div class="slider-container">
+                <label for="colorDensity">Color Density:</label>
+                <input type="range" id="colorDensity" min="1" max="10" step="1" value="5">
+                <span id="densityValue">5</span>
+            </div>
+            
+            <button id="refreshBtn">Refresh Data</button>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showCVP" checked>
+                <label for="showCVP">Show Volume Profile</label>
+            </div>
+        </div>
+        
+        <div class="charts-wrapper">
+            <div id="chart" class="main-chart-container"></div>
+            <div id="cvpChart" class="cvp-chart-container"></div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Keep track of the last timestamp we've fetched
+            let lastFetchTime = 0;
+            let cachedCandlestickData = [];
+            let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
+            let currentTimeRange = '';
+            
+            // Initial load
+            loadData(true); // true indicates a full load
+            
+            // Set up event listeners
+            document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
+            document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
+            document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
+            document.getElementById('colorDensity').addEventListener('input', function() {
+                document.getElementById('densityValue').textContent = this.value;
+                // Only adjust the colorscale weighting without changing data
+                const existingData = Plotly.data('chart');
+                if (existingData && existingData.length >= 2) {
+                    const colorDensity = parseInt(this.value);
+                    Plotly.restyle('chart', {
+                        'colorscale': [generateWeightedColorscale(colorDensity)]
+                    }, [0]); // Apply to the heatmap trace only (index 0)
+                }
+            });
+            
+            // Add event listener for the CVP checkbox
+            document.getElementById('showCVP').addEventListener('change', function() {
+                toggleCVPDisplay();
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+            });
+            
+            // Function to toggle CVP display and adjust main chart width
+            function toggleCVPDisplay() {
+                const showCVP = document.getElementById('showCVP').checked;
+                const mainChart = document.getElementById('chart');
+                const cvpChart = document.getElementById('cvpChart');
+                
+                if (showCVP) {
+                    mainChart.style.width = '75%';
+                    cvpChart.style.display = 'block';
+                } else {
+                    mainChart.style.width = '100%';
+                    cvpChart.style.display = 'none';
+                }
+                
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            }
+            
+            // Initialize the display state
+            toggleCVPDisplay();
+            
+            // Auto refresh every minute - use incremental update
+            setInterval(() => loadData(false), 60000);
+            
+            function loadData(fullRefresh = false) {
+                const timeRange = document.getElementById('timeRange').value;
+                const buckets = document.getElementById('buckets').value;
+                
+                // If time range or buckets changed, we need a full refresh
+                if (timeRange !== currentTimeRange || fullRefresh) {
+                    currentTimeRange = timeRange;
+                    
+                    // Calculate time range in seconds
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    const endTime = Math.floor(Date.now() / 1000);
+                    const startTime = endTime - duration;
+                    
+                    // Full refresh - fetch all data
+                    // First fetch the candlestick data as JSON
+                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                        .then(res => res.json());
+                    
+                    // Now fetch the heatmap data as MessagePack if supported
+                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.arrayBuffer();
+                        })
+                        .then(buffer => {
+                            // Use msgpack to decode the buffer
+                            const data = msgpack.decode(new Uint8Array(buffer));
+                            return data;
+                        })
+                        .catch(error => {
+                            console.warn('Error fetching MessagePack data, falling back to JSON:', error);
+                            // Fallback to JSON if MessagePack fails
+                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                                .then(res => res.json());
+                        });
+                    
+                    // Wait for both promises to resolve
+                    Promise.all([candlestickPromise, heatmapPromise])
+                        .then(([candlestickData, heatmapData]) => {
+                            // Just store the complete data
+                            cachedCandlestickData = candlestickData;
+                            cachedHeatmapData = heatmapData;
+                            lastFetchTime = endTime;
+                            renderChart(cachedCandlestickData, cachedHeatmapData);
+                        })
+                        .catch(error => {
+                            console.error('Error fetching data:', error);
+                            alert('Failed to load data. Please try again.');
+                        });
+                } else {
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
+                    const endTime = Math.floor(Date.now() / 1000);
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
+                    const startTime = endTime - duration;
+                    
+                    // Use the same pattern as above for auto-updates
+                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                        .then(res => res.json());
+                    
+                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.arrayBuffer();
+                        })
+                        .then(buffer => {
+                            const data = msgpack.decode(new Uint8Array(buffer));
+                            return data;
+                        })
+                        .catch(error => {
+                            console.warn('Error fetching MessagePack data, falling back to JSON:', error);
+                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                                .then(res => res.json());
+                        });
+                    
+                    Promise.all([candlestickPromise, heatmapPromise])
+                        .then(([candlestickData, heatmapData]) => {
+                            cachedCandlestickData = candlestickData;
+                            cachedHeatmapData = heatmapData;
+                            lastFetchTime = endTime;
+                            renderChart(cachedCandlestickData, cachedHeatmapData);
+                        })
+                        .catch(error => {
+                            console.error('Error fetching data:', error);
+                            // Silently fail, will retry on next auto-update
+                        });
+                }
+            }
+            
+            // Generate a colorscale with weights adjusted by the density value
+            function generateWeightedColorscale(density) {
+                const colorscale = [];
+                
+                // Base colors (from dark blue to bright yellow)
+                const colors = [
+                    'rgb(10, 10, 50)',      // Dark blue
+                    'rgb(20, 40, 150)',     // #010102
+                    'rgb(30, 100, 200)',    // Lighter blue
+                    'rgb(40, 150, 220)',    // Cyan-blue
+                    'rgb(80, 200, 200)',    // Cyan
+                    'rgb(120, 220, 150)',   // Cyan-green
+                    'rgb(180, 240, 80)',    // Green-yellow
+                    'rgb(220, 250, 40)',    // Yellow-green
+                    'rgb(255, 235, 0)'      // Bright yellow
+                ];
+                
+                // Set the baseline for minimal values
+                colorscale.push([0, colors[0]]);
+                
+                // Apply non-linear distribution of colors based on density
+                // Higher density = more color weight to lower values
+                const power = (11 - density) / 2; // Convert to 0.5-5 range (inverse)
+                
+                for (let i = 1; i < colors.length; i++) {
+                    // Calculate position with weighting based on density
+                    // This emphasizes lower values when density is high
+                    let position = Math.pow(i / (colors.length - 1), power);
+                    colorscale.push([position, colors[i]]);
+                }
+                
+                return colorscale;
+            }
+            
+            function renderChart(candlestickData, heatmapData) {
+                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                    return;
+                }
+                
+                // Prepare price data
+                const times = candlestickData.map(item => new Date(item.timestamp));
+                const prices = candlestickData.map(item => item.close);
+                
+                // Prepare heatmap data
+                const heatmapZ = [];
+                const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                const priceLevels = heatmapData.priceLevels;
+                
+                // Convert the heatmap result to a matrix format that Plotly can use
+                // Each row represents a price level, each column represents a timestamp
+                for (let i = 0; i < priceLevels.length; i++) {
+                    const row = [];
+                    for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                        // Get the volume for this price level at this timestamp
+                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        row.push(volume);
+                    }
+                    heatmapZ.push(row);
+                }
+                
+                // Find the price range from priceLevels for consistent scaling
+                const minPrice = Math.min(...priceLevels);
+                const maxPrice = Math.max(...priceLevels);
+                
+                // Create the combined plot
+                const trace1 = {
+                    x: times,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 214, 137, 1)',
+                        width: 3
+                    },
+                    // Use the same y-axis as the heatmap
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
+                
+                // Get color density value
+                const colorDensity = parseInt(document.getElementById('colorDensity').value);
+                
+                const trace2 = {
+                    x: timestamps,
+                    y: priceLevels,
+                    z: heatmapZ,
+                    type: 'heatmap',
+                    colorscale: generateWeightedColorscale(colorDensity),
+                    name: 'Order Density',
+                    colorbar: {
+                        title: 'Order Volume',
+                        titleside: 'right',
+                        titlefont: { color: '#00ff9d' },
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    zsmooth: false,
+                    showscale: true
+                };
+                
+                const layout = {
+                    title: {
+                        text: 'Milk Price and Orderbook Heatmap',
+                        font: {
+                            color: '#00ff9d',
+                            family: 'Courier New, monospace'
+                        }
+                    },
+                    plot_bgcolor: '#0a0a12',
+                    paper_bgcolor: '#0f0f1f',
+                    height: 600,
+                    yaxis: {
+                        title: {
+                            text: 'Price (USDT)',
+                            font: { color: '#00ff9d' }
+                        },
+                        side: 'left',
+                        range: [minPrice, maxPrice],
+                        autorange: false,
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' },
+                        zeroline: false
+                    },
+                    xaxis: {
+                        title: {
+                            text: 'Time',
+                            font: { color: '#00ff9d' }
+                        },
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    hovermode: 'closest',
+                    showlegend: true,
+                    legend: {
+                        font: { color: '#00ff9d' },
+                        bgcolor: 'rgba(10, 10, 18, 0.8)',
+                        bordercolor: '#00ff9d',
+                        borderwidth: 1
+                    },
+                    margin: {
+                        l: 50,
+                        r: 50,
+                        b: 50,
+                        t: 50,
+                        pad: 4
+                    },
+                    autosize: true
+                };
+                
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                
+                // Create the volume profile chart if enabled
+                const showCVP = document.getElementById('showCVP').checked;
+                if (showCVP) {
+                    // Calculate aggregate volume for each price level
+                    const volumeByPrice = new Array(priceLevels.length).fill(0);
+                    
+                    for (let i = 0; i < priceLevels.length; i++) {
+                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        }
+                    }
+                    
+                    // Create the Volume Profile trace as a vertical bar chart
+                    const cvpTrace = {
+                        y: priceLevels,
+                        x: volumeByPrice,
+                        type: 'bar',
+                        orientation: 'h',
+                        name: 'Volume Profile',
+                        marker: {
+                            color: 'rgba(0, 255, 157, 0.7)',
+                            line: {
+                                color: 'rgba(0, 255, 157, 1)',
+                                width: 1
+                            }
+                        }
+                    };
+                    
+                    const cvpLayout = {
+                        title: {
+                            text: 'Volume Profile',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        },
+                        plot_bgcolor: '#0a0a12',
+                        paper_bgcolor: '#0f0f1f',
+                        height: 600,
+                        yaxis: {
+                            title: '',
+                            side: 'right',
+                            range: [minPrice, maxPrice],
+                            autorange: false,
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' },
+                            zeroline: false
+                        },
+                        xaxis: {
+                            title: {
+                                text: 'Volume',
+                                font: { color: '#00ff9d' }
+                            },
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        margin: {
+                            l: 0,
+                            r: 50,
+                            b: 50,
+                            t: 50,
+                            pad: 4
+                        },
+                        autosize: true
+                    };
+                    
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                }
+            }
+        });
+    </script>
+</body>
+</html>
