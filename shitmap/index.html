@@ -347,16 +347,28 @@
                 }
             }
             
-            // Add MessagePack decoder utility
+            // Add MessagePack decoder utility with enhanced diagnostics
             const MessagePackDecoder = {
                 decode: function(buffer) {
                     try {
+                        console.log("Received buffer length:", buffer.byteLength);
+                        
                         // msgpack-lite exposes a global 'msgpack' variable
                         const decoded = msgpack.decode(new Uint8Array(buffer));
-                        console.log("Successfully decoded MessagePack data");
+                        
+                        // Log structure details for debugging
+                        console.log("Decoded data structure:", {
+                            hasData: !!decoded,
+                            hasTimestamps: decoded && Array.isArray(decoded.timestamps),
+                            timestampsLength: decoded && decoded.timestamps ? decoded.timestamps.length : 0,
+                            hasPriceLevels: decoded && Array.isArray(decoded.priceLevels),
+                            priceLevelsLength: decoded && decoded.priceLevels ? decoded.priceLevels.length : 0,
+                            hasHeatmap: decoded && Array.isArray(decoded.heatmap),
+                            heatmapLength: decoded && decoded.heatmap ? decoded.heatmap.length : 0
+                        });
                         
                         // Ensure the data has the expected structure
-                        if (!decoded || !decoded.timestamps) {
+                        if (!decoded || !decoded.timestamps || !decoded.priceLevels || !decoded.heatmap) {
                             console.error("Decoded data missing expected structure:", decoded);
                             // Create a default structure that matches what renderChart expects
                             return {
