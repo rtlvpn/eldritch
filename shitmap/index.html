@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
-    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
-    <script src="https://unpkg.com/msgpack-lite@0.1.26/dist/msgpack.min.js"></script>
-    <link rel="icon" href="data:,">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -277,22 +275,14 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch data with MessagePack for heatmap
+                    // Full refresh - fetch all data
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                            .then(res => {
-                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                                return res.json();
-                            }),
-                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                            .then(res => {
-                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                                return res.arrayBuffer();
-                            })
-                            .then(buffer => MessagePackDecoder.decode(buffer))
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Store the complete data
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -304,6 +294,7 @@
                     });
                 } else {
                     // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -318,23 +309,16 @@
                     }
                     
                     // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
                     const startTime = endTime - duration;
                     
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                            .then(res => {
-                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                                return res.json();
-                            }),
-                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
-                            .then(res => {
-                                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                                return res.arrayBuffer();
-                            })
-                            .then(buffer => MessagePackDecoder.decode(buffer))
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Store the complete data
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -346,49 +330,6 @@
                     });
                 }
             }
-            
-            // Add MessagePack decoder utility with enhanced diagnostics
-            const MessagePackDecoder = {
-                decode: function(buffer) {
-                    try {
-                        console.log("Received buffer length:", buffer.byteLength);
-                        
-                        // msgpack-lite exposes a global 'msgpack' variable
-                        const decoded = msgpack.decode(new Uint8Array(buffer));
-                        
-                        // Log structure details for debugging
-                        console.log("Decoded data structure:", {
-                            hasData: !!decoded,
-                            hasTimestamps: decoded && Array.isArray(decoded.timestamps),
-                            timestampsLength: decoded && decoded.timestamps ? decoded.timestamps.length : 0,
-                            hasPriceLevels: decoded && Array.isArray(decoded.priceLevels),
-                            priceLevelsLength: decoded && decoded.priceLevels ? decoded.priceLevels.length : 0,
-                            hasHeatmap: decoded && Array.isArray(decoded.heatmap),
-                            heatmapLength: decoded && decoded.heatmap ? decoded.heatmap.length : 0
-                        });
-                        
-                        // Ensure the data has the expected structure
-                        if (!decoded || !decoded.timestamps || !decoded.priceLevels || !decoded.heatmap) {
-                            console.error("Decoded data missing expected structure:", decoded);
-                            // Create a default structure that matches what renderChart expects
-                            return {
-                                timestamps: [],
-                                priceLevels: [],
-                                heatmap: []
-                            };
-                        }
-                        return decoded;
-                    } catch (error) {
-                        console.error("Error decoding MessagePack data:", error);
-                        // Return a safe fallback structure
-                        return {
-                            timestamps: [],
-                            priceLevels: [],
-                            heatmap: []
-                        };
-                    }
-                }
-            };
             
             // Generate a colorscale with weights adjusted by the density value
             function generateWeightedColorscale(density) {
