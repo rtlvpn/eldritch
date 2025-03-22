@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://unpkg.com/@msgpack/msgpack@2.8.0/dist.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -275,14 +276,16 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch all data
+                    // Full refresh - fetch data with MessagePack for heatmap
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                            .then(res => res.json()),
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                            .then(res => res.arrayBuffer())
+                            .then(buffer => MessagePackDecoder.decode(buffer))
                     ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
+                        // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -294,7 +297,6 @@
                     });
                 } else {
                     // Auto-update case: Get a full refresh but with a shorter interval
-                    // This is simpler and more reliable than trying to merge
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -309,16 +311,17 @@
                     }
                     
                     // Just get data for the last 5 minutes + the current duration
-                    // This way we ensure we have proper overlap with existing data
                     const startTime = endTime - duration;
                     
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                            .then(res => res.json()),
+                        fetch(`https://heatmapeldritch.gleeze.com:443/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                            .then(res => res.arrayBuffer())
+                            .then(buffer => MessagePackDecoder.decode(buffer))
                     ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
+                        // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -330,6 +333,14 @@
                     });
                 }
             }
+            
+            // Add MessagePack decoder utility
+            const MessagePackDecoder = {
+                decode: function(buffer) {
+                    // Use the msgpack library to decode the buffer
+                    return msgpackr.decode(new Uint8Array(buffer));
+                }
+            };
             
             // Generate a colorscale with weights adjusted by the density value
             function generateWeightedColorscale(density) {
