@@ -338,7 +338,7 @@
             const MessagePackDecoder = {
                 decode: function(buffer) {
                     // Use the msgpack library to decode the buffer
-                    return msgpackr.decode(new Uint8Array(buffer));
+                    return msgpack.decode(new Uint8Array(buffer));
                 }
             };
             
