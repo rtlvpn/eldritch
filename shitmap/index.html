@@ -350,8 +350,31 @@
             // Add MessagePack decoder utility
             const MessagePackDecoder = {
                 decode: function(buffer) {
-                    // The @msgpack/msgpack library exposes itself as MessagePack, not msgpack
-                    return MessagePack.decode(new Uint8Array(buffer));
+                    try {
+                        // The library exposes decode in the msgpack namespace
+                        const decoded = msgpack.decode(new Uint8Array(buffer));
+                        console.log("Decoded data structure:", decoded);
+                        
+                        // Ensure the data has the expected structure
+                        if (!decoded || !decoded.timestamps) {
+                            console.error("Decoded data missing expected structure:", decoded);
+                            // Create a default structure that matches what renderChart expects
+                            return {
+                                timestamps: [],
+                                priceLevels: [],
+                                heatmap: []
+                            };
+                        }
+                        return decoded;
+                    } catch (error) {
+                        console.error("Error decoding MessagePack data:", error);
+                        // Return a safe fallback structure
+                        return {
+                            timestamps: [],
+                            priceLevels: [],
+                            heatmap: []
+                        };
+                    }
                 }
             };
             
