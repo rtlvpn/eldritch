@@ -254,35 +254,38 @@
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
-                
-                // If time range or buckets changed, we need a full refresh
-                if (timeRange !== currentTimeRange || fullRefresh) {
+
+                // Calculate duration (in seconds) from the selected time range
+                let duration;
+                switch (timeRange) {
+                    case '1h': duration = 3600; break;
+                    case '3h': duration = 3600 * 3; break;
+                    case '6h': duration = 3600 * 6; break;
+                    case '12h': duration = 3600 * 12; break;
+                    case '24h': duration = 3600 * 24; break;
+                    case '48h': duration = 3600 * 48; break;
+                    case '168h': duration = 3600 * 168; break;
+                    default: duration = 3600;
+                }
+
+                const endTime = Math.floor(Date.now() / 1000);
+
+                // Full refresh is done when the time range or buckets change
+                // or if we don’t have any cached data yet
+                if (timeRange !== currentTimeRange ||
+                    fullRefresh ||
+                    cachedCandlestickData.length === 0 ||
+                    !cachedHeatmapData.timestamps?.length) {
                     currentTimeRange = timeRange;
-                    
-                    // Calculate time range in seconds
-                    let duration;
-                    switch(timeRange) {
-                        case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '168h': duration = 3600 * 168; break;
-                        default: duration = 3600;
-                    }
-                    
-                    const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
-                    
-                    // Full refresh - fetch all data
+
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
                         fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
+                        // Save the complete dataset to cache
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -293,40 +296,45 @@
                         alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Auto-update case: Get a full refresh but with a shorter interval
-                    // This is simpler and more reliable than trying to merge
-                    const endTime = Math.floor(Date.now() / 1000);
-                    let duration;
-                    switch(timeRange) {
-                        case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '168h': duration = 3600 * 168; break;
-                        default: duration = 3600;
-                    }
-                    
-                    // Just get data for the last 5 minutes + the current duration
-                    // This way we ensure we have proper overlap with existing data
-                    const startTime = endTime - duration;
-                    
+                    // Incremental update: only fetch data newer than our last update
+                    const incrementalStartTime = lastFetchTime + 1; // Fetch strictly newer data
                     Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${incrementalStartTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${incrementalStartTime}&endTime=${endTime}&buckets=${buckets}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
+                    .then(([newCandlestickData, newHeatmapData]) => {
+                        // Merge any new candlestick data with the cached data
+                        cachedCandlestickData = cachedCandlestickData.concat(newCandlestickData);
+                        // Then trim any candlesticks that are older than the current window
+                        const windowStart = endTime - duration;
+                        cachedCandlestickData = cachedCandlestickData.filter(item => item.timestamp >= windowStart);
+
+                        // For the heatmap, append the new timestamps and rows
+                        if (newHeatmapData.timestamps && newHeatmapData.heatmap) {
+                            cachedHeatmapData.timestamps = cachedHeatmapData.timestamps.concat(newHeatmapData.timestamps);
+                            cachedHeatmapData.heatmap = cachedHeatmapData.heatmap.concat(newHeatmapData.heatmap);
+
+                            // Because the timestamps are in order, find the first index
+                            // that falls within the new window
+                            let startIndex = 0;
+                            while (
+                                startIndex < cachedHeatmapData.timestamps.length &&
+                                cachedHeatmapData.timestamps[startIndex] < windowStart
+                            ) {
+                                startIndex++;
+                            }
+                            cachedHeatmapData.timestamps = cachedHeatmapData.timestamps.slice(startIndex);
+                            cachedHeatmapData.heatmap = cachedHeatmapData.heatmap.slice(startIndex);
+                        }
+
+                        // Update the last fetch time and re-render the charts
                         lastFetchTime = endTime;
                         renderChart(cachedCandlestickData, cachedHeatmapData);
                     })
                     .catch(error => {
-                        console.error('Error fetching data:', error);
-                        // Silently fail, will retry on next auto-update
+                        console.error('Error during incremental update:', error);
+                        // Optionally, you could trigger a full refresh if incremental update fails.
                     });
                 }
             }
