@@ -241,7 +241,7 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Calculate Order Book Momentum (OBM)
+            // Calculate Order Book Momentum with predictive capabilities
             function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
@@ -251,38 +251,77 @@
                 if (heatmapData.heatmap.length < 2) return result;
                 
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
-                    // Prepare data for current and previous time points
                     const currentPriceVolumes = {
                         prices: heatmapData.priceLevels, 
                         volumes: heatmapData.heatmap[i].volumes
                     };
                     
-                    const prevPriceVolumes = {
-                        prices: heatmapData.priceLevels, 
-                        volumes: heatmapData.heatmap[i-1].volumes
-                    };
+                    // Find the middle price index to separate buy/sell sides
+                    const middleIndex = Math.floor(currentPriceVolumes.prices.length / 2);
                     
-                    // Calculate weighted average prices
-                    const currentAvgPrice = calculateWeightedAvgPrice(currentPriceVolumes);
-                    const prevAvgPrice = calculateWeightedAvgPrice(prevPriceVolumes);
+                    // Calculate buy pressure (volume below middle) and sell pressure (volume above middle)
+                    let buyPressure = 0;
+                    let sellPressure = 0;
                     
-                    // Calculate time difference (in seconds)
-                    const currentTimestamp = heatmapData.timestamps[i];
-                    const prevTimestamp = heatmapData.timestamps[i-1];
-                    const deltaTime = currentTimestamp - prevTimestamp;
+                    for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        
+                        // Weight by distance from middle (further away has more impact)
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                        const weightedVolume = volume * (1 + distanceFactor);
+                        
+                        if (j < middleIndex) {
+                            buyPressure += weightedVolume;
+                        } else {
+                            sellPressure += weightedVolume;
+                        }
+                    }
                     
-                    if (deltaTime <= 0) continue; // Skip if time difference is invalid
+                    // Calculate order book imbalance ratio
+                    const totalPressure = buyPressure + sellPressure;
+                    const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
                     
-                    // Calculate rate of change of weighted avg price
-                    const priceRateOfChange = (currentAvgPrice - prevAvgPrice) / deltaTime;
+                    // Calculate rate of change of imbalance (if we have previous data)
+                    let imbalanceChange = 0;
+                    if (i > 1) {
+                        const prevPriceVolumes = {
+                            prices: heatmapData.priceLevels, 
+                            volumes: heatmapData.heatmap[i-2].volumes
+                        };
+                        
+                        // Calculate previous imbalance
+                        let prevBuyPressure = 0;
+                        let prevSellPressure = 0;
+                        
+                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                            const weightedVolume = volume * (1 + distanceFactor);
+                            
+                            if (j < middleIndex) {
+                                prevBuyPressure += weightedVolume;
+                            } else {
+                                prevSellPressure += weightedVolume;
+                            }
+                        }
+                        
+                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
+                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
+                        
+                        // Calculate delta time between measurements
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-2];
+                        const deltaTime = Math.max(1, currentTimestamp - prevTimestamp);
+                        
+                        // Rate of change of imbalance
+                        imbalanceChange = (imbalance - prevImbalance) / deltaTime;
+                    }
                     
-                    // Calculate standard deviation for current time
-                    const stdDev = calculateWeightedStdDev(currentPriceVolumes, currentAvgPrice);
+                    // Combine current imbalance and its rate of change for the final OBM value
+                    // Higher weight on imbalance change makes it more predictive
+                    const obm = imbalance * 0.3 + imbalanceChange * 0.7;
                     
-                    // Calculate OBM = (dP_avg/dt) / σ(t)
-                    const obm = priceRateOfChange / Math.max(stdDev, 0.0001); // Avoid division by very small numbers
-                    
-                    result.timestamps.push(new Date(currentTimestamp * 1000));
+                    result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                     result.obmValues.push(obm);
                 }
                 
