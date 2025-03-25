@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Milk Price and Orderbook</title>
+    <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         body {
@@ -147,6 +147,14 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
+        /* Add style for the OBM chart */
+        .obm-chart-container {
+            width: 100%;
+            height: 200px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -183,16 +191,143 @@
                 <input type="checkbox" id="showCVP" checked>
                 <label for="showCVP">Show Volume Profile</label>
             </div>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showOBM" checked>
+                <label for="showOBM">Show Order Book Momentum</label>
+            </div>
         </div>
         
         <div class="charts-wrapper">
             <div id="chart" class="main-chart-container"></div>
             <div id="cvpChart" class="cvp-chart-container"></div>
         </div>
+        
+        <div id="obmChart" class="obm-chart-container"></div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Order Book Momentum (OBM) calculation functions
+            
+            // Calculate density-weighted average price at a specific time
+            function calculateWeightedAvgPrice(priceVolumes) {
+                let weightedSum = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSum += price * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? weightedSum / totalVolume : 0;
+            }
+            
+            // Calculate price standard deviation weighted by density
+            function calculateWeightedStdDev(priceVolumes, avgPrice) {
+                let weightedSumSq = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSumSq += Math.pow(price - avgPrice, 2) * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
+            }
+            
+            // Calculate Order Book Momentum with predictive capabilities
+            function calculateOBM(heatmapData) {
+                const result = {
+                    timestamps: [],
+                    obmValues: []
+                };
+                
+                if (heatmapData.heatmap.length < 2) return result;
+                
+                for (let i = 1; i < heatmapData.heatmap.length; i++) {
+                    const currentPriceVolumes = {
+                        prices: heatmapData.priceLevels, 
+                        volumes: heatmapData.heatmap[i].volumes
+                    };
+                    
+                    // Find the middle price index to separate buy/sell sides
+                    const middleIndex = Math.floor(currentPriceVolumes.prices.length / 2);
+                    
+                    // Calculate buy pressure (volume below middle) and sell pressure (volume above middle)
+                    let buyPressure = 0;
+                    let sellPressure = 0;
+                    
+                    for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        
+                        // Weight by distance from middle (further away has more impact)
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                        const weightedVolume = volume * (1 + distanceFactor);
+                        
+                        if (j < middleIndex) {
+                            buyPressure += weightedVolume;
+                        } else {
+                            sellPressure += weightedVolume;
+                        }
+                    }
+                    
+                    // Calculate order book imbalance ratio
+                    const totalPressure = buyPressure + sellPressure;
+                    const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                    
+                    // Calculate rate of change of imbalance (if we have previous data)
+                    let imbalanceChange = 0;
+                    if (i > 1) {
+                        const prevPriceVolumes = {
+                            prices: heatmapData.priceLevels, 
+                            volumes: heatmapData.heatmap[i-2].volumes
+                        };
+                        
+                        // Calculate previous imbalance
+                        let prevBuyPressure = 0;
+                        let prevSellPressure = 0;
+                        
+                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                            const weightedVolume = volume * (1 + distanceFactor);
+                            
+                            if (j < middleIndex) {
+                                prevBuyPressure += weightedVolume;
+                            } else {
+                                prevSellPressure += weightedVolume;
+                            }
+                        }
+                        
+                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
+                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
+                        
+                        // Calculate delta time between measurements
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-2];
+                        const deltaTime = Math.max(1, currentTimestamp - prevTimestamp);
+                        
+                        // Rate of change of imbalance
+                        imbalanceChange = (imbalance - prevImbalance) / deltaTime;
+                    }
+                    
+                    // Combine current imbalance and its rate of change for the final OBM value
+                    // Higher weight on imbalance change makes it more predictive
+                    const obm = imbalance * 0.3 + imbalanceChange * 0.7;
+                    
+                    result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
+                    result.obmValues.push(obm);
+                }
+                
+                return result;
+            }
+            
             // Keep track of the last timestamp we've fetched
             let lastFetchTime = 0;
             let cachedCandlestickData = [];
@@ -370,6 +505,9 @@
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
                     return;
                 }
+                
+                // Calculate Order Book Momentum
+                const obmData = calculateOBM(heatmapData);
                 
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
@@ -555,7 +693,81 @@
                     
                     Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
                 }
+                
+                // Create the OBM chart if enabled
+                const showOBM = document.getElementById('showOBM').checked;
+                if (showOBM && obmData.timestamps.length > 0) {
+                    const obmTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'OBM',
+                        line: {
+                            color: 'rgba(255, 100, 100, 1)',
+                            width: 2
+                        },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(255, 100, 100, 0.3)'
+                    };
+                    
+                    const obmLayout = {
+                        title: {
+                            text: 'Order Book Momentum (OBM)',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        },
+                        plot_bgcolor: '#0a0a12',
+                        paper_bgcolor: '#0f0f1f',
+                        height: 200,
+                        yaxis: {
+                            title: {
+                                text: 'OBM Value',
+                                font: { color: '#00ff9d' }
+                            },
+                            zeroline: true,
+                            zerolinecolor: 'rgba(0, 255, 157, 0.5)',
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        xaxis: {
+                            title: {
+                                text: 'Time',
+                                font: { color: '#00ff9d' }
+                            },
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' },
+                            range: [times[0], times[times.length - 1]] // Match time range with main chart
+                        },
+                        margin: {
+                            l: 50,
+                            r: 50,
+                            b: 50,
+                            t: 50,
+                            pad: 4
+                        },
+                        autosize: true
+                    };
+                    
+                    Plotly.newPlot('obmChart', [obmTrace], obmLayout, {responsive: true});
+                } else {
+                    document.getElementById('obmChart').style.display = 'none';
+                }
             }
+            
+            // Also add event listener for the OBM checkbox
+            document.getElementById('showOBM').addEventListener('change', function() {
+                document.getElementById('obmChart').style.display = this.checked ? 'block' : 'none';
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            });
         });
     </script>
 </body>
