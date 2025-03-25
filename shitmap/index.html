@@ -186,6 +186,12 @@
                 <span id="densityValue">5</span>
             </div>
             
+            <div class="slider-container">
+                <label for="marginPercent">Margin %:</label>
+                <input type="range" id="marginPercent" min="5" max="100" step="5" value="45">
+                <span id="marginValue">45</span>
+            </div>
+            
             <button id="refreshBtn">Refresh Data</button>
             <div class="checkbox-container">
                 <input type="checkbox" id="showCVP" checked>
@@ -386,9 +392,15 @@
             // Auto refresh every minute - use incremental update
             setInterval(() => loadData(false), 60000);
             
+            // Add event listener for margin percent slider
+            document.getElementById('marginPercent').addEventListener('input', function() {
+                document.getElementById('marginValue').textContent = this.value;
+            });
+            
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
+                const marginPercent = document.getElementById('marginPercent').value;
                 
                 // If time range or buckets changed, we need a full refresh
                 if (timeRange !== currentTimeRange || fullRefresh) {
@@ -410,10 +422,10 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch all data
+                    // Full refresh - fetch all data with margin percent parameter
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
@@ -449,7 +461,7 @@
                     
                     Promise.all([
                         fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}`)
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
                     ])
                     .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
