@@ -247,25 +247,19 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Improved Order Book Momentum with better precision
+            // Refined Order Book Momentum calculation that preserves the accuracy of the original approach
             function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
                     obmValues: [],
-                    rawImbalances: [] // Store raw values for comparison
+                    rawImbalances: [] // Store raw values as they're more accurate
                 };
                 
                 if (heatmapData.heatmap.length < 2) return result;
                 
-                // Keep a history of recent imbalances for smoothing
-                const imbalanceHistory = [];
-                const historyLength = 5;
-                
-                // Find the actual price midpoint instead of just the middle index
+                // Find the price midpoint with respect to actual price values
                 function findPriceMidpoint(prices) {
-                    const minPrice = Math.min(...prices);
-                    const maxPrice = Math.max(...prices);
-                    return (minPrice + maxPrice) / 2;
+                    return (Math.min(...prices) + Math.max(...prices)) / 2;
                 }
                 
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
@@ -274,35 +268,21 @@
                         volumes: heatmapData.heatmap[i].volumes
                     };
                     
-                    // Use actual price midpoint rather than array position
+                    // Use actual price midpoint
                     const priceMidpoint = findPriceMidpoint(currentPriceVolumes.prices);
                     
-                    // Calculate buy pressure and sell pressure with decay factor
+                    // Calculate buy pressure and sell pressure
                     let buyPressure = 0;
                     let sellPressure = 0;
-                    let maxVolume = 0;
                     
-                    // First pass to find max volume for normalization
-                    for (let j = 0; j < currentPriceVolumes.volumes.length; j++) {
-                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
-                        if (volume > maxVolume) maxVolume = volume;
-                    }
-                    
-                    // Apply distance weighting with exponential decay
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const price = currentPriceVolumes.prices[j];
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         
-                        // Normalize volume to prevent large orders from dominating
-                        const normalizedVolume = maxVolume > 0 ? volume / maxVolume : 0;
-                        
-                        // Calculate price distance from midpoint as percentage
+                        // Simpler distance weighting - linear based on % from midpoint
                         const distanceFromMid = Math.abs(price - priceMidpoint) / priceMidpoint;
-                        
-                        // Exponential weighting - orders further away have stronger weight
-                        // The 4 is the decay factor - higher values give more weight to distant orders
-                        const distanceWeight = Math.exp(4 * distanceFromMid);
-                        const weightedVolume = normalizedVolume * distanceWeight;
+                        // Apply a moderate weight based on distance from mid price
+                        const weightedVolume = volume * (1 + distanceFromMid);
                         
                         if (price < priceMidpoint) {
                             buyPressure += weightedVolume;
@@ -311,122 +291,32 @@
                         }
                     }
                     
-                    // Calculate imbalance with improved normalization
+                    // Calculate raw imbalance - this was more accurate according to feedback
                     const totalPressure = buyPressure + sellPressure;
                     const rawImbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
                     
-                    // Add to history
-                    imbalanceHistory.push(rawImbalance);
-                    if (imbalanceHistory.length > historyLength) {
-                        imbalanceHistory.shift(); // Remove oldest
-                    }
-                    
-                    // Calculate weighted rate of change with multiple timeframes
-                    let shortTermChange = 0;
-                    let mediumTermChange = 0;
+                    // Calculate rate of change if possible
+                    let rateOfChange = 0;
                     
                     if (i > 1) {
-                        // Short-term change (immediate previous)
-                        const prevPriceVolumes = {
-                            prices: heatmapData.priceLevels, 
-                            volumes: heatmapData.heatmap[i-1].volumes
-                        };
-                        
-                        // Calculate previous imbalance using the same method
-                        const prevMidpoint = findPriceMidpoint(prevPriceVolumes.prices);
-                        let prevBuyPressure = 0;
-                        let prevSellPressure = 0;
-                        let prevMaxVolume = 0;
-                        
-                        for (let j = 0; j < prevPriceVolumes.volumes.length; j++) {
-                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
-                            if (volume > prevMaxVolume) prevMaxVolume = volume;
-                        }
-                        
-                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
-                            const price = prevPriceVolumes.prices[j];
-                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
-                            const normalizedVolume = prevMaxVolume > 0 ? volume / prevMaxVolume : 0;
-                            const distanceFromMid = Math.abs(price - prevMidpoint) / prevMidpoint;
-                            const distanceWeight = Math.exp(4 * distanceFromMid);
-                            const weightedVolume = normalizedVolume * distanceWeight;
-                            
-                            if (price < prevMidpoint) {
-                                prevBuyPressure += weightedVolume;
-                            } else {
-                                prevSellPressure += weightedVolume;
-                            }
-                        }
-                        
-                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
-                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
-                        
-                        // Calculate delta time in seconds
-                        const currentTimestamp = heatmapData.timestamps[i];
                         const prevTimestamp = heatmapData.timestamps[i-1];
+                        const currentTimestamp = heatmapData.timestamps[i];
                         const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // in minutes
                         
-                        // Rate of change of imbalance normalized by time
-                        shortTermChange = (rawImbalance - prevImbalance) / deltaTime;
+                        // Get previous raw imbalance
+                        const prevRawImbalance = result.rawImbalances.length > 0 ? 
+                            result.rawImbalances[result.rawImbalances.length - 1] : 0;
                         
-                        // Medium-term change (if available): 5 periods back
-                        if (i > 5) {
-                            const mediumPriceVolumes = {
-                                prices: heatmapData.priceLevels, 
-                                volumes: heatmapData.heatmap[i-5].volumes
-                            };
-                            
-                            // Calculate medium-term previous imbalance
-                            // (Same calculation logic as above)
-                            const mediumMidpoint = findPriceMidpoint(mediumPriceVolumes.prices);
-                            let mediumBuyPressure = 0;
-                            let mediumSellPressure = 0;
-                            let mediumMaxVolume = 0;
-                            
-                            for (let j = 0; j < mediumPriceVolumes.volumes.length; j++) {
-                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
-                                if (volume > mediumMaxVolume) mediumMaxVolume = volume;
-                            }
-                            
-                            for (let j = 0; j < mediumPriceVolumes.prices.length; j++) {
-                                const price = mediumPriceVolumes.prices[j];
-                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
-                                const normalizedVolume = mediumMaxVolume > 0 ? volume / mediumMaxVolume : 0;
-                                const distanceFromMid = Math.abs(price - mediumMidpoint) / mediumMidpoint;
-                                const distanceWeight = Math.exp(4 * distanceFromMid);
-                                const weightedVolume = normalizedVolume * distanceWeight;
-                                
-                                if (price < mediumMidpoint) {
-                                    mediumBuyPressure += weightedVolume;
-                                } else {
-                                    mediumSellPressure += weightedVolume;
-                                }
-                            }
-                            
-                            const mediumTotalPressure = mediumBuyPressure + mediumSellPressure;
-                            const mediumImbalance = mediumTotalPressure > 0 ? 
-                                (mediumBuyPressure - mediumSellPressure) / mediumTotalPressure : 0;
-                            
-                            const mediumTimestamp = heatmapData.timestamps[i-5];
-                            const mediumDeltaTime = Math.max(1, (currentTimestamp - mediumTimestamp) / 60); // in minutes
-                            
-                            mediumTermChange = (rawImbalance - mediumImbalance) / mediumDeltaTime;
-                        }
+                        // Simple rate of change
+                        rateOfChange = (rawImbalance - prevRawImbalance) / deltaTime;
                     }
                     
-                    // Apply exponential smoothing to the imbalance (reduces noise)
-                    const alpha = 0.3; // Smoothing factor
-                    const smoothedImbalance = imbalanceHistory.length > 1 ? 
-                        alpha * rawImbalance + (1 - alpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
-                        rawImbalance;
-                    
-                    // Combine current imbalance with both short and medium term changes
-                    // Weight configuration: current state (30%), short-term momentum (50%), medium-term trend (20%)
-                    const obm = smoothedImbalance * 0.3 + shortTermChange * 0.5 + mediumTermChange * 0.2;
+                    // Simple weighted combination - preserving more of the raw imbalance
+                    const obm = rawImbalance * 0.7 + rateOfChange * 0.3;
                     
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                     result.obmValues.push(obm);
-                    result.rawImbalances.push(rawImbalance); // Store for comparison
+                    result.rawImbalances.push(rawImbalance);
                 }
                 
                 return result;
