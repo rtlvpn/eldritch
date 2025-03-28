@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milk Price and Orderbook Heatmap</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #121212;
+            color: #00ff9d;
+            background-image: linear-gradient(rgba(8, 8, 16, 0.97), rgba(8, 8, 16, 0.97)), 
+                              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 157, 0.05) 2px, rgba(0, 255, 157, 0.05) 4px);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #1a1a2e;
+            border-radius: 8px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2), 0 0 40px rgba(0, 255, 157, 0.1) inset;
+            padding: 20px;
+        }
+        .charts-wrapper {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        .main-chart-container {
+            width: 75%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: width 0.3s ease;
+        }
+        .cvp-chart-container {
+            width: 25%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: all 0.3s ease;
+        }
+        .chart-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+        h1 {
+            text-align: center;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.7);
+            letter-spacing: 2px;
+            border-bottom: 1px solid #00ff9d;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        select, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg fill='%2300ff9d' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            padding-right: 30px;
+        }
+        select:focus, button:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        button {
+            background-color: #1a1a2e;
+            color: #00ff9d;
+            border: 1px solid #00ff9d;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+        }
+        button:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.4);
+        }
+        label {
+            color: #00ff9d;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 255, 157, 0.5);
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .slider-container label {
+            width: 120px;
+        }
+        .slider-container input[type="range"] {
+            width: 100px;
+            appearance: none;
+            height: 6px;
+            background: #0f0f23;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+        }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #00ff9d;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+        }
+        .slider-container span {
+            width: 30px;
+            text-align: center;
+            background-color: #0f0f23;
+            padding: 2px 8px;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
+        }
+        /* Add style for the OBM chart */
+        .obm-chart-container {
+            width: 100%;
+            height: 200px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Milk Price and Orderbook Heatmap</h1>
+        
+        <div class="controls">
+            <label for="timeRange">Time Range:</label>
+            <select id="timeRange">
+                <option value="1h">1 Hour</option>
+                <option value="3h">3 Hours</option>
+                <option value="6h">6 Hours</option>
+                <option value="12h">12 Hours</option>
+                <option value="24h">1 Day</option>
+                <option value="48h">2 Days</option>
+                <option value="168h">7 Days</option>
+            </select>
+            
+            <label for="buckets">Price Buckets:</label>
+            <select id="buckets">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+            </select>
+            
+            <div class="slider-container">
+                <label for="colorDensity">Color Density:</label>
+                <input type="range" id="colorDensity" min="1" max="10" step="1" value="5">
+                <span id="densityValue">5</span>
+            </div>
+            
+            <div class="slider-container">
+                <label for="marginPercent">Margin %:</label>
+                <input type="range" id="marginPercent" min="5" max="200" step="5" value="45">
+                <span id="marginValue">45</span>
+            </div>
+            
+            <button id="refreshBtn">Refresh Data</button>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showCVP" checked>
+                <label for="showCVP">Show Volume Profile</label>
+            </div>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showOBM" checked>
+                <label for="showOBM">Show Order Book Momentum</label>
+            </div>
+        </div>
+        
+        <div class="charts-wrapper">
+            <div id="chart" class="main-chart-container"></div>
+            <div id="cvpChart" class="cvp-chart-container"></div>
+        </div>
+        
+        <div id="obmChart" class="obm-chart-container"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Order Book Momentum (OBM) calculation functions
+            
+            // Calculate density-weighted average price at a specific time
+            function calculateWeightedAvgPrice(priceVolumes) {
+                let weightedSum = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSum += price * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? weightedSum / totalVolume : 0;
+            }
+            
+            // Calculate price standard deviation weighted by density
+            function calculateWeightedStdDev(priceVolumes, avgPrice) {
+                let weightedSumSq = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSumSq += Math.pow(price - avgPrice, 2) * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
+            }
+            
+            // Improved Order Book Momentum with better precision
+            function calculateOBM(heatmapData) {
+                const result = {
+                    timestamps: [],
+                    obmValues: [],
+                    rawImbalances: [] // Store raw values for comparison
+                };
+                
+                if (heatmapData.heatmap.length < 2) return result;
+                
+                // Keep a history of recent imbalances for smoothing
+                const imbalanceHistory = [];
+                const historyLength = 5;
+                
+                // Find the actual price midpoint instead of just the middle index
+                function findPriceMidpoint(prices) {
+                    const minPrice = Math.min(...prices);
+                    const maxPrice = Math.max(...prices);
+                    return (minPrice + maxPrice) / 2;
+                }
+                
+                for (let i = 1; i < heatmapData.heatmap.length; i++) {
+                    const currentPriceVolumes = {
+                        prices: heatmapData.priceLevels, 
+                        volumes: heatmapData.heatmap[i].volumes
+                    };
+                    
+                    // Use actual price midpoint rather than array position
+                    const priceMidpoint = findPriceMidpoint(currentPriceVolumes.prices);
+                    
+                    // Calculate buy pressure and sell pressure with decay factor
+                    let buyPressure = 0;
+                    let sellPressure = 0;
+                    let maxVolume = 0;
+                    
+                    // First pass to find max volume for normalization
+                    for (let j = 0; j < currentPriceVolumes.volumes.length; j++) {
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        if (volume > maxVolume) maxVolume = volume;
+                    }
+                    
+                    // Apply distance weighting with exponential decay
+                    for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
+                        const price = currentPriceVolumes.prices[j];
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        
+                        // Normalize volume to prevent large orders from dominating
+                        const normalizedVolume = maxVolume > 0 ? volume / maxVolume : 0;
+                        
+                        // Calculate price distance from midpoint as percentage
+                        const distanceFromMid = Math.abs(price - priceMidpoint) / priceMidpoint;
+                        
+                        // Exponential weighting - orders further away have stronger weight
+                        // The 4 is the decay factor - higher values give more weight to distant orders
+                        const distanceWeight = Math.exp(4 * distanceFromMid);
+                        const weightedVolume = normalizedVolume * distanceWeight;
+                        
+                        if (price < priceMidpoint) {
+                            buyPressure += weightedVolume;
+                        } else {
+                            sellPressure += weightedVolume;
+                        }
+                    }
+                    
+                    // Calculate imbalance with improved normalization
+                    const totalPressure = buyPressure + sellPressure;
+                    const rawImbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                    
+                    // Add to history
+                    imbalanceHistory.push(rawImbalance);
+                    if (imbalanceHistory.length > historyLength) {
+                        imbalanceHistory.shift(); // Remove oldest
+                    }
+                    
+                    // Calculate weighted rate of change with multiple timeframes
+                    let shortTermChange = 0;
+                    let mediumTermChange = 0;
+                    
+                    if (i > 1) {
+                        // Short-term change (immediate previous)
+                        const prevPriceVolumes = {
+                            prices: heatmapData.priceLevels, 
+                            volumes: heatmapData.heatmap[i-1].volumes
+                        };
+                        
+                        // Calculate previous imbalance using the same method
+                        const prevMidpoint = findPriceMidpoint(prevPriceVolumes.prices);
+                        let prevBuyPressure = 0;
+                        let prevSellPressure = 0;
+                        let prevMaxVolume = 0;
+                        
+                        for (let j = 0; j < prevPriceVolumes.volumes.length; j++) {
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            if (volume > prevMaxVolume) prevMaxVolume = volume;
+                        }
+                        
+                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
+                            const price = prevPriceVolumes.prices[j];
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            const normalizedVolume = prevMaxVolume > 0 ? volume / prevMaxVolume : 0;
+                            const distanceFromMid = Math.abs(price - prevMidpoint) / prevMidpoint;
+                            const distanceWeight = Math.exp(4 * distanceFromMid);
+                            const weightedVolume = normalizedVolume * distanceWeight;
+                            
+                            if (price < prevMidpoint) {
+                                prevBuyPressure += weightedVolume;
+                            } else {
+                                prevSellPressure += weightedVolume;
+                            }
+                        }
+                        
+                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
+                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
+                        
+                        // Calculate delta time in seconds
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-1];
+                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // in minutes
+                        
+                        // Rate of change of imbalance normalized by time
+                        shortTermChange = (rawImbalance - prevImbalance) / deltaTime;
+                        
+                        // Medium-term change (if available): 5 periods back
+                        if (i > 5) {
+                            const mediumPriceVolumes = {
+                                prices: heatmapData.priceLevels, 
+                                volumes: heatmapData.heatmap[i-5].volumes
+                            };
+                            
+                            // Calculate medium-term previous imbalance
+                            // (Same calculation logic as above)
+                            const mediumMidpoint = findPriceMidpoint(mediumPriceVolumes.prices);
+                            let mediumBuyPressure = 0;
+                            let mediumSellPressure = 0;
+                            let mediumMaxVolume = 0;
+                            
+                            for (let j = 0; j < mediumPriceVolumes.volumes.length; j++) {
+                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
+                                if (volume > mediumMaxVolume) mediumMaxVolume = volume;
+                            }
+                            
+                            for (let j = 0; j < mediumPriceVolumes.prices.length; j++) {
+                                const price = mediumPriceVolumes.prices[j];
+                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
+                                const normalizedVolume = mediumMaxVolume > 0 ? volume / mediumMaxVolume : 0;
+                                const distanceFromMid = Math.abs(price - mediumMidpoint) / mediumMidpoint;
+                                const distanceWeight = Math.exp(4 * distanceFromMid);
+                                const weightedVolume = normalizedVolume * distanceWeight;
+                                
+                                if (price < mediumMidpoint) {
+                                    mediumBuyPressure += weightedVolume;
+                                } else {
+                                    mediumSellPressure += weightedVolume;
+                                }
+                            }
+                            
+                            const mediumTotalPressure = mediumBuyPressure + mediumSellPressure;
+                            const mediumImbalance = mediumTotalPressure > 0 ? 
+                                (mediumBuyPressure - mediumSellPressure) / mediumTotalPressure : 0;
+                            
+                            const mediumTimestamp = heatmapData.timestamps[i-5];
+                            const mediumDeltaTime = Math.max(1, (currentTimestamp - mediumTimestamp) / 60); // in minutes
+                            
+                            mediumTermChange = (rawImbalance - mediumImbalance) / mediumDeltaTime;
+                        }
+                    }
+                    
+                    // Apply exponential smoothing to the imbalance (reduces noise)
+                    const alpha = 0.3; // Smoothing factor
+                    const smoothedImbalance = imbalanceHistory.length > 1 ? 
+                        alpha * rawImbalance + (1 - alpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
+                        rawImbalance;
+                    
+                    // Combine current imbalance with both short and medium term changes
+                    // Weight configuration: current state (30%), short-term momentum (50%), medium-term trend (20%)
+                    const obm = smoothedImbalance * 0.3 + shortTermChange * 0.5 + mediumTermChange * 0.2;
+                    
+                    result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
+                    result.obmValues.push(obm);
+                    result.rawImbalances.push(rawImbalance); // Store for comparison
+                }
+                
+                return result;
+            }
+            
+            // Keep track of the last timestamp we've fetched
+            let lastFetchTime = 0;
+            let cachedCandlestickData = [];
+            let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
+            let currentTimeRange = '';
+            
+            // Initial load
+            loadData(true); // true indicates a full load
+            
+            // Set up event listeners
+            document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
+            document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
+            document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
+            document.getElementById('colorDensity').addEventListener('input', function() {
+                document.getElementById('densityValue').textContent = this.value;
+                // Only adjust the colorscale weighting without changing data
+                const existingData = Plotly.data('chart');
+                if (existingData && existingData.length >= 2) {
+                    const colorDensity = parseInt(this.value);
+                    Plotly.restyle('chart', {
+                        'colorscale': [generateWeightedColorscale(colorDensity)]
+                    }, [0]); // Apply to the heatmap trace only (index 0)
+                }
+            });
+            
+            // Add event listener for the CVP checkbox
+            document.getElementById('showCVP').addEventListener('change', function() {
+                toggleCVPDisplay();
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+            });
+            
+            // Function to toggle CVP display and adjust main chart width
+            function toggleCVPDisplay() {
+                const showCVP = document.getElementById('showCVP').checked;
+                const mainChart = document.getElementById('chart');
+                const cvpChart = document.getElementById('cvpChart');
+                
+                if (showCVP) {
+                    mainChart.style.width = '75%';
+                    cvpChart.style.display = 'block';
+                } else {
+                    mainChart.style.width = '100%';
+                    cvpChart.style.display = 'none';
+                }
+                
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            }
+            
+            // Initialize the display state
+            toggleCVPDisplay();
+            
+            // Auto refresh every minute - use incremental update
+            setInterval(() => loadData(false), 60000);
+            
+            // Add event listener for margin percent slider
+            document.getElementById('marginPercent').addEventListener('input', function() {
+                document.getElementById('marginValue').textContent = this.value;
+            });
+            
+            function loadData(fullRefresh = false) {
+                const timeRange = document.getElementById('timeRange').value;
+                const buckets = document.getElementById('buckets').value;
+                const marginPercent = document.getElementById('marginPercent').value;
+                
+                // If time range or buckets changed, we need a full refresh
+                if (timeRange !== currentTimeRange || fullRefresh) {
+                    currentTimeRange = timeRange;
+                    
+                    // Calculate time range in seconds
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    const endTime = Math.floor(Date.now() / 1000);
+                    const startTime = endTime - duration;
+                    
+                    // Full refresh - fetch all data with margin percent parameter
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        alert('Failed to load data. Please try again.');
+                    });
+                } else {
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
+                    const endTime = Math.floor(Date.now() / 1000);
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
+                    const startTime = endTime - duration;
+                    
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        // Silently fail, will retry on next auto-update
+                    });
+                }
+            }
+            
+            // Generate a colorscale with weights adjusted by the density value
+            function generateWeightedColorscale(density) {
+                const colorscale = [];
+                
+                // Base colors (from dark blue to bright yellow)
+                const colors = [
+                    'rgb(10, 10, 50)',      // Dark blue
+                    'rgb(20, 40, 150)',     // #010102
+                    'rgb(30, 100, 200)',    // Lighter blue
+                    'rgb(40, 150, 220)',    // Cyan-blue
+                    'rgb(80, 200, 200)',    // Cyan
+                    'rgb(120, 220, 150)',   // Cyan-green
+                    'rgb(180, 240, 80)',    // Green-yellow
+                    'rgb(220, 250, 40)',    // Yellow-green
+                    'rgb(255, 235, 0)'      // Bright yellow
+                ];
+                
+                // Set the baseline for minimal values
+                colorscale.push([0, colors[0]]);
+                
+                // Apply non-linear distribution of colors based on density
+                // Higher density = more color weight to lower values
+                const power = (11 - density) / 2; // Convert to 0.5-5 range (inverse)
+                
+                for (let i = 1; i < colors.length; i++) {
+                    // Calculate position with weighting based on density
+                    // This emphasizes lower values when density is high
+                    let position = Math.pow(i / (colors.length - 1), power);
+                    colorscale.push([position, colors[i]]);
+                }
+                
+                return colorscale;
+            }
+            
+            function renderChart(candlestickData, heatmapData) {
+                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                    return;
+                }
+                
+                // Calculate Order Book Momentum
+                const obmData = calculateOBM(heatmapData);
+                
+                // Prepare price data
+                const times = candlestickData.map(item => new Date(item.timestamp));
+                const prices = candlestickData.map(item => item.close);
+                
+                // Prepare heatmap data
+                const heatmapZ = [];
+                const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                const priceLevels = heatmapData.priceLevels;
+                
+                // Convert the heatmap result to a matrix format that Plotly can use
+                // Each row represents a price level, each column represents a timestamp
+                for (let i = 0; i < priceLevels.length; i++) {
+                    const row = [];
+                    for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                        // Get the volume for this price level at this timestamp
+                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        row.push(volume);
+                    }
+                    heatmapZ.push(row);
+                }
+                
+                // Find the price range from priceLevels for consistent scaling
+                const minPrice = Math.min(...priceLevels);
+                const maxPrice = Math.max(...priceLevels);
+                
+                // Create the combined plot
+                const trace1 = {
+                    x: times,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 214, 137, 1)',
+                        width: 3
+                    },
+                    // Use the same y-axis as the heatmap
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
+                
+                // Get color density value
+                const colorDensity = parseInt(document.getElementById('colorDensity').value);
+                
+                const trace2 = {
+                    x: timestamps,
+                    y: priceLevels,
+                    z: heatmapZ,
+                    type: 'heatmap',
+                    colorscale: generateWeightedColorscale(colorDensity),
+                    name: 'Order Density',
+                    colorbar: {
+                        title: 'Order Volume',
+                        titleside: 'right',
+                        titlefont: { color: '#00ff9d' },
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    zsmooth: false,
+                    showscale: true
+                };
+                
+                const layout = {
+                    title: {
+                        text: 'Milk Price and Orderbook Heatmap',
+                        font: {
+                            color: '#00ff9d',
+                            family: 'Courier New, monospace'
+                        }
+                    },
+                    plot_bgcolor: '#0a0a12',
+                    paper_bgcolor: '#0f0f1f',
+                    height: 600,
+                    yaxis: {
+                        title: {
+                            text: 'Price (USDT)',
+                            font: { color: '#00ff9d' }
+                        },
+                        side: 'left',
+                        range: [minPrice, maxPrice],
+                        autorange: false,
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' },
+                        zeroline: false
+                    },
+                    xaxis: {
+                        title: {
+                            text: 'Time',
+                            font: { color: '#00ff9d' }
+                        },
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    hovermode: 'closest',
+                    showlegend: true,
+                    legend: {
+                        font: { color: '#00ff9d' },
+                        bgcolor: 'rgba(10, 10, 18, 0.8)',
+                        bordercolor: '#00ff9d',
+                        borderwidth: 1
+                    },
+                    margin: {
+                        l: 50,
+                        r: 50,
+                        b: 50,
+                        t: 50,
+                        pad: 4
+                    },
+                    autosize: true
+                };
+                
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                
+                // Create the volume profile chart if enabled
+                const showCVP = document.getElementById('showCVP').checked;
+                if (showCVP) {
+                    // Calculate aggregate volume for each price level
+                    const volumeByPrice = new Array(priceLevels.length).fill(0);
+                    
+                    for (let i = 0; i < priceLevels.length; i++) {
+                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        }
+                    }
+                    
+                    // Create the Volume Profile trace as a vertical bar chart
+                    const cvpTrace = {
+                        y: priceLevels,
+                        x: volumeByPrice,
+                        type: 'bar',
+                        orientation: 'h',
+                        name: 'Volume Profile',
+                        marker: {
+                            color: 'rgba(0, 255, 157, 0.7)',
+                            line: {
+                                color: 'rgba(0, 255, 157, 1)',
+                                width: 1
+                            }
+                        }
+                    };
+                    
+                    const cvpLayout = {
+                        title: {
+                            text: 'Volume Profile',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        },
+                        plot_bgcolor: '#0a0a12',
+                        paper_bgcolor: '#0f0f1f',
+                        height: 600,
+                        yaxis: {
+                            title: '',
+                            side: 'right',
+                            range: [minPrice, maxPrice],
+                            autorange: false,
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' },
+                            zeroline: false
+                        },
+                        xaxis: {
+                            title: {
+                                text: 'Volume',
+                                font: { color: '#00ff9d' }
+                            },
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        margin: {
+                            l: 0,
+                            r: 50,
+                            b: 50,
+                            t: 50,
+                            pad: 4
+                        },
+                        autosize: true
+                    };
+                    
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                }
+                
+                // Create the OBM chart if enabled
+                const showOBM = document.getElementById('showOBM').checked;
+                if (showOBM && obmData.timestamps.length > 0) {
+                    const obmTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'OBM',
+                        line: {
+                            color: 'rgba(255, 100, 100, 1)',
+                            width: 2
+                        },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(255, 100, 100, 0.3)'
+                    };
+                    
+                    // Add raw imbalance for comparison
+                    const rawImbalanceTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.rawImbalances,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Raw Imbalance',
+                        line: {
+                            color: 'rgba(100, 100, 255, 0.7)',
+                            width: 1,
+                            dash: 'dot'
+                        }
+                    };
+                    
+                    const obmLayout = {
+                        title: {
+                            text: 'Order Book Momentum (OBM)',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        },
+                        plot_bgcolor: '#0a0a12',
+                        paper_bgcolor: '#0f0f1f',
+                        height: 200,
+                        yaxis: {
+                            title: {
+                                text: 'OBM Value',
+                                font: { color: '#00ff9d' }
+                            },
+                            zeroline: true,
+                            zerolinecolor: 'rgba(0, 255, 157, 0.5)',
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        xaxis: {
+                            title: {
+                                text: 'Time',
+                                font: { color: '#00ff9d' }
+                            },
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { color: '#00ff9d' },
+                            range: [times[0], times[times.length - 1]] // Match time range with main chart
+                        },
+                        margin: {
+                            l: 50,
+                            r: 50,
+                            b: 50,
+                            t: 50,
+                            pad: 4
+                        },
+                        autosize: true,
+                        legend: {
+                            x: 0,
+                            y: 1,
+                            bgcolor: 'rgba(10, 10, 18, 0.7)',
+                            font: { color: '#00ff9d' }
+                        }
+                    };
+                    
+                    Plotly.newPlot('obmChart', [obmTrace, rawImbalanceTrace], obmLayout, {responsive: true});
+                } else {
+                    document.getElementById('obmChart').style.display = 'none';
+                }
+            }
+            
+            // Also add event listener for the OBM checkbox
+            document.getElementById('showOBM').addEventListener('change', function() {
+                document.getElementById('obmChart').style.display = this.checked ? 'block' : 'none';
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            });
+        });
+    </script>
+</body>
+</html>
