@@ -680,11 +680,11 @@
                     showscale: true
                 };
                 
-                // Add buy/sell delta circles overlay
-                const buyColor = 'rgba(0, 255, 100, 0.7)';  // Green for buy pressure
-                const sellColor = 'rgba(255, 50, 50, 0.7)';  // Red for sell pressure
+                // Add buy/sell delta circles overlay - following price line like in example image
+                const buyColor = 'rgba(0, 255, 100, 0.8)';  // Green for buy pressure
+                const sellColor = 'rgba(255, 50, 50, 0.8)';  // Red for sell pressure
                 
-                // Prepare data for buy/sell delta circles
+                // Find matching price points to place the delta markers
                 const deltaBubbles = {
                     x: [],
                     y: [],
@@ -693,10 +693,10 @@
                         size: [],
                         color: [],
                         line: {
-                            width: 1,
-                            color: 'rgba(255, 255, 255, 0.5)'
+                            width: 2,
+                            color: 'rgba(255, 255, 255, 0.8)'
                         },
-                        opacity: 0.7,
+                        opacity: 0.9,
                         symbol: 'circle'
                     },
                     name: 'Buy/Sell Delta',
@@ -705,23 +705,33 @@
                     text: []
                 };
                 
-                // Calculate average price for vertical positioning of bubbles
-                let avgPrice = (minPrice + maxPrice) / 2;
-                
                 // Use rawImbalances from OBM calculation to create delta markers
+                // We'll place markers on the price line instead of at a fixed y-value
                 for (let i = 0; i < obmData.timestamps.length; i++) {
                     const imbalance = obmData.rawImbalances[i];
                     const absImbalance = Math.abs(imbalance);
                     
-                    // Only show significant imbalances
+                    // Only show significant imbalances (adjust threshold as needed)
                     if (absImbalance > 0.1) {
-                        deltaBubbles.x.push(obmData.timestamps[i]);
+                        // Find the closest price point to this timestamp
+                        const obmTime = obmData.timestamps[i].getTime();
+                        let closestIdx = 0;
+                        let minTimeDiff = Infinity;
                         
-                        // Place circles at a consistent vertical position
-                        deltaBubbles.y.push(avgPrice);
+                        for (let j = 0; j < times.length; j++) {
+                            const diff = Math.abs(times[j].getTime() - obmTime);
+                            if (diff < minTimeDiff) {
+                                minTimeDiff = diff;
+                                closestIdx = j;
+                            }
+                        }
+                        
+                        // Add the timestamp and corresponding price
+                        deltaBubbles.x.push(obmData.timestamps[i]);
+                        deltaBubbles.y.push(prices[closestIdx]);
                         
                         // Size based on magnitude (scale for visibility)
-                        const bubbleSize = Math.min(50, 15 + (absImbalance * 70));
+                        const bubbleSize = Math.min(35, 15 + (absImbalance * 60));
                         deltaBubbles.marker.size.push(bubbleSize);
                         
                         // Color based on direction
@@ -730,6 +740,66 @@
                         // Add hover text
                         const percentImbalance = (imbalance * 100).toFixed(1);
                         deltaBubbles.text.push(`${imbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
+                    }
+                }
+                
+                // Also add a visual indicator bar with buy/sell circles (like in the first example)
+                // Create a horizontal bar representation
+                const indicatorBar = {
+                    x: [],
+                    y: [],
+                    mode: 'markers',
+                    marker: {
+                        size: [],
+                        color: [],
+                        line: {
+                            width: 1,
+                            color: 'rgba(255, 255, 255, 0.6)'
+                        },
+                        opacity: 0.8,
+                        symbol: 'circle'
+                    },
+                    name: 'Pressure Indicator',
+                    type: 'scatter',
+                    hoverinfo: 'text',
+                    text: []
+                };
+                
+                // We'll place this bar at the top of the chart
+                const barPosition = minPrice + (maxPrice - minPrice) * 0.9;
+                
+                // Process values in time windows to reduce noise
+                const windowSize = Math.max(1, Math.floor(obmData.timestamps.length / 20)); // Divide into ~20 segments
+                
+                for (let i = 0; i < obmData.timestamps.length; i += windowSize) {
+                    // Calculate average imbalance for this window
+                    let sumImbalance = 0;
+                    let count = 0;
+                    
+                    for (let j = i; j < i + windowSize && j < obmData.timestamps.length; j++) {
+                        sumImbalance += obmData.rawImbalances[j];
+                        count++;
+                    }
+                    
+                    const avgImbalance = sumImbalance / count;
+                    
+                    // Only add significant imbalances
+                    if (Math.abs(avgImbalance) > 0.05) {
+                        // Use the middle of the time window
+                        const windowMiddle = Math.min(i + Math.floor(windowSize/2), obmData.timestamps.length - 1);
+                        indicatorBar.x.push(obmData.timestamps[windowMiddle]);
+                        indicatorBar.y.push(barPosition);
+                        
+                        // Size based on magnitude
+                        const bubbleSize = Math.min(30, 10 + (Math.abs(avgImbalance) * 60));
+                        indicatorBar.marker.size.push(bubbleSize);
+                        
+                        // Color based on direction
+                        indicatorBar.marker.color.push(avgImbalance > 0 ? buyColor : sellColor);
+                        
+                        // Add hover text
+                        const percentImbalance = (avgImbalance * 100).toFixed(1);
+                        indicatorBar.text.push(`${avgImbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
                     }
                 }
                 
@@ -784,8 +854,15 @@
                     autosize: true
                 };
                 
-                // Add the delta bubbles trace only if it has data
+                // Add the traces in proper order (heatmap first, then indicators)
                 const traces = [trace2, trace1];
+                
+                // Add the indicator bar if it has data
+                if (indicatorBar.x.length > 0) {
+                    traces.push(indicatorBar);
+                }
+                
+                // Add the delta bubbles trace if it has data
                 if (deltaBubbles.x.length > 0) {
                     traces.push(deltaBubbles);
                 }
