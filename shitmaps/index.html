@@ -155,22 +155,84 @@
             margin-top: 20px;
             background-color: rgba(10, 10, 20, 0.5);
         }
+        .date-range-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+            margin-bottom: 15px;
+            background-color: rgba(0, 255, 157, 0.05);
+            padding: 10px 15px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 255, 157, 0.2);
+        }
+        
+        .date-picker {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .datetime-input {
+            background-color: rgba(15, 15, 31, 0.9);
+            border: 1px solid rgba(0, 255, 157, 0.4);
+            color: #00ff9d;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .datetime-input:focus {
+            outline: none;
+            border-color: #00ff9d;
+        }
+        
+        .btn {
+            background-color: rgba(0, 255, 157, 0.3);
+            color: #00ff9d;
+            border: 1px solid rgba(0, 255, 157, 0.6);
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: rgba(0, 255, 157, 0.5);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Milk Price and Orderbook Heatmap</h1>
         
+        <!-- Date Range Picker -->
+        <div class="control-panel">
+            <div class="date-range-container">
+                <div class="date-picker">
+                    <label for="startDateTime">Start Date/Time:</label>
+                    <input type="datetime-local" id="startDateTime" class="datetime-input">
+                </div>
+                
+                <div class="date-picker">
+                    <label for="endDateTime">End Date/Time:</label>
+                    <input type="datetime-local" id="endDateTime" class="datetime-input">
+                </div>
+                
+                <button id="applyDateRange" class="btn">Apply Range</button>
+            </div>
+        </div>
+        
         <div class="controls">
             <label for="timeRange">Time Range:</label>
             <select id="timeRange">
                 <option value="1h">1 Hour</option>
-                <option value="3h">3 Hours</option>
-                <option value="6h">6 Hours</option>
+                <option value="4h">4 Hours</option>
                 <option value="12h">12 Hours</option>
-                <option value="24h">1 Day</option>
-                <option value="48h">2 Days</option>
-                <option value="168h">7 Days</option>
+                <option value="1d" selected>1 Day</option>
+                <option value="3d">3 Days</option>
+                <option value="7d">7 Days</option>
             </select>
             
             <label for="buckets">Price Buckets:</label>
@@ -213,6 +275,15 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize with default date ranges
+            const now = new Date();
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            
+            // Format dates for the datetime-local input
+            document.getElementById('startDateTime').value = formatDateTimeLocal(yesterday);
+            document.getElementById('endDateTime').value = formatDateTimeLocal(now);
+            
             // Order Book Momentum (OBM) calculation functions
             
             // Calculate density-weighted average price at a specific time
@@ -495,6 +566,11 @@
                 document.getElementById('marginValue').textContent = this.value;
             });
             
+            // New event listener for date range picker
+            document.getElementById('applyDateRange').addEventListener('click', function() {
+                fetchDataWithCustomRange();
+            });
+            
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
@@ -508,12 +584,11 @@
                     let duration;
                     switch(timeRange) {
                         case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '168h': duration = 3600 * 168; break;
+                        case '4h': duration = 4 * 3600; break;
+                        case '12h': duration = 12 * 3600; break;
+                        case '1d': duration = 24 * 3600; break;
+                        case '3d': duration = 3 * 24 * 3600; break;
+                        case '7d': duration = 7 * 24 * 3600; break;
                         default: duration = 3600;
                     }
                     
@@ -544,12 +619,11 @@
                     let duration;
                     switch(timeRange) {
                         case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '168h': duration = 3600 * 168; break;
+                        case '4h': duration = 4 * 3600; break;
+                        case '12h': duration = 12 * 3600; break;
+                        case '1d': duration = 24 * 3600; break;
+                        case '3d': duration = 3 * 24 * 3600; break;
+                        case '7d': duration = 7 * 24 * 3600; break;
                         default: duration = 3600;
                     }
                     
@@ -991,6 +1065,124 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
+            
+            // Format date for datetime-local input
+            function formatDateTimeLocal(date) {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+            
+            // New function to fetch data with custom date range
+            function fetchDataWithCustomRange() {
+                const startDateTime = new Date(document.getElementById('startDateTime').value);
+                const endDateTime = new Date(document.getElementById('endDateTime').value);
+                
+                // Validate input
+                if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+                    alert('Please enter valid dates');
+                    return;
+                }
+                
+                if (startDateTime >= endDateTime) {
+                    alert('Start date must be before end date');
+                    return;
+                }
+                
+                // Convert to Unix timestamps in seconds
+                const start = Math.floor(startDateTime.getTime() / 1000);
+                const end = Math.floor(endDateTime.getTime() / 1000);
+                
+                // Fetch data with custom range
+                fetchCandlestickData(start, end);
+                fetchHeatmapData(start, end);
+            }
+            
+            // Update existing fetch function to use date range when appropriate
+            function fetchData() {
+                const selectedRange = document.getElementById('timeRange').value;
+                let endTime = Math.floor(Date.now() / 1000);
+                let startTime;
+                
+                // Calculate start time based on selected range
+                switch (selectedRange) {
+                    case '1h':
+                        startTime = endTime - 60 * 60;
+                        break;
+                    case '4h':
+                        startTime = endTime - 4 * 60 * 60;
+                        break;
+                    case '12h':
+                        startTime = endTime - 12 * 60 * 60;
+                        break;
+                    case '1d':
+                        startTime = endTime - 24 * 60 * 60;
+                        break;
+                    case '3d':
+                        startTime = endTime - 3 * 24 * 60 * 60;
+                        break;
+                    case '7d':
+                        startTime = endTime - 7 * 24 * 60 * 60;
+                        break;
+                    default:
+                        startTime = endTime - 24 * 60 * 60; // Default to 1 day
+                }
+                
+                // Update the date pickers to reflect the selected range
+                document.getElementById('startDateTime').value = formatDateTimeLocal(new Date(startTime * 1000));
+                document.getElementById('endDateTime').value = formatDateTimeLocal(new Date(endTime * 1000));
+                
+                // Fetch data with the calculated time range
+                fetchCandlestickData(startTime, endTime);
+                fetchHeatmapData(startTime, endTime);
+            }
+            
+            // Update the fetch functions to use the provided time range
+            function fetchCandlestickData(startTime, endTime) {
+                // Show loading indicator
+                document.getElementById('chart').innerHTML = 'Loading price data...';
+                
+                // Create the API URL with the time range
+                const url = `/api/candlestick?start=${startTime}&end=${endTime}`;
+                
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        candlestickData = data;
+                        if (heatmapData.timestamps.length) {
+                            renderChart(candlestickData, heatmapData);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching candlestick data:', error);
+                        document.getElementById('chart').innerHTML = 'Error loading price data. Please try again.';
+                    });
+            }
+            
+            function fetchHeatmapData(startTime, endTime) {
+                // Show loading indicator
+                document.getElementById('chart').innerHTML = 'Loading orderbook data...';
+                
+                // Create the API URL with the time range
+                const url = `/api/heatmap?start=${startTime}&end=${endTime}`;
+                
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        heatmapData = data;
+                        if (candlestickData.length) {
+                            renderChart(candlestickData, heatmapData);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching heatmap data:', error);
+                        document.getElementById('chart').innerHTML = 'Error loading orderbook data. Please try again.';
+                    });
+            }
         });
     </script>
 </body>
