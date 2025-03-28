@@ -247,19 +247,25 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Refined Order Book Momentum calculation that preserves the accuracy of the original approach
+            // Improved Order Book Momentum with better precision
             function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
                     obmValues: [],
-                    rawImbalances: [] // Store raw values as they're more accurate
+                    rawImbalances: [] // Store raw values for comparison
                 };
                 
                 if (heatmapData.heatmap.length < 2) return result;
                 
-                // Find the price midpoint with respect to actual price values
+                // Keep a history of recent imbalances for smoothing
+                const imbalanceHistory = [];
+                const historyLength = 5;
+                
+                // Find the actual price midpoint instead of just the middle index
                 function findPriceMidpoint(prices) {
-                    return (Math.min(...prices) + Math.max(...prices)) / 2;
+                    const minPrice = Math.min(...prices);
+                    const maxPrice = Math.max(...prices);
+                    return (minPrice + maxPrice) / 2;
                 }
                 
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
@@ -268,21 +274,35 @@
                         volumes: heatmapData.heatmap[i].volumes
                     };
                     
-                    // Use actual price midpoint
+                    // Use actual price midpoint rather than array position
                     const priceMidpoint = findPriceMidpoint(currentPriceVolumes.prices);
                     
-                    // Calculate buy pressure and sell pressure
+                    // Calculate buy pressure and sell pressure with decay factor
                     let buyPressure = 0;
                     let sellPressure = 0;
+                    let maxVolume = 0;
                     
+                    // First pass to find max volume for normalization
+                    for (let j = 0; j < currentPriceVolumes.volumes.length; j++) {
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        if (volume > maxVolume) maxVolume = volume;
+                    }
+                    
+                    // Apply distance weighting with exponential decay
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const price = currentPriceVolumes.prices[j];
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         
-                        // Simpler distance weighting - linear based on % from midpoint
+                        // Normalize volume to prevent large orders from dominating
+                        const normalizedVolume = maxVolume > 0 ? volume / maxVolume : 0;
+                        
+                        // Calculate price distance from midpoint as percentage
                         const distanceFromMid = Math.abs(price - priceMidpoint) / priceMidpoint;
-                        // Apply a moderate weight based on distance from mid price
-                        const weightedVolume = volume * (1 + distanceFromMid);
+                        
+                        // Exponential weighting - orders further away have stronger weight
+                        // The 4 is the decay factor - higher values give more weight to distant orders
+                        const distanceWeight = Math.exp(4 * distanceFromMid);
+                        const weightedVolume = normalizedVolume * distanceWeight;
                         
                         if (price < priceMidpoint) {
                             buyPressure += weightedVolume;
@@ -291,32 +311,122 @@
                         }
                     }
                     
-                    // Calculate raw imbalance - this was more accurate according to feedback
+                    // Calculate imbalance with improved normalization
                     const totalPressure = buyPressure + sellPressure;
                     const rawImbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
                     
-                    // Calculate rate of change if possible
-                    let rateOfChange = 0;
-                    
-                    if (i > 1) {
-                        const prevTimestamp = heatmapData.timestamps[i-1];
-                        const currentTimestamp = heatmapData.timestamps[i];
-                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // in minutes
-                        
-                        // Get previous raw imbalance
-                        const prevRawImbalance = result.rawImbalances.length > 0 ? 
-                            result.rawImbalances[result.rawImbalances.length - 1] : 0;
-                        
-                        // Simple rate of change
-                        rateOfChange = (rawImbalance - prevRawImbalance) / deltaTime;
+                    // Add to history
+                    imbalanceHistory.push(rawImbalance);
+                    if (imbalanceHistory.length > historyLength) {
+                        imbalanceHistory.shift(); // Remove oldest
                     }
                     
-                    // Simple weighted combination - preserving more of the raw imbalance
-                    const obm = rawImbalance * 0.7 + rateOfChange * 0.3;
+                    // Calculate weighted rate of change with multiple timeframes
+                    let shortTermChange = 0;
+                    let mediumTermChange = 0;
+                    
+                    if (i > 1) {
+                        // Short-term change (immediate previous)
+                        const prevPriceVolumes = {
+                            prices: heatmapData.priceLevels, 
+                            volumes: heatmapData.heatmap[i-1].volumes
+                        };
+                        
+                        // Calculate previous imbalance using the same method
+                        const prevMidpoint = findPriceMidpoint(prevPriceVolumes.prices);
+                        let prevBuyPressure = 0;
+                        let prevSellPressure = 0;
+                        let prevMaxVolume = 0;
+                        
+                        for (let j = 0; j < prevPriceVolumes.volumes.length; j++) {
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            if (volume > prevMaxVolume) prevMaxVolume = volume;
+                        }
+                        
+                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
+                            const price = prevPriceVolumes.prices[j];
+                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
+                            const normalizedVolume = prevMaxVolume > 0 ? volume / prevMaxVolume : 0;
+                            const distanceFromMid = Math.abs(price - prevMidpoint) / prevMidpoint;
+                            const distanceWeight = Math.exp(4 * distanceFromMid);
+                            const weightedVolume = normalizedVolume * distanceWeight;
+                            
+                            if (price < prevMidpoint) {
+                                prevBuyPressure += weightedVolume;
+                            } else {
+                                prevSellPressure += weightedVolume;
+                            }
+                        }
+                        
+                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
+                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
+                        
+                        // Calculate delta time in seconds
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-1];
+                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // in minutes
+                        
+                        // Rate of change of imbalance normalized by time
+                        shortTermChange = (rawImbalance - prevImbalance) / deltaTime;
+                        
+                        // Medium-term change (if available): 5 periods back
+                        if (i > 5) {
+                            const mediumPriceVolumes = {
+                                prices: heatmapData.priceLevels, 
+                                volumes: heatmapData.heatmap[i-5].volumes
+                            };
+                            
+                            // Calculate medium-term previous imbalance
+                            // (Same calculation logic as above)
+                            const mediumMidpoint = findPriceMidpoint(mediumPriceVolumes.prices);
+                            let mediumBuyPressure = 0;
+                            let mediumSellPressure = 0;
+                            let mediumMaxVolume = 0;
+                            
+                            for (let j = 0; j < mediumPriceVolumes.volumes.length; j++) {
+                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
+                                if (volume > mediumMaxVolume) mediumMaxVolume = volume;
+                            }
+                            
+                            for (let j = 0; j < mediumPriceVolumes.prices.length; j++) {
+                                const price = mediumPriceVolumes.prices[j];
+                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
+                                const normalizedVolume = mediumMaxVolume > 0 ? volume / mediumMaxVolume : 0;
+                                const distanceFromMid = Math.abs(price - mediumMidpoint) / mediumMidpoint;
+                                const distanceWeight = Math.exp(4 * distanceFromMid);
+                                const weightedVolume = normalizedVolume * distanceWeight;
+                                
+                                if (price < mediumMidpoint) {
+                                    mediumBuyPressure += weightedVolume;
+                                } else {
+                                    mediumSellPressure += weightedVolume;
+                                }
+                            }
+                            
+                            const mediumTotalPressure = mediumBuyPressure + mediumSellPressure;
+                            const mediumImbalance = mediumTotalPressure > 0 ? 
+                                (mediumBuyPressure - mediumSellPressure) / mediumTotalPressure : 0;
+                            
+                            const mediumTimestamp = heatmapData.timestamps[i-5];
+                            const mediumDeltaTime = Math.max(1, (currentTimestamp - mediumTimestamp) / 60); // in minutes
+                            
+                            mediumTermChange = (rawImbalance - mediumImbalance) / mediumDeltaTime;
+                        }
+                    }
+                    
+                    // Apply exponential smoothing to the imbalance (reduces noise)
+                    const alpha = 0.3; // Smoothing factor
+                    const smoothedImbalance = imbalanceHistory.length > 1 ? 
+                        alpha * rawImbalance + (1 - alpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
+                        rawImbalance;
+                    
+                    // Combine current imbalance with both short and medium term changes
+                    // Weight configuration: current state (30%), short-term momentum (50%), medium-term trend (20%)
+                    const obm = smoothedImbalance * 0.3 + shortTermChange * 0.5 + mediumTermChange * 0.2;
                     
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                     result.obmValues.push(obm);
-                    result.rawImbalances.push(rawImbalance);
+                    result.rawImbalances.push(rawImbalance); // Store for comparison
                 }
                 
                 return result;
@@ -534,26 +644,26 @@
                 const minPrice = Math.min(...priceLevels);
                 const maxPrice = Math.max(...priceLevels);
                 
-                // VWAP calculation
-                const vwapData = calculateVWAP(heatmapData);
+                // Create the combined plot
+                const trace1 = {
+                    x: times,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 214, 137, 1)',
+                        width: 3
+                    },
+                    // Use the same y-axis as the heatmap
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
                 
-                // Liquidity walls calculation
-                const liquidityWalls = calculateLiquidityWalls(heatmapData, 5);
-                
-                // Calculate order flow divergence
-                const divergenceData = calculateOrderFlowDivergence(
-                    prices, 
-                    times, 
-                    obmData.obmValues, 
-                    obmData.timestamps
-                );
-                
-                // Create the combined plot traces
-                const traces = [];
-                
-                // Heatmap trace
+                // Get color density value
                 const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                const heatmapTrace = {
+                
+                const trace2 = {
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
@@ -569,145 +679,57 @@
                     zsmooth: false,
                     showscale: true
                 };
-                traces.push(heatmapTrace);
                 
-                // Price line trace
-                const priceTrace = {
-                    x: times,
-                    y: prices,
-                    mode: 'lines',
-                    name: 'Price',
-                    line: {
-                        shape: 'spline',
-                        color: 'rgba(255, 214, 137, 1)',
-                        width: 3
-                    },
-                    yaxis: 'y',
-                    type: 'scatter'
-                };
-                traces.push(priceTrace);
+                // Add buy/sell delta circles overlay
+                const buyColor = 'rgba(0, 255, 100, 0.7)';  // Green for buy pressure
+                const sellColor = 'rgba(255, 50, 50, 0.7)';  // Red for sell pressure
                 
-                // Add VWAP to main price chart if enabled
-                if (document.getElementById('showVWAP')?.checked && vwapData.vwap.length > 0) {
-                    const vwapTrace = {
-                        x: vwapData.timestamps,
-                        y: vwapData.vwap,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'VWAP',
+                // Prepare data for buy/sell delta circles
+                const deltaBubbles = {
+                    x: [],
+                    y: [],
+                    mode: 'markers',
+                    marker: {
+                        size: [],
+                        color: [],
                         line: {
-                            color: 'rgba(255, 165, 0, 1)', // Orange
-                            width: 2,
-                            dash: 'dash'
-                        }
-                    };
-                    traces.push(vwapTrace);
-                }
+                            width: 1,
+                            color: 'rgba(255, 255, 255, 0.5)'
+                        },
+                        opacity: 0.7,
+                        symbol: 'circle'
+                    },
+                    name: 'Buy/Sell Delta',
+                    type: 'scatter',
+                    hoverinfo: 'text',
+                    text: []
+                };
                 
-                // Add liquidity walls visualization if enabled
-                if (document.getElementById('showLiquidityWalls')?.checked && liquidityWalls.buyWalls.length + liquidityWalls.sellWalls.length > 0) {
-                    // Create buy walls markers (green triangles)
-                    if (liquidityWalls.buyWalls.length > 0) {
-                        const buyWallsTrace = {
-                            x: liquidityWalls.buyWalls.map(wall => new Date(wall.timestamp * 1000)),
-                            y: liquidityWalls.buyWalls.map(wall => wall.price),
-                            mode: 'markers',
-                            name: 'Buy Walls',
-                            marker: {
-                                symbol: 'triangle-up',
-                                size: liquidityWalls.buyWalls.map(wall => 
-                                    Math.min(20, 8 + Math.log(wall.volume) / 2)
-                                ),
-                                color: 'rgba(0, 255, 0, 0.8)',
-                                line: { width: 1, color: 'white' }
-                            },
-                            hoverinfo: 'text',
-                            text: liquidityWalls.buyWalls.map(wall => 
-                                `Buy Wall: ${wall.volume.toFixed(2)} at $${wall.price.toFixed(4)}`
-                            )
-                        };
-                        traces.push(buyWallsTrace);
-                    }
-                    
-                    // Create sell walls markers (red triangles)
-                    if (liquidityWalls.sellWalls.length > 0) {
-                        const sellWallsTrace = {
-                            x: liquidityWalls.sellWalls.map(wall => new Date(wall.timestamp * 1000)),
-                            y: liquidityWalls.sellWalls.map(wall => wall.price),
-                            mode: 'markers',
-                            name: 'Sell Walls',
-                            marker: {
-                                symbol: 'triangle-down',
-                                size: liquidityWalls.sellWalls.map(wall => 
-                                    Math.min(20, 8 + Math.log(wall.volume) / 2)
-                                ),
-                                color: 'rgba(255, 0, 0, 0.8)',
-                                line: { width: 1, color: 'white' }
-                            },
-                            hoverinfo: 'text',
-                            text: liquidityWalls.sellWalls.map(wall => 
-                                `Sell Wall: ${wall.volume.toFixed(2)} at $${wall.price.toFixed(4)}`
-                            )
-                        };
-                        traces.push(sellWallsTrace);
-                    }
-                }
+                // Calculate average price for vertical positioning of bubbles
+                let avgPrice = (minPrice + maxPrice) / 2;
                 
-                // Add divergence markers if enabled
-                if (document.getElementById('showDivergence')?.checked && divergenceData.divergence.length > 0) {
-                    // Filter for significant divergences only (adjust threshold as needed)
-                    const significantDivergences = [];
-                    const thresholdDivergence = 0.001;
+                // Use rawImbalances from OBM calculation to create delta markers
+                for (let i = 0; i < obmData.timestamps.length; i++) {
+                    const imbalance = obmData.rawImbalances[i];
+                    const absImbalance = Math.abs(imbalance);
                     
-                    for (let i = 0; i < divergenceData.divergence.length; i++) {
-                        if (Math.abs(divergenceData.divergence[i]) > thresholdDivergence) {
-                            significantDivergences.push({
-                                timestamp: divergenceData.timestamps[i],
-                                value: divergenceData.divergence[i],
-                                price: prices[i+1] // +1 because divergence starts from the second point
-                            });
-                        }
-                    }
-                    
-                    if (significantDivergences.length > 0) {
-                        const bullishMarkers = significantDivergences.filter(d => d.value > 0);
-                        const bearishMarkers = significantDivergences.filter(d => d.value < 0);
+                    // Only show significant imbalances
+                    if (absImbalance > 0.1) {
+                        deltaBubbles.x.push(obmData.timestamps[i]);
                         
-                        if (bullishMarkers.length > 0) {
-                            const bullishTrace = {
-                                x: bullishMarkers.map(d => d.timestamp),
-                                y: bullishMarkers.map(d => d.price),
-                                mode: 'markers',
-                                name: 'Bullish Divergence',
-                                marker: {
-                                    symbol: 'circle',
-                                    size: 10,
-                                    color: 'rgba(0, 255, 0, 0.7)',
-                                    line: { width: 2, color: 'white' }
-                                },
-                                hoverinfo: 'text',
-                                text: bullishMarkers.map(d => 'Bullish Divergence')
-                            };
-                            traces.push(bullishTrace);
-                        }
+                        // Place circles at a consistent vertical position
+                        deltaBubbles.y.push(avgPrice);
                         
-                        if (bearishMarkers.length > 0) {
-                            const bearishTrace = {
-                                x: bearishMarkers.map(d => d.timestamp),
-                                y: bearishMarkers.map(d => d.price),
-                                mode: 'markers',
-                                name: 'Bearish Divergence',
-                                marker: {
-                                    symbol: 'circle',
-                                    size: 10,
-                                    color: 'rgba(255, 0, 0, 0.7)',
-                                    line: { width: 2, color: 'white' }
-                                },
-                                hoverinfo: 'text',
-                                text: bearishMarkers.map(d => 'Bearish Divergence')
-                            };
-                            traces.push(bearishTrace);
-                        }
+                        // Size based on magnitude (scale for visibility)
+                        const bubbleSize = Math.min(50, 15 + (absImbalance * 70));
+                        deltaBubbles.marker.size.push(bubbleSize);
+                        
+                        // Color based on direction
+                        deltaBubbles.marker.color.push(imbalance > 0 ? buyColor : sellColor);
+                        
+                        // Add hover text
+                        const percentImbalance = (imbalance * 100).toFixed(1);
+                        deltaBubbles.text.push(`${imbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
                     }
                 }
                 
@@ -761,6 +783,12 @@
                     },
                     autosize: true
                 };
+                
+                // Add the delta bubbles trace only if it has data
+                const traces = [trace2, trace1];
+                if (deltaBubbles.x.length > 0) {
+                    traces.push(deltaBubbles);
+                }
                 
                 Plotly.newPlot('chart', traces, layout, {responsive: true});
                 
@@ -929,176 +957,6 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
-            
-            // New algorithm functions for orderbook analysis
-            
-            // Calculate Liquidity Walls - identifies significant clusters of orders
-            function calculateLiquidityWalls(heatmapData, thresholdMultiplier = 3) {
-                const result = {
-                    buyWalls: [],    // Format: [{price: X, volume: Y, timestamp: Z}, ...]
-                    sellWalls: [],   // Format: [{price: X, volume: Y, timestamp: Z}, ...]
-                    timestamps: []
-                };
-                
-                if (!heatmapData.heatmap || heatmapData.heatmap.length < 1) return result;
-                
-                for (let t = 0; t < heatmapData.heatmap.length; t++) {
-                    const timepoint = heatmapData.heatmap[t];
-                    const timestamp = heatmapData.timestamps[t];
-                    
-                    // Calculate average volume for this timepoint
-                    let totalVolume = 0;
-                    for (let i = 0; i < timepoint.volumes.length; i++) {
-                        totalVolume += Math.abs(timepoint.volumes[i]);
-                    }
-                    const avgVolume = totalVolume / timepoint.volumes.length;
-                    
-                    // Find walls where volume exceeds threshold times the average
-                    const threshold = avgVolume * thresholdMultiplier;
-                    
-                    for (let i = 0; i < timepoint.volumes.length; i++) {
-                        const volume = Math.abs(timepoint.volumes[i]);
-                        if (volume > threshold) {
-                            const price = heatmapData.priceLevels[i];
-                            const wall = {
-                                price: price,
-                                volume: volume,
-                                timestamp: timestamp
-                            };
-                            
-                            // Determine if it's a buy or sell wall based on price relation to mid price
-                            // Assuming price levels are sorted from lowest to highest
-                            const midIdx = Math.floor(heatmapData.priceLevels.length / 2);
-                            const midPrice = heatmapData.priceLevels[midIdx];
-                            
-                            if (price < midPrice) {
-                                result.buyWalls.push(wall);
-                            } else {
-                                result.sellWalls.push(wall);
-                            }
-                        }
-                    }
-                    
-                    result.timestamps.push(new Date(timestamp * 1000));
-                }
-                
-                return result;
-            }
-            
-            // Calculate VWAP from orderbook data
-            function calculateVWAP(heatmapData) {
-                const result = {
-                    timestamps: [],
-                    vwap: []
-                };
-                
-                if (!heatmapData.heatmap || heatmapData.heatmap.length < 1) return result;
-                
-                for (let t = 0; t < heatmapData.heatmap.length; t++) {
-                    const timepoint = heatmapData.heatmap[t];
-                    let sumPriceVolume = 0;
-                    let sumVolume = 0;
-                    
-                    for (let i = 0; i < timepoint.volumes.length; i++) {
-                        const volume = Math.abs(timepoint.volumes[i]);
-                        const price = heatmapData.priceLevels[i];
-                        
-                        sumPriceVolume += price * volume;
-                        sumVolume += volume;
-                    }
-                    
-                    const vwap = sumVolume > 0 ? sumPriceVolume / sumVolume : 0;
-                    
-                    result.timestamps.push(new Date(heatmapData.timestamps[t] * 1000));
-                    result.vwap.push(vwap);
-                }
-                
-                return result;
-            }
-            
-            // Calculate Order Flow Divergence - when price and OBM are moving in opposite directions
-            function calculateOrderFlowDivergence(prices, timestamps, obmValues, obmTimestamps) {
-                const result = {
-                    timestamps: [],
-                    divergence: []
-                };
-                
-                if (prices.length < 2 || obmValues.length < 2) return result;
-                
-                // Ensure we have matching timestamps for price and OBM
-                // This simple implementation assumes timestamps are already aligned or close enough
-                
-                // We need at least 2 points to calculate trends
-                for (let i = 1; i < Math.min(prices.length, obmValues.length); i++) {
-                    const priceChange = prices[i] - prices[i-1];
-                    const obmChange = obmValues[i] - obmValues[i-1];
-                    
-                    // Calculate divergence: positive when price and OBM move in opposite directions
-                    // Multiply by the magnitude of OBM change to highlight stronger divergences
-                    const divergence = -1 * priceChange * obmChange;
-                    
-                    result.timestamps.push(timestamps[i]);
-                    result.divergence.push(divergence);
-                }
-                
-                return result;
-            }
-            
-            // You'll need to add UI controls for these new features
-            function addStrategyControls() {
-                const controlsDiv = document.querySelector('.controls');
-                
-                // Add VWAP control
-                const vwapControl = document.createElement('div');
-                vwapControl.className = 'checkbox-container';
-                vwapControl.innerHTML = `
-                    <input type="checkbox" id="showVWAP">
-                    <label for="showVWAP">Show VWAP</label>
-                `;
-                
-                // Add Liquidity Walls control
-                const wallsControl = document.createElement('div');
-                wallsControl.className = 'checkbox-container';
-                wallsControl.innerHTML = `
-                    <input type="checkbox" id="showLiquidityWalls">
-                    <label for="showLiquidityWalls">Show Liquidity Walls</label>
-                `;
-                
-                // Add Divergence control
-                const divergenceControl = document.createElement('div');
-                divergenceControl.className = 'checkbox-container';
-                divergenceControl.innerHTML = `
-                    <input type="checkbox" id="showDivergence">
-                    <label for="showDivergence">Show OBM Divergence</label>
-                `;
-                
-                // Add the new controls to the control panel
-                controlsDiv.appendChild(vwapControl);
-                controlsDiv.appendChild(wallsControl);
-                controlsDiv.appendChild(divergenceControl);
-                
-                // Add event listeners
-                document.getElementById('showVWAP').addEventListener('change', function() {
-                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    }
-                });
-                
-                document.getElementById('showLiquidityWalls').addEventListener('change', function() {
-                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    }
-                });
-                
-                document.getElementById('showDivergence').addEventListener('change', function() {
-                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    }
-                });
-            }
-            
-            // Initialize the new controls
-            addStrategyControls();
         });
     </script>
 </body>
