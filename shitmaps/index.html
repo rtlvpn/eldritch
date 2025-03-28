@@ -534,26 +534,26 @@
                 const minPrice = Math.min(...priceLevels);
                 const maxPrice = Math.max(...priceLevels);
                 
-                // Create the combined plot
-                const trace1 = {
-                    x: times,
-                    y: prices,
-                    mode: 'lines',
-                    name: 'Price',
-                    line: {
-                        shape: 'spline',
-                        color: 'rgba(255, 214, 137, 1)',
-                        width: 3
-                    },
-                    // Use the same y-axis as the heatmap
-                    yaxis: 'y',
-                    type: 'scatter'
-                };
+                // VWAP calculation
+                const vwapData = calculateVWAP(heatmapData);
                 
-                // Get color density value
+                // Liquidity walls calculation
+                const liquidityWalls = calculateLiquidityWalls(heatmapData, 5);
+                
+                // Calculate order flow divergence
+                const divergenceData = calculateOrderFlowDivergence(
+                    prices, 
+                    times, 
+                    obmData.obmValues, 
+                    obmData.timestamps
+                );
+                
+                // Create the combined plot traces
+                const traces = [];
+                
+                // Heatmap trace
                 const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                
-                const trace2 = {
+                const heatmapTrace = {
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
@@ -569,6 +569,147 @@
                     zsmooth: false,
                     showscale: true
                 };
+                traces.push(heatmapTrace);
+                
+                // Price line trace
+                const priceTrace = {
+                    x: times,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 214, 137, 1)',
+                        width: 3
+                    },
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
+                traces.push(priceTrace);
+                
+                // Add VWAP to main price chart if enabled
+                if (document.getElementById('showVWAP')?.checked && vwapData.vwap.length > 0) {
+                    const vwapTrace = {
+                        x: vwapData.timestamps,
+                        y: vwapData.vwap,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'VWAP',
+                        line: {
+                            color: 'rgba(255, 165, 0, 1)', // Orange
+                            width: 2,
+                            dash: 'dash'
+                        }
+                    };
+                    traces.push(vwapTrace);
+                }
+                
+                // Add liquidity walls visualization if enabled
+                if (document.getElementById('showLiquidityWalls')?.checked && liquidityWalls.buyWalls.length + liquidityWalls.sellWalls.length > 0) {
+                    // Create buy walls markers (green triangles)
+                    if (liquidityWalls.buyWalls.length > 0) {
+                        const buyWallsTrace = {
+                            x: liquidityWalls.buyWalls.map(wall => new Date(wall.timestamp * 1000)),
+                            y: liquidityWalls.buyWalls.map(wall => wall.price),
+                            mode: 'markers',
+                            name: 'Buy Walls',
+                            marker: {
+                                symbol: 'triangle-up',
+                                size: liquidityWalls.buyWalls.map(wall => 
+                                    Math.min(20, 8 + Math.log(wall.volume) / 2)
+                                ),
+                                color: 'rgba(0, 255, 0, 0.8)',
+                                line: { width: 1, color: 'white' }
+                            },
+                            hoverinfo: 'text',
+                            text: liquidityWalls.buyWalls.map(wall => 
+                                `Buy Wall: ${wall.volume.toFixed(2)} at $${wall.price.toFixed(4)}`
+                            )
+                        };
+                        traces.push(buyWallsTrace);
+                    }
+                    
+                    // Create sell walls markers (red triangles)
+                    if (liquidityWalls.sellWalls.length > 0) {
+                        const sellWallsTrace = {
+                            x: liquidityWalls.sellWalls.map(wall => new Date(wall.timestamp * 1000)),
+                            y: liquidityWalls.sellWalls.map(wall => wall.price),
+                            mode: 'markers',
+                            name: 'Sell Walls',
+                            marker: {
+                                symbol: 'triangle-down',
+                                size: liquidityWalls.sellWalls.map(wall => 
+                                    Math.min(20, 8 + Math.log(wall.volume) / 2)
+                                ),
+                                color: 'rgba(255, 0, 0, 0.8)',
+                                line: { width: 1, color: 'white' }
+                            },
+                            hoverinfo: 'text',
+                            text: liquidityWalls.sellWalls.map(wall => 
+                                `Sell Wall: ${wall.volume.toFixed(2)} at $${wall.price.toFixed(4)}`
+                            )
+                        };
+                        traces.push(sellWallsTrace);
+                    }
+                }
+                
+                // Add divergence markers if enabled
+                if (document.getElementById('showDivergence')?.checked && divergenceData.divergence.length > 0) {
+                    // Filter for significant divergences only (adjust threshold as needed)
+                    const significantDivergences = [];
+                    const thresholdDivergence = 0.001;
+                    
+                    for (let i = 0; i < divergenceData.divergence.length; i++) {
+                        if (Math.abs(divergenceData.divergence[i]) > thresholdDivergence) {
+                            significantDivergences.push({
+                                timestamp: divergenceData.timestamps[i],
+                                value: divergenceData.divergence[i],
+                                price: prices[i+1] // +1 because divergence starts from the second point
+                            });
+                        }
+                    }
+                    
+                    if (significantDivergences.length > 0) {
+                        const bullishMarkers = significantDivergences.filter(d => d.value > 0);
+                        const bearishMarkers = significantDivergences.filter(d => d.value < 0);
+                        
+                        if (bullishMarkers.length > 0) {
+                            const bullishTrace = {
+                                x: bullishMarkers.map(d => d.timestamp),
+                                y: bullishMarkers.map(d => d.price),
+                                mode: 'markers',
+                                name: 'Bullish Divergence',
+                                marker: {
+                                    symbol: 'circle',
+                                    size: 10,
+                                    color: 'rgba(0, 255, 0, 0.7)',
+                                    line: { width: 2, color: 'white' }
+                                },
+                                hoverinfo: 'text',
+                                text: bullishMarkers.map(d => 'Bullish Divergence')
+                            };
+                            traces.push(bullishTrace);
+                        }
+                        
+                        if (bearishMarkers.length > 0) {
+                            const bearishTrace = {
+                                x: bearishMarkers.map(d => d.timestamp),
+                                y: bearishMarkers.map(d => d.price),
+                                mode: 'markers',
+                                name: 'Bearish Divergence',
+                                marker: {
+                                    symbol: 'circle',
+                                    size: 10,
+                                    color: 'rgba(255, 0, 0, 0.7)',
+                                    line: { width: 2, color: 'white' }
+                                },
+                                hoverinfo: 'text',
+                                text: bearishMarkers.map(d => 'Bearish Divergence')
+                            };
+                            traces.push(bearishTrace);
+                        }
+                    }
+                }
                 
                 const layout = {
                     title: {
@@ -621,7 +762,7 @@
                     autosize: true
                 };
                 
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                Plotly.newPlot('chart', traces, layout, {responsive: true});
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -901,66 +1042,6 @@
                 }
                 
                 return result;
-            }
-            
-            // Add these functions to your existing renderChart function
-            function renderChart(candlestickData, heatmapData) {
-                // ... existing rendering code ...
-                
-                // Calculate additional metrics if we have data
-                if (candlestickData.length && heatmapData.timestamps.length) {
-                    // Get existing OBM data
-                    const obmData = calculateOBM(heatmapData);
-                    
-                    // Calculate VWAP
-                    const vwapData = calculateVWAP(heatmapData);
-                    
-                    // Calculate liquidity walls
-                    const liquidityWalls = calculateLiquidityWalls(heatmapData, 5); // 5x average volume threshold
-                    
-                    // Calculate order flow divergence (if we have both price and OBM data)
-                    if (prices.length && obmData.obmValues.length) {
-                        const divergenceData = calculateOrderFlowDivergence(
-                            prices, 
-                            times, 
-                            obmData.obmValues, 
-                            obmData.timestamps
-                        );
-                        
-                        // You could add this as an additional trace or indicator on your charts
-                        // Example: Mark divergences on the main chart
-                        if (divergenceData.divergence.length > 0) {
-                            // Here you would add code to visualize the divergences
-                            // For example, as markers on the price chart where divergence exceeds a threshold
-                        }
-                    }
-                    
-                    // Add VWAP to main price chart if enabled
-                    if (document.getElementById('showVWAP')?.checked && vwapData.vwap.length > 0) {
-                        const vwapTrace = {
-                            x: vwapData.timestamps,
-                            y: vwapData.vwap,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: 'VWAP',
-                            line: {
-                                color: 'rgba(255, 165, 0, 1)', // Orange
-                                width: 2,
-                                dash: 'dash'
-                            }
-                        };
-                        
-                        // Add VWAP trace to the main chart
-                        Plotly.addTraces('chart', vwapTrace);
-                    }
-                    
-                    // You could also visualize the liquidity walls as markers on the price chart
-                    if (document.getElementById('showLiquidityWalls')?.checked) {
-                        // Implementation would go here
-                    }
-                }
-                
-                // ... rest of existing rendering code ...
             }
             
             // You'll need to add UI controls for these new features
