@@ -788,6 +788,236 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
+            
+            // New algorithm functions for orderbook analysis
+            
+            // Calculate Liquidity Walls - identifies significant clusters of orders
+            function calculateLiquidityWalls(heatmapData, thresholdMultiplier = 3) {
+                const result = {
+                    buyWalls: [],    // Format: [{price: X, volume: Y, timestamp: Z}, ...]
+                    sellWalls: [],   // Format: [{price: X, volume: Y, timestamp: Z}, ...]
+                    timestamps: []
+                };
+                
+                if (!heatmapData.heatmap || heatmapData.heatmap.length < 1) return result;
+                
+                for (let t = 0; t < heatmapData.heatmap.length; t++) {
+                    const timepoint = heatmapData.heatmap[t];
+                    const timestamp = heatmapData.timestamps[t];
+                    
+                    // Calculate average volume for this timepoint
+                    let totalVolume = 0;
+                    for (let i = 0; i < timepoint.volumes.length; i++) {
+                        totalVolume += Math.abs(timepoint.volumes[i]);
+                    }
+                    const avgVolume = totalVolume / timepoint.volumes.length;
+                    
+                    // Find walls where volume exceeds threshold times the average
+                    const threshold = avgVolume * thresholdMultiplier;
+                    
+                    for (let i = 0; i < timepoint.volumes.length; i++) {
+                        const volume = Math.abs(timepoint.volumes[i]);
+                        if (volume > threshold) {
+                            const price = heatmapData.priceLevels[i];
+                            const wall = {
+                                price: price,
+                                volume: volume,
+                                timestamp: timestamp
+                            };
+                            
+                            // Determine if it's a buy or sell wall based on price relation to mid price
+                            // Assuming price levels are sorted from lowest to highest
+                            const midIdx = Math.floor(heatmapData.priceLevels.length / 2);
+                            const midPrice = heatmapData.priceLevels[midIdx];
+                            
+                            if (price < midPrice) {
+                                result.buyWalls.push(wall);
+                            } else {
+                                result.sellWalls.push(wall);
+                            }
+                        }
+                    }
+                    
+                    result.timestamps.push(new Date(timestamp * 1000));
+                }
+                
+                return result;
+            }
+            
+            // Calculate VWAP from orderbook data
+            function calculateVWAP(heatmapData) {
+                const result = {
+                    timestamps: [],
+                    vwap: []
+                };
+                
+                if (!heatmapData.heatmap || heatmapData.heatmap.length < 1) return result;
+                
+                for (let t = 0; t < heatmapData.heatmap.length; t++) {
+                    const timepoint = heatmapData.heatmap[t];
+                    let sumPriceVolume = 0;
+                    let sumVolume = 0;
+                    
+                    for (let i = 0; i < timepoint.volumes.length; i++) {
+                        const volume = Math.abs(timepoint.volumes[i]);
+                        const price = heatmapData.priceLevels[i];
+                        
+                        sumPriceVolume += price * volume;
+                        sumVolume += volume;
+                    }
+                    
+                    const vwap = sumVolume > 0 ? sumPriceVolume / sumVolume : 0;
+                    
+                    result.timestamps.push(new Date(heatmapData.timestamps[t] * 1000));
+                    result.vwap.push(vwap);
+                }
+                
+                return result;
+            }
+            
+            // Calculate Order Flow Divergence - when price and OBM are moving in opposite directions
+            function calculateOrderFlowDivergence(prices, timestamps, obmValues, obmTimestamps) {
+                const result = {
+                    timestamps: [],
+                    divergence: []
+                };
+                
+                if (prices.length < 2 || obmValues.length < 2) return result;
+                
+                // Ensure we have matching timestamps for price and OBM
+                // This simple implementation assumes timestamps are already aligned or close enough
+                
+                // We need at least 2 points to calculate trends
+                for (let i = 1; i < Math.min(prices.length, obmValues.length); i++) {
+                    const priceChange = prices[i] - prices[i-1];
+                    const obmChange = obmValues[i] - obmValues[i-1];
+                    
+                    // Calculate divergence: positive when price and OBM move in opposite directions
+                    // Multiply by the magnitude of OBM change to highlight stronger divergences
+                    const divergence = -1 * priceChange * obmChange;
+                    
+                    result.timestamps.push(timestamps[i]);
+                    result.divergence.push(divergence);
+                }
+                
+                return result;
+            }
+            
+            // Add these functions to your existing renderChart function
+            function renderChart(candlestickData, heatmapData) {
+                // ... existing rendering code ...
+                
+                // Calculate additional metrics if we have data
+                if (candlestickData.length && heatmapData.timestamps.length) {
+                    // Get existing OBM data
+                    const obmData = calculateOBM(heatmapData);
+                    
+                    // Calculate VWAP
+                    const vwapData = calculateVWAP(heatmapData);
+                    
+                    // Calculate liquidity walls
+                    const liquidityWalls = calculateLiquidityWalls(heatmapData, 5); // 5x average volume threshold
+                    
+                    // Calculate order flow divergence (if we have both price and OBM data)
+                    if (prices.length && obmData.obmValues.length) {
+                        const divergenceData = calculateOrderFlowDivergence(
+                            prices, 
+                            times, 
+                            obmData.obmValues, 
+                            obmData.timestamps
+                        );
+                        
+                        // You could add this as an additional trace or indicator on your charts
+                        // Example: Mark divergences on the main chart
+                        if (divergenceData.divergence.length > 0) {
+                            // Here you would add code to visualize the divergences
+                            // For example, as markers on the price chart where divergence exceeds a threshold
+                        }
+                    }
+                    
+                    // Add VWAP to main price chart if enabled
+                    if (document.getElementById('showVWAP')?.checked && vwapData.vwap.length > 0) {
+                        const vwapTrace = {
+                            x: vwapData.timestamps,
+                            y: vwapData.vwap,
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'VWAP',
+                            line: {
+                                color: 'rgba(255, 165, 0, 1)', // Orange
+                                width: 2,
+                                dash: 'dash'
+                            }
+                        };
+                        
+                        // Add VWAP trace to the main chart
+                        Plotly.addTraces('chart', vwapTrace);
+                    }
+                    
+                    // You could also visualize the liquidity walls as markers on the price chart
+                    if (document.getElementById('showLiquidityWalls')?.checked) {
+                        // Implementation would go here
+                    }
+                }
+                
+                // ... rest of existing rendering code ...
+            }
+            
+            // You'll need to add UI controls for these new features
+            function addStrategyControls() {
+                const controlsDiv = document.querySelector('.controls');
+                
+                // Add VWAP control
+                const vwapControl = document.createElement('div');
+                vwapControl.className = 'checkbox-container';
+                vwapControl.innerHTML = `
+                    <input type="checkbox" id="showVWAP">
+                    <label for="showVWAP">Show VWAP</label>
+                `;
+                
+                // Add Liquidity Walls control
+                const wallsControl = document.createElement('div');
+                wallsControl.className = 'checkbox-container';
+                wallsControl.innerHTML = `
+                    <input type="checkbox" id="showLiquidityWalls">
+                    <label for="showLiquidityWalls">Show Liquidity Walls</label>
+                `;
+                
+                // Add Divergence control
+                const divergenceControl = document.createElement('div');
+                divergenceControl.className = 'checkbox-container';
+                divergenceControl.innerHTML = `
+                    <input type="checkbox" id="showDivergence">
+                    <label for="showDivergence">Show OBM Divergence</label>
+                `;
+                
+                // Add the new controls to the control panel
+                controlsDiv.appendChild(vwapControl);
+                controlsDiv.appendChild(wallsControl);
+                controlsDiv.appendChild(divergenceControl);
+                
+                // Add event listeners
+                document.getElementById('showVWAP').addEventListener('change', function() {
+                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    }
+                });
+                
+                document.getElementById('showLiquidityWalls').addEventListener('change', function() {
+                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    }
+                });
+                
+                document.getElementById('showDivergence').addEventListener('change', function() {
+                    if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    }
+                });
+            }
+            
+            // Initialize the new controls
+            addStrategyControls();
         });
     </script>
 </body>
