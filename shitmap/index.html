@@ -335,314 +335,120 @@
                 return result;
             }
             
-            // Add Least Action Price Path analysis for generating buy/sell signals
+            // Add Least Action Price Path analysis with GUARANTEED sparse signals
             function calculateLAPP(heatmapData, candlestickData) {
+                // Hard-coded to return ONLY the most critical signals
                 const result = {
                     timestamps: [],
-                    signals: [],      // -1 for sell, 0 for neutral, 1 for buy
-                    signalPrices: [],  // Price levels for the signals
-                    signalStrengths: [] // Signal strength for scaling marker size
+                    signals: [],      
+                    signalPrices: [],  
+                    signalStrengths: [] 
                 };
                 
                 if (heatmapData.heatmap.length < 10 || candlestickData.length < 10) return result;
                 
-                // Get the selected timeframe to adjust signal density
-                const timeRangeElement = document.getElementById('timeRange');
-                const selectedTimeRange = timeRangeElement ? timeRangeElement.value : '24h';
-                
-                // Calculate appropriate signal spacing and threshold based on timeframe
-                let minSignalSpacing, signalThreshold;
-                switch(selectedTimeRange) {
-                    case '1h':
-                        minSignalSpacing = 6;
-                        signalThreshold = 0.8;
-                        break;
-                    case '3h':
-                        minSignalSpacing = 12;
-                        signalThreshold = 0.82;
-                        break;
-                    case '6h':
-                        minSignalSpacing = 18;
-                        signalThreshold = 0.85;
-                        break;
-                    case '12h':
-                        minSignalSpacing = 25;
-                        signalThreshold = 0.88;
-                        break;
-                    case '24h':
-                        minSignalSpacing = 40;
-                        signalThreshold = 0.9;
-                        break;
-                    case '48h':
-                        minSignalSpacing = 60;
-                        signalThreshold = 0.92;
-                        break;
-                    case '168h':
-                        minSignalSpacing = 100;
-                        signalThreshold = 0.95;
-                        break;
-                    default:
-                        minSignalSpacing = 20;
-                        signalThreshold = 0.85;
-                }
-                
-                // Dynamically adjust spacing based on data density
-                // For long timeframes with lots of data, increase spacing further
-                const dataPointDensity = heatmapData.heatmap.length / (24 * 60); // Points per minute
-                if (dataPointDensity > 0.2) {
-                    minSignalSpacing = Math.round(minSignalSpacing * 1.5);
-                }
+                // FORCED MAXIMUM - guaranteed to not exceed this number
+                const ABSOLUTE_MAX_SIGNALS = 5;
                 
                 // Create price time series for analysis
                 const prices = candlestickData.map(item => item.close);
                 const times = candlestickData.map(item => new Date(item.timestamp));
                 
-                // Match heatmap timestamps to price data (approximate)
+                // Match heatmap timestamps to price data
                 const heatmapTimes = heatmapData.timestamps.map(ts => new Date(ts * 1000));
                 
-                // Calculate price volatility for filtering
-                const priceChanges = [];
-                for (let i = 1; i < prices.length; i++) {
-                    priceChanges.push(Math.abs(prices[i] - prices[i-1]) / prices[i-1]);
-                }
-                const avgVolatility = priceChanges.reduce((a, b) => a + b, 0) / priceChanges.length;
+                // Find major trend changes only
+                let previousTrend = 0;
+                const trendChanges = [];
                 
-                // Build price momentum series for trend detection
-                const priceMomentum = [];
-                for (let i = 5; i < prices.length; i++) {
-                    const shortMA = (prices[i] + prices[i-1] + prices[i-2]) / 3;
-                    const longMA = (prices[i-3] + prices[i-4] + prices[i-5]) / 3;
-                    priceMomentum.push(shortMA - longMA);
-                }
-                
-                // Initialize signals trackers
-                let lastBuySignal = -minSignalSpacing;
-                let lastSellSignal = -minSignalSpacing;
-                let signalCount = 0;
-                const maxSignals = 8; // Maximum signals to generate regardless of data size
-                
-                // Keep track of resistance strength over time to detect phase transitions
-                const resistanceHistory = [];
-                
-                // Determine step size to avoid processing every single data point
-                // For longer timeframes, we can skip more points
-                let stepSize = 1;
-                if (heatmapData.heatmap.length > 200) {
-                    stepSize = Math.max(1, Math.floor(heatmapData.heatmap.length / 200));
-                }
-                
-                for (let i = 10; i < heatmapData.heatmap.length; i += stepSize) {
-                    // Exit if we've already generated the maximum number of signals
-                    if (signalCount >= maxSignals) break;
-                    
-                    // Get current and previous orderbook states
+                // Find OBM values at each timestamp
+                const obmValues = [];
+                for (let i = 0; i < heatmapData.heatmap.length; i++) {
                     const currentVolumes = heatmapData.heatmap[i].volumes;
-                    const prevVolumes = heatmapData.heatmap[Math.max(0, i-1)].volumes;
-                    const prev2Volumes = heatmapData.heatmap[Math.max(0, i-3)].volumes;
-                    const prev3Volumes = heatmapData.heatmap[Math.max(0, i-6)].volumes;
-                    const prev4Volumes = heatmapData.heatmap[Math.max(0, i-9)].volumes;
+                    let askVolume = 0;
+                    let bidVolume = 0;
                     
-                    // Find price index in candlestick data closest to current heatmap time
-                    const currentTime = heatmapTimes[i];
-                    let closestPriceIdx = 0;
-                    let minTimeDiff = Infinity;
-                    
-                    for (let j = 0; j < times.length; j++) {
-                        const timeDiff = Math.abs(times[j] - currentTime);
-                        if (timeDiff < minTimeDiff) {
-                            minTimeDiff = timeDiff;
-                            closestPriceIdx = j;
-                        }
-                    }
-                    
-                    const price = prices[closestPriceIdx];
-                    
-                    // Check local volatility - only generate signals during volatile periods
-                    let localVolatility = 0;
-                    if (closestPriceIdx > 0 && closestPriceIdx < prices.length - 1) {
-                        const prevPrice = prices[closestPriceIdx - 1];
-                        const nextPrice = prices[closestPriceIdx + 1];
-                        localVolatility = (Math.abs(price - prevPrice) + Math.abs(nextPrice - price)) / (2 * price);
-                    }
-                    
-                    // Skip low volatility periods
-                    if (localVolatility < avgVolatility * 1.2) continue;
-                    
-                    // Get price momentum at this point if available
-                    const momentumIdx = closestPriceIdx - 5;
-                    const currentMomentum = momentumIdx >= 0 && momentumIdx < priceMomentum.length ? 
-                        priceMomentum[momentumIdx] : 0;
-                    
-                    // Find the price level index closest to current price
-                    let priceLevelIdx = 0;
-                    let minPriceDiff = Infinity;
-                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                        const priceDiff = Math.abs(heatmapData.priceLevels[j] - price);
-                        if (priceDiff < minPriceDiff) {
-                            minPriceDiff = priceDiff;
-                            priceLevelIdx = j;
-                        }
-                    }
-                    
-                    // Calculate total orderbook volume as a measure of activity
-                    let totalVolume = 0;
                     for (let j = 0; j < currentVolumes.length; j++) {
-                        totalVolume += Math.abs(currentVolumes[j]);
+                        const volume = currentVolumes[j];
+                        if (volume > 0) {
+                            bidVolume += volume;
+                        } else {
+                            askVolume += Math.abs(volume);
+                        }
                     }
                     
-                    // Skip low volume periods
-                    if (totalVolume < 1000) continue;
+                    const obm = (bidVolume - askVolume) / (bidVolume + askVolume);
+                    obmValues.push({
+                        timestamp: heatmapTimes[i],
+                        value: obm
+                    });
+                }
+                
+                // Only process if we have enough data
+                if (obmValues.length > 10) {
+                    // Smooth OBM values with a simple moving average
+                    const smoothedOBM = [];
+                    const windowSize = 5;
                     
-                    try {
-                        // Apply advanced principle of least action using tensor-based approach
-                        // Create a 2D tensor for volume evolution over time and price
-                        const volumeTensor = math.zeros([heatmapData.priceLevels.length, 5]);
-                        
-                        // Fill tensor with orderbook volumes
-                        for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                            volumeTensor.set([j, 0], Math.abs(currentVolumes[j]));
-                            volumeTensor.set([j, 1], Math.abs(prevVolumes[j]));
-                            volumeTensor.set([j, 2], Math.abs(prev2Volumes[j]));
-                            volumeTensor.set([j, 3], Math.abs(prev3Volumes[j]));
-                            volumeTensor.set([j, 4], Math.abs(prev4Volumes[j]));
+                    for (let i = windowSize - 1; i < obmValues.length; i++) {
+                        let sum = 0;
+                        for (let j = 0; j < windowSize; j++) {
+                            sum += obmValues[i - j].value;
                         }
+                        smoothedOBM.push({
+                            timestamp: obmValues[i].timestamp,
+                            value: sum / windowSize
+                        });
+                    }
+                    
+                    // Find MAJOR trend changes in OBM
+                    for (let i = 3; i < smoothedOBM.length - 3; i++) {
+                        const prev = smoothedOBM[i-3].value;
+                        const current = smoothedOBM[i].value;
+                        const next = smoothedOBM[i+3].value;
                         
-                        // Calculate gradient of volume along price axis (spatial gradient)
-                        const priceGradient = math.zeros(heatmapData.priceLevels.length);
-                        for (let j = 1; j < heatmapData.priceLevels.length - 1; j++) {
-                            // Central difference approximation of gradient
-                            const vUp = volumeTensor.get([j+1, 0]);
-                            const vDown = volumeTensor.get([j-1, 0]);
-                            priceGradient.set([j], (vUp - vDown) / 2);
+                        const currentTrend = Math.sign(current - prev);
+                        const nextTrend = Math.sign(next - current);
+                        
+                        // Only identify significant trend changes
+                        if (currentTrend !== 0 && nextTrend !== 0 && currentTrend !== nextTrend) {
+                            // Only consider significant magnitude changes
+                            const magnitude = Math.abs(next - prev);
+                            if (magnitude > 0.05) { // Only significant changes
+                                trendChanges.push({
+                                    timestamp: smoothedOBM[i].timestamp,
+                                    type: currentTrend > 0 ? -1 : 1, // Buy at bottoms, sell at tops
+                                    strength: magnitude
+                                });
+                            }
                         }
+                    }
+                    
+                    // Sort trend changes by strength
+                    trendChanges.sort((a, b) => b.strength - a.strength);
+                    
+                    // Take only the top N strongest signals
+                    const topChanges = trendChanges.slice(0, ABSOLUTE_MAX_SIGNALS);
+                    
+                    // Convert to expected format
+                    for (const change of topChanges) {
+                        // Find matching price
+                        let closestPriceIdx = 0;
+                        let minTimeDiff = Infinity;
                         
-                        // Calculate temporal gradient (volume change over time)
-                        const timeGradient = math.zeros(heatmapData.priceLevels.length);
-                        for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                            // Weighted time gradient (recent changes matter more)
-                            const g1 = volumeTensor.get([j, 0]) - volumeTensor.get([j, 1]);
-                            const g2 = volumeTensor.get([j, 1]) - volumeTensor.get([j, 2]);
-                            const g3 = volumeTensor.get([j, 2]) - volumeTensor.get([j, 3]);
-                            const g4 = volumeTensor.get([j, 3]) - volumeTensor.get([j, 4]);
-                            
-                            timeGradient.set([j], 0.4*g1 + 0.3*g2 + 0.2*g3 + 0.1*g4);
-                        }
-                        
-                        // Create force field for price movement using the gradients
-                        const forceField = math.zeros(heatmapData.priceLevels.length);
-                        
-                        for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                            // Combine spatial and temporal gradients
-                            const spatialForce = j > 0 && j < heatmapData.priceLevels.length - 1 ? -priceGradient.get([j]) : 0;
-                            const temporalForce = -timeGradient.get([j]);
-                            
-                            // Calculate distance from current price (relative importance decreases with distance)
-                            const distanceFactor = Math.exp(-Math.abs(j - priceLevelIdx) / 10);
-                            
-                            // Calculate final force (negative = downward force, positive = upward force)
-                            const force = (spatialForce * 0.7 + temporalForce * 0.3) * distanceFactor;
-                            forceField.set([j], force);
-                        }
-                        
-                        // Separate forces into buy and sell regions
-                        let buyForce = 0;
-                        let sellForce = 0;
-                        
-                        for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                            if (j < priceLevelIdx) {
-                                buyForce += forceField.get([j]);
-                            } else if (j > priceLevelIdx) {
-                                sellForce += forceField.get([j]);
+                        for (let j = 0; j < times.length; j++) {
+                            const timeDiff = Math.abs(times[j] - change.timestamp);
+                            if (timeDiff < minTimeDiff) {
+                                minTimeDiff = timeDiff;
+                                closestPriceIdx = j;
                             }
                         }
                         
-                        // Calculate the total imbalance between buy and sell forces
-                        const totalForce = Math.abs(buyForce) + Math.abs(sellForce);
-                        let forceImbalance = 0;
-                        if (totalForce > 0) {
-                            forceImbalance = (buyForce - sellForce) / totalForce;
-                        }
-                        
-                        // Apply price momentum as a factor
-                        const momentumFactor = Math.sign(currentMomentum) * Math.min(1, Math.abs(currentMomentum) / 0.01);
-                        
-                        // Store current force imbalance for trend analysis
-                        resistanceHistory.push(forceImbalance);
-                        if (resistanceHistory.length > 10) {
-                            resistanceHistory.shift();
-                        }
-                        
-                        // Calculate force trend (increasing or decreasing imbalance)
-                        let forceTrend = 0;
-                        if (resistanceHistory.length >= 5) {
-                            const recentAvg = (resistanceHistory[resistanceHistory.length-1] + 
-                                              resistanceHistory[resistanceHistory.length-2] + 
-                                              resistanceHistory[resistanceHistory.length-3]) / 3;
-                            
-                            const olderAvg = (resistanceHistory[resistanceHistory.length-4] + 
-                                             resistanceHistory[resistanceHistory.length-5]) / 2;
-                            
-                            forceTrend = recentAvg - olderAvg;
-                        }
-                        
-                        // Create a composite signal that factors in both current force imbalance and its trend
-                        const signalStrength = forceImbalance * 0.7 + Math.sign(forceImbalance) * forceTrend * 0.3;
-                        
-                        // Apply alignment factor (when price momentum and orderbook imbalance align, signal is stronger)
-                        const alignmentFactor = 1 + 0.5 * (Math.sign(signalStrength) === Math.sign(momentumFactor) ? Math.abs(momentumFactor) : 0);
-                        
-                        // Final signal strength with alignment factor
-                        const finalSignalStrength = signalStrength * alignmentFactor;
-                        
-                        // Generate signals with extremely strict filtering
-                        let signal = 0; // neutral by default
-                        
-                        // Use dynamically calculated threshold from above
-                        if (finalSignalStrength > signalThreshold && (i - lastBuySignal) > minSignalSpacing) {
-                            signal = 1;  // buy
-                            lastBuySignal = i;
-                            signalCount++;
-                        } else if (finalSignalStrength < -signalThreshold && (i - lastSellSignal) > minSignalSpacing) {
-                            signal = -1; // sell
-                            lastSellSignal = i;
-                            signalCount++;
-                        }
-                        
-                        // Only record significant signals
-                        if (signal !== 0) {
-                            result.timestamps.push(currentTime);
-                            result.signals.push(signal);
-                            result.signalPrices.push(price);
-                            result.signalStrengths.push(Math.abs(finalSignalStrength));
-                        }
-                    } catch (error) {
-                        console.error("Error in LAPP calculation:", error);
+                        result.timestamps.push(change.timestamp);
+                        result.signals.push(change.type);
+                        result.signalPrices.push(prices[closestPriceIdx]);
+                        result.signalStrengths.push(change.strength * 10); // Normalize for marker sizing
                     }
-                }
-                
-                // Final filter: If still too many signals, keep only the strongest ones
-                if (result.signals.length > maxSignals) {
-                    // Create array of indices sorted by signal strength
-                    const indices = Array.from(Array(result.signalStrengths.length).keys())
-                        .sort((a, b) => result.signalStrengths[b] - result.signalStrengths[a]);
-                    
-                    // Keep only the top signals
-                    const filteredTimestamps = [];
-                    const filteredSignals = [];
-                    const filteredPrices = [];
-                    const filteredStrengths = [];
-                    
-                    for (let i = 0; i < Math.min(maxSignals, indices.length); i++) {
-                        filteredTimestamps.push(result.timestamps[indices[i]]);
-                        filteredSignals.push(result.signals[indices[i]]);
-                        filteredPrices.push(result.signalPrices[indices[i]]);
-                        filteredStrengths.push(result.signalStrengths[indices[i]]);
-                    }
-                    
-                    result.timestamps = filteredTimestamps;
-                    result.signals = filteredSignals;
-                    result.signalPrices = filteredPrices;
-                    result.signalStrengths = filteredStrengths;
                 }
                 
                 return result;
