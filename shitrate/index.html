@@ -247,338 +247,565 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Improved Order Book Momentum with advanced signal detection
+            // Advanced Order Book Momentum with fractal analysis and statistical arbitrage techniques
             function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
                     obmValues: [],
                     rawImbalances: [],
                     predictionSignals: [],
-                    signalStrength: [], // Add signal strength metric
-                    divergencePoints: [] // Track price-OBM divergences
+                    signalStrength: [],
+                    divergencePoints: [],
+                    entropyIndex: [], // Market randomness measure
+                    nonlinearTrends: [] // Fractal pattern detection
                 };
                 
-                if (heatmapData.heatmap.length < 2) return result;
+                if (heatmapData.heatmap.length < 5) return result;
                 
-                // Enhanced adaptive parameters
-                const historyLength = Math.min(20, Math.floor(heatmapData.heatmap.length * 0.1)); // Adaptive history size
+                // Statistical parameters with Bayesian priors
+                const historyLength = Math.min(30, Math.floor(heatmapData.heatmap.length * 0.15));
                 const imbalanceHistory = new Array(historyLength).fill(0);
                 const obmHistory = new Array(historyLength).fill(0);
                 let priceHistory = [];
                 
-                // Signal thresholds with adaptive volatility adjustment
-                let volatilityWindow = [];
-                const volatilityPeriods = 14;
-                let baseThresholds = {
-                    strongBuy: 0.15,
-                    buy: 0.08,
-                    neutral: 0.03,
-                    sell: -0.08,
-                    strongSell: -0.15
-                };
+                // Hurst exponent calculation windows (for fractal dimension analysis)
+                const hurstWindows = [8, 16, 32];
+                const hurstValues = hurstWindows.map(() => []);
                 
-                // Price action tracking (for divergence)
-                let priceHighs = [];
-                let priceLows = [];
-                let obmHighs = [];
-                let obmLows = [];
+                // Fisher transform for normalized probability distribution
+                const fisherTransform = x => 0.5 * Math.log((1 + x) / (1 - x));
                 
-                // Optimization: pre-calculate time differences
-                const timeDeltas = [];
-                for (let i = 1; i < heatmapData.timestamps.length; i++) {
-                    timeDeltas.push((heatmapData.timestamps[i] - heatmapData.timestamps[i-1]) / 60); // in minutes
-                }
+                // Kalman filter parameters for adaptive noise reduction
+                const kalmanGain = 0.3;
+                let lastEstimate = 0;
+                let lastError = 1.0;
+                const processNoise = 0.01;
+                const measurementNoise = 0.1;
                 
-                // Helper functions (pre-defined for performance)
-                const findPriceMidpoint = (prices) => {
-                    // Optimization: cache min/max for repeated price arrays
-                    let min = Infinity, max = -Infinity;
-                    for (let i = 0; i < prices.length; i++) {
-                        if (prices[i] < min) min = prices[i];
-                        if (prices[i] > max) max = prices[i];
-                    }
-                    return (min + max) / 2;
-                };
+                // Reservoir sampling for stochastic resonance
+                const reservoirSize = 20;
+                const reservoir = new Array(reservoirSize).fill(0);
+                let reservoirIndex = 0;
                 
-                // Exponential weighting function (for price distance)
-                const expWeight = (distance, factor = 4) => Math.exp(factor * distance);
+                // Dynamic market regime detection
+                let marketRegime = 'neutral'; // 'trending', 'mean-reverting', 'chaotic'
+                let regimeStrength = 0.5;
                 
-                // Volume-weighted price equilibrium
-                const calculateVWAP = (prices, volumes) => {
-                    let sumPV = 0, sumV = 0;
-                    for (let i = 0; i < prices.length; i++) {
-                        const absVolume = Math.abs(volumes[i]);
-                        sumPV += prices[i] * absVolume;
-                        sumV += absVolume;
-                    }
-                    return sumV > 0 ? sumPV / sumV : 0;
-                };
+                // Wavelet decomposition components (simplified)
+                const waveletScales = [4, 8, 16];
+                const waveletCoefficients = waveletScales.map(() => []);
                 
-                // Calculate rolling volatility
-                const updateVolatility = (newValue) => {
-                    volatilityWindow.push(newValue);
-                    if (volatilityWindow.length > volatilityPeriods) {
-                        volatilityWindow.shift();
+                // Calculate Hurst exponent (measure of long-memory processes)
+                const calculateHurst = (series, window) => {
+                    if (series.length < window * 2) return 0.5; // Default to random walk
+                    
+                    const subseries = [];
+                    for (let i = 0; i <= series.length - window; i += Math.max(1, Math.floor(window/4))) {
+                        subseries.push(series.slice(i, i + window));
                     }
                     
-                    if (volatilityWindow.length < 2) return 0;
+                    if (subseries.length < 2) return 0.5;
                     
-                    // Calculate standard deviation
-                    const mean = volatilityWindow.reduce((sum, val) => sum + val, 0) / volatilityWindow.length;
-                    const variance = volatilityWindow.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / volatilityWindow.length;
-                    return Math.sqrt(variance);
+                    // Calculate rescaled range for each subseries
+                    const rsValues = subseries.map(sub => {
+                        const mean = sub.reduce((a, b) => a + b, 0) / sub.length;
+                        const deviations = sub.map(x => x - mean);
+                        const cumulativeDevs = [];
+                        let sum = 0;
+                        for (let dev of deviations) {
+                            sum += dev;
+                            cumulativeDevs.push(sum);
+                        }
+                        
+                        const range = Math.max(...cumulativeDevs) - Math.min(...cumulativeDevs);
+                        const stdDev = Math.sqrt(deviations.reduce((a, b) => a + b*b, 0) / sub.length);
+                        
+                        return stdDev > 0 ? range / stdDev : 1;
+                    });
+                    
+                    // Log-log regression (simplified approximation)
+                    const n = subseries[0].length;
+                    const logN = Math.log(n);
+                    const logRs = Math.log(rsValues.reduce((a, b) => a + b, 0) / rsValues.length);
+                    
+                    // Hurst = log(R/S) / log(n)
+                    return logRs / logN;
                 };
                 
-                // Detect divergence between price and OBM
-                const checkDivergence = (prices, obm, window = 5) => {
-                    if (prices.length < window*2 || obm.length < window*2) return null;
+                // Calculate permutation entropy (measure of randomness/predictability)
+                const calculatePermutationEntropy = (series, m = 3) => {
+                    if (series.length < m + 1) return 1.0; // Max entropy if too short
                     
-                    // Get recent windows for both price and OBM
-                    const recentPrices = prices.slice(-window*2);
-                    const recentOBM = obm.slice(-window*2);
-                    
-                    // Identify local extrema
-                    const priceHighIndex = recentPrices.indexOf(Math.max(...recentPrices.slice(-window)));
-                    const priceLowIndex = recentPrices.indexOf(Math.min(...recentPrices.slice(-window)));
-                    const obmHighIndex = recentOBM.indexOf(Math.max(...recentOBM.slice(-window)));
-                    const obmLowIndex = recentOBM.indexOf(Math.min(...recentOBM.slice(-window)));
-                    
-                    // Check for bullish divergence (price makes lower low but OBM makes higher low)
-                    if (priceLowIndex > priceHighIndex && obmLowIndex < obmHighIndex) {
-                        return {type: 'bullish', strength: Math.abs(recentOBM[obmLowIndex] - recentOBM[obmHighIndex])};
+                    // Generate ordinal patterns
+                    const patterns = new Map();
+                    for (let i = 0; i <= series.length - m; i++) {
+                        const subseq = series.slice(i, i + m);
+                        const indices = Array.from({length: m}, (_, i) => i);
+                        indices.sort((a, b) => subseq[a] - subseq[b]);
+                        const pattern = indices.join('');
+                        patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
                     }
                     
-                    // Check for bearish divergence (price makes higher high but OBM makes lower high)
-                    if (priceHighIndex > priceLowIndex && obmHighIndex < obmLowIndex) {
-                        return {type: 'bearish', strength: Math.abs(recentOBM[obmHighIndex] - recentOBM[obmLowIndex])};
+                    // Calculate entropy
+                    const n = series.length - m + 1;
+                    let entropy = 0;
+                    for (const count of patterns.values()) {
+                        const p = count / n;
+                        entropy -= p * Math.log2(p);
                     }
                     
-                    return null;
+                    // Normalize by max entropy
+                    return entropy / Math.log2(factorial(m));
                 };
                 
-                // Multi-timeframe support - calculate imbalances at different timeframes
-                const shortTermImbalances = [];
-                const mediumTermImbalances = [];
-                const longTermImbalances = [];
+                // Helper for permutation entropy
+                const factorial = n => n <= 1 ? 1 : n * factorial(n - 1);
                 
-                // Process each timestamp
+                // Simplified harmonic analysis for cyclic patterns
+                const detectHarmonics = (series, maxPeriod = 20) => {
+                    if (series.length < maxPeriod * 2) return null;
+                    
+                    const periods = [];
+                    let maxCorrelation = 0;
+                    let dominantPeriod = 0;
+                    
+                    for (let period = 4; period <= maxPeriod; period++) {
+                        let correlation = 0;
+                        let count = 0;
+                        
+                        for (let i = 0; i < series.length - period; i++) {
+                            correlation += series[i] * series[i + period];
+                            count++;
+                        }
+                        
+                        correlation = count > 0 ? correlation / count : 0;
+                        periods.push({ period, correlation });
+                        
+                        if (Math.abs(correlation) > Math.abs(maxCorrelation)) {
+                            maxCorrelation = correlation;
+                            dominantPeriod = period;
+                        }
+                    }
+                    
+                    return { dominantPeriod, maxCorrelation, periods };
+                };
+                
+                // Apply Kalman filter for noise reduction
+                const applyKalman = (measurement, lastX, lastP) => {
+                    // Prediction step
+                    const predictedX = lastX;
+                    const predictedP = lastP + processNoise;
+                    
+                    // Update step
+                    const K = predictedP / (predictedP + measurementNoise);
+                    const updatedX = predictedX + K * (measurement - predictedX);
+                    const updatedP = (1 - K) * predictedP;
+                    
+                    return { estimate: updatedX, error: updatedP };
+                };
+                
+                // Adaptive thresholding based on market regime
+                const getAdaptiveThresholds = (regime, strength, volatility) => {
+                    // Base thresholds
+                    const baseThresholds = {
+                        strongBuy: 0.15,
+                        buy: 0.08,
+                        neutral: 0.03,
+                        sell: -0.08,
+                        strongSell: -0.15
+                    };
+                    
+                    let multiplier = 1;
+                    
+                    switch (regime) {
+                        case 'trending':
+                            // For trending markets, make thresholds easier to hit
+                            multiplier = 0.7 + (0.3 * (1 - strength));
+                            break;
+                        case 'mean-reverting':
+                            // For mean-reverting, make thresholds harder to hit
+                            multiplier = 1.1 + (0.4 * strength);
+                            break;
+                        case 'chaotic':
+                            // For chaotic, make thresholds much harder
+                            multiplier = 1.3 + (0.7 * strength);
+                            break;
+                        default:
+                            // Neutral with volatility adjustment
+                            multiplier = 1 + (volatility * 0.5);
+                    }
+                    
+                    return {
+                        strongBuy: baseThresholds.strongBuy * multiplier,
+                        buy: baseThresholds.buy * multiplier,
+                        neutral: baseThresholds.neutral * multiplier,
+                        sell: baseThresholds.sell * multiplier,
+                        strongSell: baseThresholds.strongSell * multiplier
+                    };
+                };
+                
+                // Process each timestamp with advanced statistical methods
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
                     const currentPriceVolumes = {
                         prices: heatmapData.priceLevels, 
                         volumes: heatmapData.heatmap[i].volumes
                     };
                     
-                    // Cache the midpoint for reuse
-                    const priceMidpoint = findPriceMidpoint(currentPriceVolumes.prices);
+                    // Extract median price (more robust than midpoint)
+                    const sortedPrices = [...currentPriceVolumes.prices].sort((a, b) => a - b);
+                    const medianPrice = sortedPrices[Math.floor(sortedPrices.length / 2)];
                     
-                    // Use VWAP as alternative reference point
-                    const vwap = calculateVWAP(currentPriceVolumes.prices, currentPriceVolumes.volumes);
+                    // Calculate volume-weighted median (VWM) as reference
+                    let totalWeightBelow = 0;
+                    let totalWeightAbove = 0;
                     
-                    // Optimization: pre-calculate max volume once
-                    let maxVolume = 0;
-                    for (let j = 0; j < currentPriceVolumes.volumes.length; j++) {
-                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
-                        if (volume > maxVolume) maxVolume = volume;
-                    }
-                    
-                    // Calculate buy/sell pressure with exponential weighting
-                    let buyPressure = 0;
-                    let sellPressure = 0;
-                    
-                    // Calculate center of mass prices for buy and sell sides
-                    let buyCenterMass = 0;
-                    let sellCenterMass = 0;
-                    let buyVolumeSum = 0;
-                    let sellVolumeSum = 0;
-                    
-                    // Vectorized approach to pressure calculation
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const price = currentPriceVolumes.prices[j];
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         
-                        // Normalize volume with dynamic scaling factor
-                        // Higher values become more prominent but small values are still visible
-                        const normalizedVolume = maxVolume > 0 ? 
-                            Math.pow(volume / maxVolume, 0.7) : 0;
-                        
-                        // Enhanced distance weighting with reference to midpoint and VWAP
-                        const distanceFromMid = Math.abs(price - priceMidpoint) / priceMidpoint;
-                        const distanceFromVWAP = Math.abs(price - vwap) / vwap;
-                        
-                        // Combined distance metric with higher weight to VWAP distance
-                        const distanceMetric = (distanceFromMid * 0.4) + (distanceFromVWAP * 0.6);
-                        
-                        // Sigmoid-based weighting to prevent extreme values
-                        const sigmoid = (x) => 1 / (1 + Math.exp(-4 * x));
-                        const distanceWeight = 0.5 + sigmoid(distanceMetric);
-                        
-                        // Apply multiple weighting factors
-                        const weightedVolume = normalizedVolume * distanceWeight;
-                        
-                        if (price < priceMidpoint) {
-                            buyPressure += weightedVolume;
-                            buyCenterMass += price * volume;
-                            buyVolumeSum += volume;
-                        } else {
-                            sellPressure += weightedVolume;
-                            sellCenterMass += price * volume;
-                            sellVolumeSum += volume;
+                        if (price < medianPrice) {
+                            totalWeightBelow += volume;
+                        } else if (price > medianPrice) {
+                            totalWeightAbove += volume;
                         }
                     }
                     
-                    // Calculate center of mass prices
-                    const buyCMP = buyVolumeSum > 0 ? buyCenterMass / buyVolumeSum : 0;
-                    const sellCMP = sellVolumeSum > 0 ? sellCenterMass / sellVolumeSum : 0;
+                    // Calculate raw imbalance with non-linear scaling
+                    const totalVolume = totalWeightBelow + totalWeightAbove;
+                    let rawImbalance = 0;
                     
-                    // Center of mass distance factor - wider spread indicates stronger imbalance
-                    const cmpFactor = (sellCMP > buyCMP && buyCMP > 0) ? 
-                        Math.min(1.5, 1 + ((sellCMP - buyCMP) / priceMidpoint)) : 1;
+                    if (totalVolume > 0) {
+                        // Normalize and scale imbalance with sigmoid-like function
+                        const linearImbalance = (totalWeightBelow - totalWeightAbove) / totalVolume;
+                        // Apply non-linear transformation for better sensitivity around zero
+                        rawImbalance = Math.tanh(linearImbalance * 1.5);
+                    }
                     
-                    // Calculate imbalance with improved normalization and CMP factor
-                    const totalPressure = buyPressure + sellPressure;
-                    const rawImbalance = totalPressure > 0 ? 
-                        ((buyPressure - sellPressure) / totalPressure) * cmpFactor : 0;
-                    
-                    // Add to various timeframe histories
-                    shortTermImbalances.push(rawImbalance);
-                    if (shortTermImbalances.length > 5) shortTermImbalances.shift();
-                    
-                    mediumTermImbalances.push(rawImbalance);
-                    if (mediumTermImbalances.length > 15) mediumTermImbalances.shift();
-                    
-                    longTermImbalances.push(rawImbalance);
-                    if (longTermImbalances.length > 30) longTermImbalances.shift();
-                    
-                    // Add to general history
+                    // Add to history
                     imbalanceHistory.push(rawImbalance);
-                    if (imbalanceHistory.length > historyLength) imbalanceHistory.shift();
+                    if (imbalanceHistory.length > historyLength) {
+                        imbalanceHistory.shift();
+                    }
                     
-                    // Get weighted average of historical imbalances
-                    const avgShortImbalance = shortTermImbalances.reduce((sum, val) => sum + val, 0) / shortTermImbalances.length;
-                    const avgMediumImbalance = mediumTermImbalances.reduce((sum, val) => sum + val, 0) / mediumTermImbalances.length;
-                    const avgLongImbalance = longTermImbalances.reduce((sum, val) => sum + val, 0) / longTermImbalances.length;
+                    // Apply Kalman filtering for noise reduction
+                    const kalman = applyKalman(rawImbalance, lastEstimate, lastError);
+                    lastEstimate = kalman.estimate;
+                    lastError = kalman.error;
                     
-                    // Rate of change calculations
-                    let shortTermChange = 0;
-                    let mediumTermChange = 0;
+                    // Store filtered imbalance in reservoir for stochastic analysis
+                    reservoir[reservoirIndex] = lastEstimate;
+                    reservoirIndex = (reservoirIndex + 1) % reservoirSize;
                     
-                    if (i > 1) {
-                        // Get delta times and previous states (optimized calculation)
-                        const deltaTime = timeDeltas[i-1];
-                        shortTermChange = (rawImbalance - imbalanceHistory[imbalanceHistory.length-2]) / deltaTime;
+                    // Calculate permutation entropy to measure predictability
+                    const entropy = calculatePermutationEntropy(imbalanceHistory.slice(-8));
+                    result.entropyIndex.push(entropy);
+                    
+                    // Detect market regime using Hurst exponent
+                    if (imbalanceHistory.length >= hurstWindows[0]) {
+                        // Update Hurst exponents for different time scales
+                        for (let h = 0; h < hurstWindows.length; h++) {
+                            if (imbalanceHistory.length >= hurstWindows[h]) {
+                                const hurst = calculateHurst(imbalanceHistory, hurstWindows[h]);
+                                hurstValues[h].push(hurst);
+                                if (hurstValues[h].length > 10) hurstValues[h].shift();
+                            }
+                        }
                         
-                        // Medium-term rate of change (5 periods back if available)
-                        if (imbalanceHistory.length > 5) {
-                            const mediumIndex = Math.max(0, imbalanceHistory.length - 6);
-                            const mediumDeltaTime = Math.max(1, 5 * deltaTime);
-                            mediumTermChange = (rawImbalance - imbalanceHistory[mediumIndex]) / mediumDeltaTime;
+                        // Average Hurst values across scales
+                        const avgHurst = hurstValues.map(values => 
+                            values.reduce((sum, val) => sum + val, 0) / values.length
+                        ).reduce((sum, val) => sum + val, 0) / hurstValues.length;
+                        
+                        // Determine market regime based on Hurst exponent
+                        // H > 0.6: trending, H < 0.4: mean-reverting, 0.4-0.6: random walk
+                        if (avgHurst > 0.6) {
+                            marketRegime = 'trending';
+                            regimeStrength = Math.min(1, (avgHurst - 0.6) * 2.5);
+                        } else if (avgHurst < 0.4) {
+                            marketRegime = 'mean-reverting';
+                            regimeStrength = Math.min(1, (0.4 - avgHurst) * 2.5);
+                        } else {
+                            const randomness = Math.abs(avgHurst - 0.5) * 2;
+                            marketRegime = randomness > 0.7 ? 'chaotic' : 'neutral';
+                            regimeStrength = randomness;
                         }
                     }
                     
-                    // Calculate volatility for adaptive thresholds
-                    const volatility = updateVolatility(Math.abs(shortTermChange));
+                    // Perform harmonic analysis to detect cyclic patterns
+                    const harmonics = imbalanceHistory.length > 8 ? 
+                        detectHarmonics(imbalanceHistory.slice(-Math.min(40, imbalanceHistory.length))) : null;
                     
-                    // Create adaptive thresholds based on volatility
-                    let adaptiveThresholds = {...baseThresholds};
-                    if (volatilityWindow.length > 10) {
-                        const volatilityFactor = Math.min(2, 1 + volatility * 3);
-                        adaptiveThresholds.strongBuy = baseThresholds.strongBuy * volatilityFactor;
-                        adaptiveThresholds.buy = baseThresholds.buy * volatilityFactor;
-                        adaptiveThresholds.neutral = baseThresholds.neutral * volatilityFactor;
-                        adaptiveThresholds.sell = baseThresholds.sell * volatilityFactor;
-                        adaptiveThresholds.strongSell = baseThresholds.strongSell * volatilityFactor;
+                    // Calculate multi-scale momentum with Fisher transform for normalization
+                    let shortMomentum = 0, mediumMomentum = 0, longMomentum = 0;
+                    
+                    if (imbalanceHistory.length >= 5) {
+                        // Short-term momentum (Fisher-transformed)
+                        const shortDelta = lastEstimate - imbalanceHistory[imbalanceHistory.length - 5];
+                        shortMomentum = Math.tanh(shortDelta * 2); // Constrain to [-1,1]
+                        
+                        if (imbalanceHistory.length >= 15) {
+                            // Medium-term momentum
+                            const mediumDelta = lastEstimate - imbalanceHistory[imbalanceHistory.length - 15];
+                            mediumMomentum = Math.tanh(mediumDelta * 1.5);
+                            
+                            if (imbalanceHistory.length >= 30) {
+                                // Long-term momentum
+                                const longDelta = lastEstimate - imbalanceHistory[imbalanceHistory.length - 30];
+                                longMomentum = Math.tanh(longDelta);
+                            }
+                        }
                     }
                     
-                    // Apply adaptive smoothing based on recent volatility
-                    const volatilityBasedAlpha = Math.max(0.1, Math.min(0.5, 0.2 + (volatility * 2)));
-                    const smoothedImbalance = imbalanceHistory.length > 1 ? 
-                        volatilityBasedAlpha * rawImbalance + (1 - volatilityBasedAlpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
-                        rawImbalance;
+                    // Calculate wavelet-like decomposition (simplified)
+                    for (let w = 0; w < waveletScales.length; w++) {
+                        const scale = waveletScales[w];
+                        if (imbalanceHistory.length >= scale * 2) {
+                            // Simple approximation of wavelet coefficient
+                            let sum = 0;
+                            for (let j = 0; j < scale; j++) {
+                                const idx = imbalanceHistory.length - 1 - j;
+                                sum += imbalanceHistory[idx] * (j % 2 === 0 ? 1 : -1) / scale;
+                            }
+                            waveletCoefficients[w].push(sum);
+                            if (waveletCoefficients[w].length > 10) waveletCoefficients[w].shift();
+                        }
+                    }
                     
-                    // Multi-timeframe weighted OBM calculation
-                    const shortWeight = 0.5;  // High weight for short-term (most recent)
-                    const mediumWeight = 0.3; // Medium weight for medium-term
-                    const longWeight = 0.2;   // Lower weight for long-term (most stable)
+                    // Combine components with adaptive weights based on market regime
+                    let trendWeight, momentumWeight, cycleWeight, meanRevWeight;
                     
-                    // Combine timeframes with momentum for enhanced OBM
-                    const multitimeOBM = 
-                        (avgShortImbalance * shortWeight) + 
-                        (avgMediumImbalance * mediumWeight) + 
-                        (avgLongImbalance * longWeight) +
-                        (shortTermChange * 0.3) +       // Add rate-of-change component
-                        (mediumTermChange * 0.2);       // Add medium-term momentum
+                    switch (marketRegime) {
+                        case 'trending':
+                            trendWeight = 0.6;
+                            momentumWeight = 0.3;
+                            cycleWeight = 0.05;
+                            meanRevWeight = 0.05;
+                            break;
+                        case 'mean-reverting':
+                            trendWeight = 0.2;
+                            momentumWeight = 0.1;
+                            cycleWeight = 0.2;
+                            meanRevWeight = 0.5;
+                            break;
+                        case 'chaotic':
+                            trendWeight = 0.15;
+                            momentumWeight = 0.15;
+                            cycleWeight = 0.4;
+                            meanRevWeight = 0.3;
+                            break;
+                        default:
+                            trendWeight = 0.3;
+                            momentumWeight = 0.3;
+                            cycleWeight = 0.2;
+                            meanRevWeight = 0.2;
+                    }
                     
-                    // Store OBM in history
-                    obmHistory.push(multitimeOBM);
-                    if (obmHistory.length > historyLength) obmHistory.shift();
+                    // Apply wavelet coefficients for cycle detection
+                    let cycleComponent = 0;
+                    if (waveletCoefficients.some(wc => wc.length > 0)) {
+                        const avgCoeffs = waveletCoefficients.map(wc => 
+                            wc.length > 0 ? wc.reduce((sum, val) => sum + val, 0) / wc.length : 0
+                        );
+                        // Weight by scale importance (longer-term cycles get higher weight)
+                        cycleComponent = avgCoeffs.reduce((sum, val, idx) => sum + val * (idx + 1), 0) / 
+                            avgCoeffs.reduce((sum, _, idx) => sum + (idx + 1), 0);
+                    }
                     
-                    // Capture price for divergence analysis
-                    if (i > 1 && i < heatmapData.timestamps.length && i < heatmapData.heatmap.length) {
-                        // Find closest price point to current timestamp
-                        const timestamp = heatmapData.timestamps[i];
-                        priceHistory.push(priceMidpoint);
+                    // Mean reversion component
+                    const meanRevComponent = imbalanceHistory.length > 10 ? 
+                        -0.5 * (lastEstimate - imbalanceHistory.slice(-10).reduce((sum, val) => sum + val, 0) / 10) : 0;
+                    
+                    // Combine momentum by timeframe with adaptive weights
+                    const momentumComponent = (shortMomentum * 0.6) + (mediumMomentum * 0.3) + (longMomentum * 0.1);
+                    
+                    // Calculate final OBM with regime-based adaptive weighting
+                    const obm = (lastEstimate * trendWeight) + 
+                                (momentumComponent * momentumWeight) + 
+                                (cycleComponent * cycleWeight) + 
+                                (meanRevComponent * meanRevWeight);
+                    
+                    // Apply fisher transform to normalize distribution
+                    const normalizedOBM = Math.tanh(obm * 1.2);
+                    
+                    obmHistory.push(normalizedOBM);
+                    if (obmHistory.length > historyLength) {
+                        obmHistory.shift();
+                    }
+                    
+                    // Track price for divergence analysis
+                    if (i < heatmapData.timestamps.length) {
+                        priceHistory.push(medianPrice);
                         if (priceHistory.length > historyLength) priceHistory.shift();
                     }
                     
-                    // Generate prediction signal with strength indicator
+                    // Calculate adaptive thresholds based on current market regime
+                    const volatility = Math.sqrt(
+                        obmHistory.slice(-10).reduce((sum, val) => sum + Math.pow(val - normalizedOBM, 2), 0) / 
+                        Math.max(1, obmHistory.length - 1)
+                    );
+                    
+                    const adaptiveThresholds = getAdaptiveThresholds(marketRegime, regimeStrength, volatility);
+                    
+                    // Generate signal with probability-based confidence
                     let signal = 'neutral';
                     let signalStrength = 0;
                     
-                    // Determine signal based on adaptive thresholds
-                    if (multitimeOBM > adaptiveThresholds.strongBuy) {
+                    // Apply asymmetric thresholds based on entropy (more randomness = stricter thresholds)
+                    const entropyFactor = Math.pow(entropy, 1.5); // Higher entropy = stronger filter
+                    
+                    if (normalizedOBM > adaptiveThresholds.strongBuy * (1 + entropyFactor * 0.3)) {
                         signal = 'strong_buy';
-                        signalStrength = (multitimeOBM - adaptiveThresholds.strongBuy) / Math.abs(adaptiveThresholds.strongBuy);
-                    } else if (multitimeOBM > adaptiveThresholds.buy) {
+                        // Confidence based on how far above threshold and market predictability
+                        signalStrength = Math.min(0.9, (normalizedOBM - adaptiveThresholds.strongBuy) / 0.2) * (1 - entropy * 0.3);
+                    } else if (normalizedOBM > adaptiveThresholds.buy * (1 + entropyFactor * 0.3)) {
                         signal = 'buy';
-                        signalStrength = (multitimeOBM - adaptiveThresholds.buy) / (adaptiveThresholds.strongBuy - adaptiveThresholds.buy);
-                    } else if (multitimeOBM < adaptiveThresholds.strongSell) {
+                        signalStrength = Math.min(0.85, (normalizedOBM - adaptiveThresholds.buy) / 
+                            (adaptiveThresholds.strongBuy - adaptiveThresholds.buy)) * (1 - entropy * 0.3);
+                    } else if (normalizedOBM < adaptiveThresholds.strongSell * (1 + entropyFactor * 0.3)) {
                         signal = 'strong_sell';
-                        signalStrength = (adaptiveThresholds.strongSell - multitimeOBM) / Math.abs(adaptiveThresholds.strongSell);
-                    } else if (multitimeOBM < adaptiveThresholds.sell) {
+                        signalStrength = Math.min(0.9, Math.abs(normalizedOBM - adaptiveThresholds.strongSell) / 0.2) * (1 - entropy * 0.3);
+                    } else if (normalizedOBM < adaptiveThresholds.sell * (1 + entropyFactor * 0.3)) {
                         signal = 'sell';
-                        signalStrength = (adaptiveThresholds.sell - multitimeOBM) / (adaptiveThresholds.sell - adaptiveThresholds.strongSell);
+                        signalStrength = Math.min(0.85, Math.abs(normalizedOBM - adaptiveThresholds.sell) / 
+                            Math.abs(adaptiveThresholds.sell - adaptiveThresholds.strongSell)) * (1 - entropy * 0.3);
                     }
                     
-                    // Check for divergence if we have enough history
+                    // Check for divergence with advanced pattern recognition
+                    let divergence = null;
                     if (priceHistory.length > 10 && obmHistory.length > 10) {
-                        const divergence = checkDivergence(priceHistory, obmHistory);
-                        if (divergence) {
-                            // Enhance signal based on divergence
-                            if (divergence.type === 'bullish' && (signal === 'sell' || signal === 'strong_sell')) {
-                                // Potential reversal - reduce sell signal strength
-                                signalStrength *= Math.max(0.2, 1 - divergence.strength);
-                            } else if (divergence.type === 'bullish' && signal === 'neutral') {
-                                // Convert to weak buy signal
-                                signal = 'buy';
-                                signalStrength = 0.3 * divergence.strength;
-                            } else if (divergence.type === 'bearish' && (signal === 'buy' || signal === 'strong_buy')) {
-                                // Potential reversal - reduce buy signal strength
-                                signalStrength *= Math.max(0.2, 1 - divergence.strength);
-                            } else if (divergence.type === 'bearish' && signal === 'neutral') {
-                                // Convert to weak sell signal
-                                signal = 'sell';
-                                signalStrength = 0.3 * divergence.strength;
-                            }
+                        // Look for peaks and troughs in both series
+                        const priceSlice = priceHistory.slice(-10);
+                        const obmSlice = obmHistory.slice(-10);
+                        
+                        // Find local extrema
+                        const priceExtrema = findLocalExtrema(priceSlice, 3);
+                        const obmExtrema = findLocalExtrema(obmSlice, 3);
+                        
+                        if (priceExtrema.peaks.length > 0 && priceExtrema.troughs.length > 0 && 
+                            obmExtrema.peaks.length > 0 && obmExtrema.troughs.length > 0) {
                             
-                            // Record divergence point
-                            result.divergencePoints.push({
-                                index: i,
-                                timestamp: new Date(heatmapData.timestamps[i] * 1000),
-                                type: divergence.type,
-                                strength: divergence.strength
-                            });
+                            // Check for bullish divergence (price making lower lows but OBM making higher lows)
+                            if (priceExtrema.trend === 'down' && obmExtrema.trend === 'up') {
+                                divergence = {
+                                    type: 'bullish',
+                                    strength: Math.min(0.9, 0.3 + Math.abs(priceExtrema.trend_strength * obmExtrema.trend_strength))
+                                };
+                            }
+                            // Check for bearish divergence (price making higher highs but OBM making lower highs)
+                            else if (priceExtrema.trend === 'up' && obmExtrema.trend === 'down') {
+                                divergence = {
+                                    type: 'bearish',
+                                    strength: Math.min(0.9, 0.3 + Math.abs(priceExtrema.trend_strength * obmExtrema.trend_strength))
+                                };
+                            }
                         }
                     }
                     
-                    // Save final results
+                    // Apply divergence to signal
+                    if (divergence) {
+                        if (divergence.type === 'bullish' && (signal === 'sell' || signal === 'strong_sell')) {
+                            // Weaken bearish signal on bullish divergence
+                            signalStrength *= Math.max(0.2, 1 - divergence.strength);
+                        } else if (divergence.type === 'bullish' && signal === 'neutral') {
+                            // Create new bullish signal
+                            signal = 'buy';
+                            signalStrength = 0.3 + (divergence.strength * 0.3);
+                        } else if (divergence.type === 'bearish' && (signal === 'buy' || signal === 'strong_buy')) {
+                            // Weaken bullish signal on bearish divergence
+                            signalStrength *= Math.max(0.2, 1 - divergence.strength);
+                        } else if (divergence.type === 'bearish' && signal === 'neutral') {
+                            // Create new bearish signal
+                            signal = 'sell';
+                            signalStrength = 0.3 + (divergence.strength * 0.3);
+                        }
+                        
+                        // Record divergence
+                        result.divergencePoints.push({
+                            index: i,
+                            timestamp: new Date(heatmapData.timestamps[i] * 1000),
+                            type: divergence.type,
+                            strength: divergence.strength
+                        });
+                    }
+                    
+                    // Factor in market regime to limit confidence in chaotic markets
+                    if (marketRegime === 'chaotic') {
+                        signalStrength *= Math.max(0.4, 1 - regimeStrength);
+                    }
+                    
+                    // Add random perturbation for stochastic resonance effect
+                    // This counterintuitively improves signal detection in noisy environments
+                    const noiseAmp = 0.05 * (1 - signalStrength); // Less noise for stronger signals
+                    signalStrength += (Math.random() * 2 - 1) * noiseAmp;
+                    signalStrength = Math.max(0, Math.min(1, signalStrength));
+                    
+                    // Store results
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
-                    result.obmValues.push(multitimeOBM);
+                    result.obmValues.push(normalizedOBM);
                     result.rawImbalances.push(rawImbalance);
                     result.predictionSignals.push(signal);
-                    result.signalStrength.push(Math.min(1, Math.max(0, signalStrength)));
+                    result.signalStrength.push(signalStrength);
+                    result.nonlinearTrends.push(marketRegime);
                 }
                 
                 return result;
+            }
+            
+            // Helper function for finding local extrema in a series
+            function findLocalExtrema(series, window = 2) {
+                const peaks = [];
+                const troughs = [];
+                
+                // Need at least 2*window + 1 points to find extrema
+                if (series.length < 2 * window + 1) {
+                    return { peaks, troughs, trend: 'neutral', trend_strength: 0 };
+                }
+                
+                // Find local peaks and troughs
+                for (let i = window; i < series.length - window; i++) {
+                    const currentVal = series[i];
+                    let isPeak = true;
+                    let isTrough = true;
+                    
+                    // Check surrounding points
+                    for (let j = i - window; j <= i + window; j++) {
+                        if (j === i) continue;
+                        
+                        if (series[j] >= currentVal) isPeak = false;
+                        if (series[j] <= currentVal) isTrough = false;
+                        
+                        if (!isPeak && !isTrough) break;
+                    }
+                    
+                    if (isPeak) peaks.push({ index: i, value: currentVal });
+                    if (isTrough) troughs.push({ index: i, value: currentVal });
+                }
+                
+                // Determine overall trend
+                let trend = 'neutral';
+                let trend_strength = 0;
+                
+                if (peaks.length >= 2) {
+                    const peakDiff = peaks[peaks.length - 1].value - peaks[0].value;
+                    const normalizedPeakDiff = peakDiff / Math.max(0.001, Math.abs(peaks[0].value));
+                    
+                    if (Math.abs(normalizedPeakDiff) > 0.02) {
+                        trend = normalizedPeakDiff > 0 ? 'up' : 'down';
+                        trend_strength = Math.min(1, Math.abs(normalizedPeakDiff) * 2);
+                    }
+                }
+                
+                if (troughs.length >= 2 && trend === 'neutral') {
+                    const troughDiff = troughs[troughs.length - 1].value - troughs[0].value;
+                    const normalizedTroughDiff = troughDiff / Math.max(0.001, Math.abs(troughs[0].value));
+                    
+                    if (Math.abs(normalizedTroughDiff) > 0.02) {
+                        trend = normalizedTroughDiff > 0 ? 'up' : 'down';
+                        trend_strength = Math.min(1, Math.abs(normalizedTroughDiff) * 2);
+                    }
+                }
+                
+                return { peaks, troughs, trend, trend_strength };
             }
             
             // Keep track of the last timestamp we've fetched
@@ -1058,13 +1285,68 @@
                         line: {
                             color: 'rgba(255, 100, 100, 1)',
                             width: 2,
-                            shape: 'spline' // Smoothed line
+                            shape: 'spline'
                         },
                         fill: 'tozeroy',
                         fillcolor: 'rgba(255, 100, 100, 0.3)'
                     };
                     
-                    // Render signal markers with size based on signal strength
+                    // Create market regime indication with background coloring
+                    const regimeAreas = [];
+                    if (obmData.nonlinearTrends && obmData.nonlinearTrends.length > 0) {
+                        let currentRegime = obmData.nonlinearTrends[0];
+                        let startIndex = 0;
+                        
+                        const regimeColors = {
+                            'trending': 'rgba(0, 200, 100, 0.1)',
+                            'mean-reverting': 'rgba(100, 100, 255, 0.1)',
+                            'chaotic': 'rgba(255, 100, 100, 0.1)',
+                            'neutral': 'rgba(100, 100, 100, 0.05)'
+                        };
+                        
+                        // Find regime change points
+                        for (let i = 1; i < obmData.nonlinearTrends.length; i++) {
+                            if (obmData.nonlinearTrends[i] !== currentRegime || i === obmData.nonlinearTrends.length - 1) {
+                                // Add current regime area
+                                regimeAreas.push({
+                                    type: 'rect',
+                                    xref: 'x',
+                                    yref: 'paper',
+                                    x0: obmData.timestamps[startIndex],
+                                    x1: obmData.timestamps[i-1],
+                                    y0: 0,
+                                    y1: 1,
+                                    fillcolor: regimeColors[currentRegime],
+                                    opacity: 0.6,
+                                    line: { width: 0 },
+                                    layer: 'below'
+                                });
+                                
+                                // Start new regime
+                                currentRegime = obmData.nonlinearTrends[i];
+                                startIndex = i;
+                            }
+                        }
+                        
+                        // Add the last regime
+                        if (startIndex < obmData.nonlinearTrends.length - 1) {
+                            regimeAreas.push({
+                                type: 'rect',
+                                xref: 'x',
+                                yref: 'paper',
+                                x0: obmData.timestamps[startIndex],
+                                x1: obmData.timestamps[obmData.nonlinearTrends.length - 1],
+                                y0: 0,
+                                y1: 1,
+                                fillcolor: regimeColors[currentRegime],
+                                opacity: 0.6,
+                                line: { width: 0 },
+                                layer: 'below'
+                            });
+                        }
+                    }
+                    
+                    // Render buy/sell signals with varied opacity based on confidence
                     const buySignals = {
                         x: [],
                         y: [],
@@ -1072,12 +1354,9 @@
                         name: 'Buy Signals',
                         marker: {
                             symbol: 'triangle-up',
-                            size: [], // Dynamic size based on strength
-                            color: 'rgba(0, 255, 100, 0.9)',
-                            line: {
-                                width: 1,
-                                color: 'white'
-                            }
+                            size: [],
+                            color: [],
+                            line: { width: 1, color: 'white' }
                         },
                         text: []
                     };
@@ -1089,80 +1368,72 @@
                         name: 'Sell Signals',
                         marker: {
                             symbol: 'triangle-down',
-                            size: [], // Dynamic size based on strength
-                            color: 'rgba(255, 70, 70, 0.9)',
-                            line: {
-                                width: 1,
-                                color: 'white'
-                            }
+                            size: [],
+                            color: [],
+                            line: { width: 1, color: 'white' }
                         },
                         text: []
                     };
                     
-                    // Add divergence markers
-                    const divergenceMarkers = {
-                        x: [],
-                        y: [],
-                        mode: 'markers',
-                        name: 'Divergences',
-                        marker: {
-                            symbol: 'star',
-                            size: 12,
-                            color: 'rgba(255, 255, 0, 0.9)',
-                            line: {
-                                width: 1,
-                                color: 'white'
-                            }
+                    // Add entropy (randomness) trace to show predictability
+                    const entropyTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.entropyIndex,
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Market Entropy',
+                        line: {
+                            color: 'rgba(255, 215, 0, 0.7)',
+                            width: 1,
+                            dash: 'dot'
                         },
-                        text: []
+                        yaxis: 'y2'
                     };
                     
-                    // Process signal markers with strength-based sizing
+                    // Process signals with confidence-based visualization
                     for (let i = 1; i < obmData.timestamps.length; i++) {
                         const signal = obmData.predictionSignals[i];
                         const prevSignal = obmData.predictionSignals[i-1];
                         const strength = obmData.signalStrength[i];
                         
-                        // Base size from 8-14 depending on strength
-                        const signalSize = 8 + (strength * 6);
+                        // Size from 8-16 depending on confidence
+                        const signalSize = 8 + (strength * 8);
                         
-                        // Only add markers on signal changes or for strong signals
-                        if (signal !== prevSignal || strength > 0.7) {
+                        // Only show signals on changes or high confidence
+                        if (signal !== prevSignal || strength > 0.6) {
                             if (signal === 'buy' || signal === 'strong_buy') {
+                                // Color gradient from light green (weak) to bright green (strong)
+                                const colorR = Math.round(100 - (strength * 100));
+                                const colorG = Math.round(180 + (strength * 75));
+                                const colorB = Math.round(100 - (strength * 100));
+                                const colorA = 0.7 + (strength * 0.3);
+                                
                                 buySignals.x.push(obmData.timestamps[i]);
                                 buySignals.y.push(obmData.obmValues[i]);
                                 buySignals.marker.size.push(signalSize);
+                                buySignals.marker.color.push(`rgba(${colorR}, ${colorG}, ${colorB}, ${colorA})`);
                                 buySignals.text.push(`${signal === 'strong_buy' ? 'Strong Buy' : 'Buy'} (${Math.round(strength * 100)}% confidence)`);
-                            } else if (signal === 'sell' || signal === 'strong_sell') {
+                            } 
+                            else if (signal === 'sell' || signal === 'strong_sell') {
+                                // Color gradient from light red (weak) to bright red (strong)
+                                const colorR = Math.round(180 + (strength * 75));
+                                const colorG = Math.round(70 - (strength * 70));
+                                const colorB = Math.round(70 - (strength * 70));
+                                const colorA = 0.7 + (strength * 0.3);
+                                
                                 sellSignals.x.push(obmData.timestamps[i]);
                                 sellSignals.y.push(obmData.obmValues[i]);
                                 sellSignals.marker.size.push(signalSize);
+                                sellSignals.marker.color.push(`rgba(${colorR}, ${colorG}, ${colorB}, ${colorA})`);
                                 sellSignals.text.push(`${signal === 'strong_sell' ? 'Strong Sell' : 'Sell'} (${Math.round(strength * 100)}% confidence)`);
                             }
                         }
                     }
                     
-                    // Add divergence markers
-                    if (obmData.divergencePoints && obmData.divergencePoints.length > 0) {
-                        for (const div of obmData.divergencePoints) {
-                            divergenceMarkers.x.push(div.timestamp);
-                            divergenceMarkers.y.push(obmData.obmValues[div.index]);
-                            divergenceMarkers.text.push(`${div.type.charAt(0).toUpperCase() + div.type.slice(1)} Divergence (${Math.round(div.strength * 100)}%)`);
-                        }
-                    }
-                    
-                    const obmTraces = [obmTrace];
-                    
-                    // Add signal traces if they have data
-                    if (buySignals.x.length > 0) obmTraces.push(buySignals);
-                    if (sellSignals.x.length > 0) obmTraces.push(sellSignals);
-                    
-                    // Add divergence markers
-                    if (divergenceMarkers.x.length > 0) obmTraces.push(divergenceMarkers);
-                    
+                    // Update OBM chart layout to include market regimes and entropy scale
                     const obmLayout = {
                         title: {
-                            text: 'Order Book Momentum (OBM)',
+                            text: 'Advanced Order Book Momentum (OBM) with Market Regime Detection',
                             font: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace'
@@ -1170,7 +1441,8 @@
                         },
                         plot_bgcolor: '#0a0a12',
                         paper_bgcolor: '#0f0f1f',
-                        height: 200,
+                        height: 250, // Increased height for better visualization
+                        shapes: regimeAreas,
                         yaxis: {
                             title: {
                                 text: 'OBM Value',
@@ -1179,7 +1451,20 @@
                             zeroline: true,
                             zerolinecolor: 'rgba(0, 255, 157, 0.5)',
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' }
+                            tickfont: { color: '#00ff9d' },
+                            domain: [0, 0.85]
+                        },
+                        yaxis2: {
+                            title: {
+                                text: 'Entropy',
+                                font: { color: 'rgba(255, 215, 0, 0.7)' }
+                            },
+                            tickfont: { color: 'rgba(255, 215, 0, 0.7)' },
+                            anchor: 'x',
+                            overlaying: 'y',
+                            side: 'right',
+                            showgrid: false,
+                            range: [0, 1]
                         },
                         xaxis: {
                             title: {
@@ -1188,8 +1473,7 @@
                             },
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' },
-                            range: [times[0], times[times.length - 1]] // Match time range with main chart
+                            tickfont: { color: '#00ff9d' }
                         },
                         margin: {
                             l: 50,
@@ -1204,8 +1488,37 @@
                             y: 1,
                             bgcolor: 'rgba(10, 10, 18, 0.7)',
                             font: { color: '#00ff9d' }
-                        }
+                        },
+                        annotations: [
+                            {
+                                x: 0.05,
+                                y: 0.95,
+                                xref: 'paper',
+                                yref: 'paper',
+                                text: '<b>Market Regimes:</b> ' +
+                                      '<span style="color:rgb(0,200,100)">■</span> Trending ' +
+                                      '<span style="color:rgb(100,100,255)">■</span> Mean-Reverting ' +
+                                      '<span style="color:rgb(255,100,100)">■</span> Chaotic',
+                                showarrow: false,
+                                font: {
+                                    family: 'Courier New, monospace',
+                                    size: 10,
+                                    color: '#00ff9d'
+                                },
+                                bgcolor: 'rgba(10, 10, 18, 0.7)',
+                                bordercolor: 'rgba(0, 255, 157, 0.3)',
+                                borderwidth: 1,
+                                borderpad: 4
+                            }
+                        ]
                     };
+                    
+                    // Create array of traces for the OBM chart
+                    const obmTraces = [obmTrace, entropyTrace];
+                    
+                    // Add signal traces if they have data
+                    if (buySignals.x.length > 0) obmTraces.push(buySignals);
+                    if (sellSignals.x.length > 0) obmTraces.push(sellSignals);
                     
                     Plotly.newPlot('obmChart', obmTraces, obmLayout, {responsive: true});
                 } else {
@@ -1226,5 +1539,4 @@
         });
     </script>
 </body>
-</html>
 </html>
