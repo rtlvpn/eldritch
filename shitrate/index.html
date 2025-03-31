@@ -291,7 +291,7 @@
                         // Use exponential weighting based on distance from middle
                         const distanceFromMiddle = Math.abs(j - middleIndex);
                         const exponentialFactor = 1.5; // Controls how quickly influence falls off
-                        const weightFactor = Math.exp(distanceFromMiddle / middleIndex * exponentialFactor);
+                        const weightFactor = Math.exp(-distanceFromMiddle / middleIndex * exponentialFactor); // Added negative sign for proper weighting
                         const weightedVolume = volume * weightFactor;
                         
                         if (j < middleIndex) {
@@ -342,7 +342,7 @@
                 }
                 
                 // Calculate momentum and detect potential entry points
-                for (let i = 5; i < smoothedOBM.length; i++) {
+                for (let i = 2; i < smoothedOBM.length; i++) { // Start from index 2 instead of 5
                     // Multi-dimensional score combining value, velocity and acceleration
                     const valueScore = smoothedOBM[i] * 0.5; // Current OBM value
                     const velocityScore = obmRateOfChange[i] * 3.0; // Rate of change (direction and speed)
@@ -352,34 +352,32 @@
                     const momentumScore = valueScore + velocityScore + accelerationScore;
                     momentumScores.push(momentumScore);
                     
-                    // Entry signal detection logic
+                    // Entry signal detection logic - Less strict thresholds
                     let signal = 0; // 0 = no signal, 1 = long, -1 = short
                     
-                    // For long entry: Look for momentum turning positive from negative
-                    if (i >= 2 && 
-                        momentumScore > 0.05 && 
-                        momentumScores[i-1] < 0 && 
-                        obmAcceleration[i] > 0) {
+                    // For long entry: Look for momentum turning positive or strong positive acceleration
+                    if ((i >= 2 && momentumScore > 0.01 && momentumScores[i-1] < 0) || 
+                        (obmAcceleration[i] > 0.01 && obmRateOfChange[i] > 0)) {
                         signal = 1; // Long signal
                     }
                     
-                    // For short entry: Look for momentum turning negative from positive
-                    if (i >= 2 && 
-                        momentumScore < -0.05 && 
-                        momentumScores[i-1] > 0 && 
-                        obmAcceleration[i] < 0) {
+                    // For short entry: Look for momentum turning negative or strong negative acceleration
+                    if ((i >= 2 && momentumScore < -0.01 && momentumScores[i-1] > 0) || 
+                        (obmAcceleration[i] < -0.01 && obmRateOfChange[i] < 0)) {
                         signal = -1; // Short signal
                     }
                     
-                    // Additional signal strength conditions
+                    // Simplified confirmation - less restrictive
                     if (signal !== 0) {
-                        // Check for confirmation across multiple timeframes
+                        // Only check for divergence that would invalidate signal
                         const shortTerm = i >= 3 ? Math.sign(smoothedOBM[i] - smoothedOBM[i-3]) : 0;
-                        const mediumTerm = i >= 8 ? Math.sign(smoothedOBM[i] - smoothedOBM[i-8]) : 0;
                         
-                        // Ensure signal direction aligns with at least one timeframe
-                        if (Math.sign(signal) !== shortTerm && Math.sign(signal) !== mediumTerm) {
-                            signal = 0; // Cancel if no confirmation
+                        // Major divergence check only - allow more signals
+                        if (signal > 0 && shortTerm < 0 && Math.abs(shortTerm) > 0.1) {
+                            signal = 0; // Cancel long signal if strong negative trend
+                        }
+                        if (signal < 0 && shortTerm > 0 && Math.abs(shortTerm) > 0.1) {
+                            signal = 0; // Cancel short signal if strong positive trend
                         }
                     }
                     
@@ -768,7 +766,7 @@
                 if (showOBM && obmData.timestamps.length > 0) {
                     // Main OBM line trace
                     const obmTrace = {
-                        x: obmData.timestamps.slice(5), // Start from index 5 as required by advanced OBM
+                        x: obmData.timestamps.slice(2), // Start from index 2 instead of 5
                         y: obmData.obmValues,
                         type: 'scatter',
                         mode: 'lines',
@@ -790,7 +788,7 @@
                         name: 'Long Entry',
                         marker: {
                             symbol: 'triangle-up',
-                            size: 12,
+                            size: 14,
                             color: '#00ff00',
                             line: {
                                 color: '#ffffff',
@@ -808,7 +806,7 @@
                         name: 'Short Entry',
                         marker: {
                             symbol: 'triangle-down',
-                            size: 12,
+                            size: 14,
                             color: '#ff0000',
                             line: {
                                 color: '#ffffff',
@@ -817,16 +815,22 @@
                         }
                     };
                     
-                    // Fill the signal arrays
+                    // Fill the signal arrays - ensure we check for valid signals
+                    console.log("Signals found:", obmData.entrySignals.filter(s => s !== 0).length);
+                    
                     for (let i = 0; i < obmData.entrySignals.length; i++) {
                         if (obmData.entrySignals[i] === 1) {
-                            longSignals.x.push(obmData.timestamps.slice(5)[i]);
+                            longSignals.x.push(obmData.timestamps.slice(2)[i]);
                             longSignals.y.push(obmData.obmValues[i]);
                         } else if (obmData.entrySignals[i] === -1) {
-                            shortSignals.x.push(obmData.timestamps.slice(5)[i]);
+                            shortSignals.x.push(obmData.timestamps.slice(2)[i]);
                             shortSignals.y.push(obmData.obmValues[i]);
                         }
                     }
+                    
+                    // Debug output
+                    console.log("Long signals:", longSignals.x.length);
+                    console.log("Short signals:", shortSignals.x.length);
                     
                     const obmLayout = {
                         title: {
