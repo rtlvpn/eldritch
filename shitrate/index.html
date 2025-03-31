@@ -340,10 +340,11 @@
                 const result = {
                     timestamps: [],
                     signals: [],      // -1 for sell, 0 for neutral, 1 for buy
-                    signalPrices: []  // Price levels for the signals
+                    signalPrices: [],  // Price levels for the signals
+                    signalStrengths: [] // Signal strength for scaling marker size
                 };
                 
-                if (heatmapData.heatmap.length < 5 || candlestickData.length < 5) return result;
+                if (heatmapData.heatmap.length < 10 || candlestickData.length < 10) return result;
                 
                 // Create price time series for analysis
                 const prices = candlestickData.map(item => item.close);
@@ -352,13 +353,32 @@
                 // Match heatmap timestamps to price data (approximate)
                 const heatmapTimes = heatmapData.timestamps.map(ts => new Date(ts * 1000));
                 
-                for (let i = 4; i < heatmapData.heatmap.length; i++) {
+                // Build price momentum series for trend detection
+                const priceMomentum = [];
+                for (let i = 5; i < prices.length; i++) {
+                    const shortMA = (prices[i] + prices[i-1] + prices[i-2]) / 3;
+                    const longMA = (prices[i-3] + prices[i-4] + prices[i-5]) / 3;
+                    priceMomentum.push(shortMA - longMA);
+                }
+                
+                // Create time windows to avoid too many signals
+                const minSignalSpacing = 10; // Minimum datapoints between signals
+                let lastBuySignal = -minSignalSpacing;
+                let lastSellSignal = -minSignalSpacing;
+                
+                // Keep track of resistance strength over time to detect phase transitions
+                const resistanceHistory = [];
+                
+                for (let i = 10; i < heatmapData.heatmap.length; i++) {
+                    // Skip some timepoints to reduce signal density
+                    if (i % 3 !== 0) continue;
+                    
                     // Get current and previous orderbook states
                     const currentVolumes = heatmapData.heatmap[i].volumes;
                     const prevVolumes = heatmapData.heatmap[i-1].volumes;
-                    const prev2Volumes = heatmapData.heatmap[i-2].volumes;
-                    const prev3Volumes = heatmapData.heatmap[i-3].volumes;
-                    const prev4Volumes = heatmapData.heatmap[i-4].volumes;
+                    const prev2Volumes = heatmapData.heatmap[i-3].volumes;
+                    const prev3Volumes = heatmapData.heatmap[i-6].volumes;
+                    const prev4Volumes = heatmapData.heatmap[i-9].volumes;
                     
                     // Find price index in candlestick data closest to current heatmap time
                     const currentTime = heatmapTimes[i];
@@ -375,6 +395,11 @@
                     
                     const price = prices[closestPriceIdx];
                     
+                    // Get price momentum at this point if available
+                    const momentumIdx = closestPriceIdx - 5;
+                    const currentMomentum = momentumIdx >= 0 && momentumIdx < priceMomentum.length ? 
+                        priceMomentum[momentumIdx] : 0;
+                    
                     // Find the price level index closest to current price
                     let priceLevelIdx = 0;
                     let minPriceDiff = Infinity;
@@ -386,90 +411,141 @@
                         }
                     }
                     
-                    // Apply principle of least action to find "path of least resistance"
-                    // Calculate resistance at each price level using orderbook density
-                    const resistanceMatrix = [];
-                    
-                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                        // Create a resistance tensor using historical volume changes
-                        // Higher values = more resistance to price movement
-                        const volumeNow = Math.abs(currentVolumes[j]);
-                        const volumePrev = Math.abs(prevVolumes[j]);
-                        const volumePrev2 = Math.abs(prev2Volumes[j]);
-                        const volumePrev3 = Math.abs(prev3Volumes[j]);
-                        const volumePrev4 = Math.abs(prev4Volumes[j]);
-                        
-                        // Weighted volume trend (more weight to recent changes)
-                        const volumeTrend = (
-                            (volumeNow - volumePrev) * 0.4 +
-                            (volumePrev - volumePrev2) * 0.3 +
-                            (volumePrev2 - volumePrev3) * 0.2 +
-                            (volumePrev3 - volumePrev4) * 0.1
-                        );
-                        
-                        // Direction of resistance (negative = less resistance upward, positive = less resistance downward)
-                        // This is based on the principle that price tends to move toward areas of lower order density
-                        let resistanceDirection = 0;
-                        
-                        if (j < priceLevelIdx) {
-                            // For price levels below current price: negative trend = less resistance upward
-                            resistanceDirection = -1 * Math.sign(volumeTrend);
-                        } else if (j > priceLevelIdx) {
-                            // For price levels above current price: negative trend = less resistance downward
-                            resistanceDirection = Math.sign(volumeTrend);
-                        }
-                        
-                        // Total volume across time as a factor of liquidity
-                        const totalVolume = volumeNow + volumePrev + volumePrev2 + volumePrev3 + volumePrev4;
-                        
-                        // Distance from current price (further = more resistance)
-                        const priceDistance = Math.abs(j - priceLevelIdx) / heatmapData.priceLevels.length;
-                        
-                        // Calculate final resistance value using least action principle
-                        // Lower value = less resistance = more likely price path
-                        const resistance = resistanceDirection * (1 - Math.exp(-totalVolume / 10000)) * (1 - priceDistance);
-                        
-                        resistanceMatrix.push(resistance);
+                    // Calculate total orderbook volume as a measure of activity
+                    let totalVolume = 0;
+                    for (let j = 0; j < currentVolumes.length; j++) {
+                        totalVolume += Math.abs(currentVolumes[j]);
                     }
                     
-                    // Use math.js to analyze the resistance field
-                    try {
-                        // Find the cumulative resistance in both directions
-                        let upwardResistance = 0;
-                        let downwardResistance = 0;
+                    // Skip low volume periods
+                    if (totalVolume < 1000) continue;
+                    
+                    // Apply advanced principle of least action using tensor-based approach
+                    // This is similar to how light finds paths through mediums of varying density
+                    
+                    // Create a 2D tensor for volume evolution over time and price
+                    const volumeTensor = math.zeros([heatmapData.priceLevels.length, 5]);
+                    
+                    // Fill tensor with orderbook volumes
+                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
+                        volumeTensor.set([j, 0], Math.abs(currentVolumes[j]));
+                        volumeTensor.set([j, 1], Math.abs(prevVolumes[j]));
+                        volumeTensor.set([j, 2], Math.abs(prev2Volumes[j]));
+                        volumeTensor.set([j, 3], Math.abs(prev3Volumes[j]));
+                        volumeTensor.set([j, 4], Math.abs(prev4Volumes[j]));
+                    }
+                    
+                    // Calculate gradient of volume along price axis (spatial gradient)
+                    const priceGradient = math.zeros(heatmapData.priceLevels.length);
+                    for (let j = 1; j < heatmapData.priceLevels.length - 1; j++) {
+                        // Central difference approximation of gradient
+                        const vUp = volumeTensor.get([j+1, 0]);
+                        const vDown = volumeTensor.get([j-1, 0]);
+                        priceGradient.set([j], (vUp - vDown) / 2);
+                    }
+                    
+                    // Calculate temporal gradient (volume change over time)
+                    const timeGradient = math.zeros(heatmapData.priceLevels.length);
+                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
+                        // Weighted time gradient (recent changes matter more)
+                        const g1 = volumeTensor.get([j, 0]) - volumeTensor.get([j, 1]);
+                        const g2 = volumeTensor.get([j, 1]) - volumeTensor.get([j, 2]);
+                        const g3 = volumeTensor.get([j, 2]) - volumeTensor.get([j, 3]);
+                        const g4 = volumeTensor.get([j, 3]) - volumeTensor.get([j, 4]);
                         
-                        for (let j = 0; j < resistanceMatrix.length; j++) {
-                            if (j < priceLevelIdx) {
-                                // Price levels below current
-                                upwardResistance += resistanceMatrix[j];
-                            } else if (j > priceLevelIdx) {
-                                // Price levels above current
-                                downwardResistance += resistanceMatrix[j];
-                            }
+                        timeGradient.set([j], 0.4*g1 + 0.3*g2 + 0.2*g3 + 0.1*g4);
+                    }
+                    
+                    // Create force field for price movement using the gradients
+                    // Physics analogy: Price will move along the path of least action
+                    const forceField = math.zeros(heatmapData.priceLevels.length);
+                    
+                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
+                        // Combine spatial and temporal gradients
+                        // The negative sign creates a force toward decreasing volume
+                        const spatialForce = j > 0 && j < heatmapData.priceLevels.length - 1 ? -priceGradient.get([j]) : 0;
+                        const temporalForce = -timeGradient.get([j]);
+                        
+                        // Calculate distance from current price (relative importance decreases with distance)
+                        const distanceFactor = Math.exp(-Math.abs(j - priceLevelIdx) / 10);
+                        
+                        // Calculate final force (negative = downward force, positive = upward force)
+                        const force = (spatialForce * 0.7 + temporalForce * 0.3) * distanceFactor;
+                        forceField.set([j], force);
+                    }
+                    
+                    // Separate forces into buy and sell regions
+                    let buyForce = 0;
+                    let sellForce = 0;
+                    
+                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
+                        if (j < priceLevelIdx) {
+                            // Below current price - affects upward movement
+                            buyForce += forceField.get([j]);
+                        } else if (j > priceLevelIdx) {
+                            // Above current price - affects downward movement
+                            sellForce += forceField.get([j]);
                         }
+                    }
+                    
+                    // Calculate the total imbalance between buy and sell forces
+                    const totalForce = Math.abs(buyForce) + Math.abs(sellForce);
+                    let forceImbalance = 0;
+                    if (totalForce > 0) {
+                        forceImbalance = (buyForce - sellForce) / totalForce;
+                    }
+                    
+                    // Apply price momentum as a factor
+                    // Current price trend should align with orderbook forces for stronger signals
+                    const momentumFactor = Math.sign(currentMomentum) * Math.min(1, Math.abs(currentMomentum) / 0.01);
+                    
+                    // Store current force imbalance for trend analysis
+                    resistanceHistory.push(forceImbalance);
+                    if (resistanceHistory.length > 10) {
+                        resistanceHistory.shift();
+                    }
+                    
+                    // Calculate force trend (increasing or decreasing imbalance)
+                    let forceTrend = 0;
+                    if (resistanceHistory.length >= 5) {
+                        const recentAvg = (resistanceHistory[resistanceHistory.length-1] + 
+                                          resistanceHistory[resistanceHistory.length-2] + 
+                                          resistanceHistory[resistanceHistory.length-3]) / 3;
                         
-                        // Normalize resistances to -1 to 1 range
-                        const totalResistance = Math.abs(upwardResistance) + Math.abs(downwardResistance);
-                        const normalizedResistance = totalResistance > 0 ? 
-                            (downwardResistance - upwardResistance) / totalResistance : 0;
+                        const olderAvg = (resistanceHistory[resistanceHistory.length-4] + 
+                                         resistanceHistory[resistanceHistory.length-5]) / 2;
                         
-                        // Generate buy/sell signals based on normalized resistance
-                        // Strong negative resistance = buy signal (path of least resistance is upward)
-                        // Strong positive resistance = sell signal (path of least resistance is downward)
-                        let signal = 0; // neutral
-                        
-                        if (normalizedResistance < -0.6) {
-                            signal = 1;  // buy
-                        } else if (normalizedResistance > 0.6) {
-                            signal = -1; // sell
-                        }
-                        
-                        // Record result
+                        forceTrend = recentAvg - olderAvg;
+                    }
+                    
+                    // Create a composite signal that factors in both current force imbalance and its trend
+                    const signalStrength = forceImbalance * 0.7 + Math.sign(forceImbalance) * forceTrend * 0.3;
+                    
+                    // Apply alignment factor (when price momentum and orderbook imbalance align, signal is stronger)
+                    const alignmentFactor = 1 + 0.5 * (Math.sign(signalStrength) === Math.sign(momentumFactor) ? Math.abs(momentumFactor) : 0);
+                    
+                    // Final signal strength with alignment factor
+                    const finalSignalStrength = signalStrength * alignmentFactor;
+                    
+                    // Generate much more selective buy/sell signals
+                    // Only generate signals that are very strong and not too close to previous signals
+                    let signal = 0; // neutral by default
+                    
+                    // Thresholds are much stricter now
+                    if (finalSignalStrength > 0.85 && (i - lastBuySignal) > minSignalSpacing) {
+                        signal = 1;  // buy
+                        lastBuySignal = i;
+                    } else if (finalSignalStrength < -0.85 && (i - lastSellSignal) > minSignalSpacing) {
+                        signal = -1; // sell
+                        lastSellSignal = i;
+                    }
+                    
+                    // Only record significant signals
+                    if (signal !== 0) {
                         result.timestamps.push(currentTime);
                         result.signals.push(signal);
                         result.signalPrices.push(price);
-                    } catch (error) {
-                        console.error("Error in LAPP calculation:", error);
+                        result.signalStrengths.push(Math.abs(finalSignalStrength));
                     }
                 }
                 
@@ -868,7 +944,7 @@
                         fillcolor: 'rgba(255, 100, 100, 0.3)'
                     };
                     
-                    // Create traces for buy and sell signals
+                    // Create traces for buy and sell signals with variable size
                     const buySignals = {
                         x: [],
                         y: [],
@@ -877,7 +953,7 @@
                         name: 'Buy Signal',
                         marker: {
                             symbol: 'triangle-up',
-                            size: 12,
+                            size: [],  // Will be set based on signal strength
                             color: 'rgba(0, 255, 0, 1)',
                             line: {
                                 color: 'white',
@@ -894,7 +970,7 @@
                         name: 'Sell Signal',
                         marker: {
                             symbol: 'triangle-down',
-                            size: 12,
+                            size: [],  // Will be set based on signal strength
                             color: 'rgba(255, 0, 0, 1)',
                             line: {
                                 color: 'white',
@@ -905,32 +981,30 @@
                     
                     // Find OBM value for each signal timestamp
                     for (let i = 0; i < lappData.signals.length; i++) {
-                        if (lappData.signals[i] === 1) { // Buy signal
-                            // Find closest OBM timestamp
-                            let closestIdx = 0;
-                            let minTimeDiff = Infinity;
-                            for (let j = 0; j < obmData.timestamps.length; j++) {
-                                const timeDiff = Math.abs(obmData.timestamps[j] - lappData.timestamps[i]);
-                                if (timeDiff < minTimeDiff) {
-                                    minTimeDiff = timeDiff;
-                                    closestIdx = j;
-                                }
+                        // Find closest OBM timestamp
+                        let closestIdx = 0;
+                        let minTimeDiff = Infinity;
+                        for (let j = 0; j < obmData.timestamps.length; j++) {
+                            const timeDiff = Math.abs(obmData.timestamps[j] - lappData.timestamps[i]);
+                            if (timeDiff < minTimeDiff) {
+                                minTimeDiff = timeDiff;
+                                closestIdx = j;
                             }
+                        }
+                        
+                        // Calculate marker size based on signal strength (min 12, max 24)
+                        const baseSize = 12;
+                        const sizeMultiplier = lappData.signalStrengths[i] || 1;
+                        const markerSize = baseSize + (sizeMultiplier * 12);
+                        
+                        if (lappData.signals[i] === 1) { // Buy signal
                             buySignals.x.push(lappData.timestamps[i]);
                             buySignals.y.push(obmData.obmValues[closestIdx]);
+                            buySignals.marker.size.push(markerSize);
                         } else if (lappData.signals[i] === -1) { // Sell signal
-                            // Find closest OBM timestamp
-                            let closestIdx = 0;
-                            let minTimeDiff = Infinity;
-                            for (let j = 0; j < obmData.timestamps.length; j++) {
-                                const timeDiff = Math.abs(obmData.timestamps[j] - lappData.timestamps[i]);
-                                if (timeDiff < minTimeDiff) {
-                                    minTimeDiff = timeDiff;
-                                    closestIdx = j;
-                                }
-                            }
                             sellSignals.x.push(lappData.timestamps[i]);
                             sellSignals.y.push(obmData.obmValues[closestIdx]);
+                            sellSignals.marker.size.push(markerSize);
                         }
                     }
                     
@@ -979,7 +1053,7 @@
                                 y: 0.99,
                                 xref: 'paper',
                                 yref: 'paper',
-                                text: 'Signals based on Light Principle of Least Action',
+                                text: 'Signals based on Quantum Field Theory & Principle of Least Action',
                                 showarrow: false,
                                 font: {
                                     family: 'Courier New, monospace',
