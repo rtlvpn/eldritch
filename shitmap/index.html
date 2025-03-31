@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -335,125 +334,6 @@
                 return result;
             }
             
-            // Add Least Action Price Path analysis with GUARANTEED sparse signals
-            function calculateLAPP(heatmapData, candlestickData) {
-                // Hard-coded to return ONLY the most critical signals
-                const result = {
-                    timestamps: [],
-                    signals: [],      
-                    signalPrices: [],  
-                    signalStrengths: [] 
-                };
-                
-                if (heatmapData.heatmap.length < 10 || candlestickData.length < 10) return result;
-                
-                // FORCED MAXIMUM - guaranteed to not exceed this number
-                const ABSOLUTE_MAX_SIGNALS = 5;
-                
-                // Create price time series for analysis
-                const prices = candlestickData.map(item => item.close);
-                const times = candlestickData.map(item => new Date(item.timestamp));
-                
-                // Match heatmap timestamps to price data
-                const heatmapTimes = heatmapData.timestamps.map(ts => new Date(ts * 1000));
-                
-                // Find major trend changes only
-                let previousTrend = 0;
-                const trendChanges = [];
-                
-                // Find OBM values at each timestamp
-                const obmValues = [];
-                for (let i = 0; i < heatmapData.heatmap.length; i++) {
-                    const currentVolumes = heatmapData.heatmap[i].volumes;
-                    let askVolume = 0;
-                    let bidVolume = 0;
-                    
-                    for (let j = 0; j < currentVolumes.length; j++) {
-                        const volume = currentVolumes[j];
-                        if (volume > 0) {
-                            bidVolume += volume;
-                        } else {
-                            askVolume += Math.abs(volume);
-                        }
-                    }
-                    
-                    const obm = (bidVolume - askVolume) / (bidVolume + askVolume);
-                    obmValues.push({
-                        timestamp: heatmapTimes[i],
-                        value: obm
-                    });
-                }
-                
-                // Only process if we have enough data
-                if (obmValues.length > 10) {
-                    // Smooth OBM values with a simple moving average
-                    const smoothedOBM = [];
-                    const windowSize = 5;
-                    
-                    for (let i = windowSize - 1; i < obmValues.length; i++) {
-                        let sum = 0;
-                        for (let j = 0; j < windowSize; j++) {
-                            sum += obmValues[i - j].value;
-                        }
-                        smoothedOBM.push({
-                            timestamp: obmValues[i].timestamp,
-                            value: sum / windowSize
-                        });
-                    }
-                    
-                    // Find MAJOR trend changes in OBM
-                    for (let i = 3; i < smoothedOBM.length - 3; i++) {
-                        const prev = smoothedOBM[i-3].value;
-                        const current = smoothedOBM[i].value;
-                        const next = smoothedOBM[i+3].value;
-                        
-                        const currentTrend = Math.sign(current - prev);
-                        const nextTrend = Math.sign(next - current);
-                        
-                        // Only identify significant trend changes
-                        if (currentTrend !== 0 && nextTrend !== 0 && currentTrend !== nextTrend) {
-                            // Only consider significant magnitude changes
-                            const magnitude = Math.abs(next - prev);
-                            if (magnitude > 0.05) { // Only significant changes
-                                trendChanges.push({
-                                    timestamp: smoothedOBM[i].timestamp,
-                                    type: currentTrend > 0 ? -1 : 1, // Buy at bottoms, sell at tops
-                                    strength: magnitude
-                                });
-                            }
-                        }
-                    }
-                    
-                    // Sort trend changes by strength
-                    trendChanges.sort((a, b) => b.strength - a.strength);
-                    
-                    // Take only the top N strongest signals
-                    const topChanges = trendChanges.slice(0, ABSOLUTE_MAX_SIGNALS);
-                    
-                    // Convert to expected format
-                    for (const change of topChanges) {
-                        // Find matching price
-                        let closestPriceIdx = 0;
-                        let minTimeDiff = Infinity;
-                        
-                        for (let j = 0; j < times.length; j++) {
-                            const timeDiff = Math.abs(times[j] - change.timestamp);
-                            if (timeDiff < minTimeDiff) {
-                                minTimeDiff = timeDiff;
-                                closestPriceIdx = j;
-                            }
-                        }
-                        
-                        result.timestamps.push(change.timestamp);
-                        result.signals.push(change.type);
-                        result.signalPrices.push(prices[closestPriceIdx]);
-                        result.signalStrengths.push(change.strength * 10); // Normalize for marker sizing
-                    }
-                }
-                
-                return result;
-            }
-            
             // Keep track of the last timestamp we've fetched
             let lastFetchTime = 0;
             let cachedCandlestickData = [];
@@ -640,9 +520,6 @@
                 
                 // Calculate Order Book Momentum
                 const obmData = calculateOBM(heatmapData);
-                
-                // Calculate Least Action Price Path signals
-                const lappData = calculateLAPP(heatmapData, candlestickData);
                 
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
@@ -846,73 +723,9 @@
                         fillcolor: 'rgba(255, 100, 100, 0.3)'
                     };
                     
-                    // Create traces for buy and sell signals with variable size
-                    const buySignals = {
-                        x: [],
-                        y: [],
-                        type: 'scatter',
-                        mode: 'markers',
-                        name: 'Buy Signal',
-                        marker: {
-                            symbol: 'triangle-up',
-                            size: [],  // Will be set based on signal strength
-                            color: 'rgba(0, 255, 0, 1)',
-                            line: {
-                                color: 'white',
-                                width: 1
-                            }
-                        }
-                    };
-                    
-                    const sellSignals = {
-                        x: [],
-                        y: [],
-                        type: 'scatter',
-                        mode: 'markers',
-                        name: 'Sell Signal',
-                        marker: {
-                            symbol: 'triangle-down',
-                            size: [],  // Will be set based on signal strength
-                            color: 'rgba(255, 0, 0, 1)',
-                            line: {
-                                color: 'white',
-                                width: 1
-                            }
-                        }
-                    };
-                    
-                    // Find OBM value for each signal timestamp
-                    for (let i = 0; i < lappData.signals.length; i++) {
-                        // Find closest OBM timestamp
-                        let closestIdx = 0;
-                        let minTimeDiff = Infinity;
-                        for (let j = 0; j < obmData.timestamps.length; j++) {
-                            const timeDiff = Math.abs(obmData.timestamps[j] - lappData.timestamps[i]);
-                            if (timeDiff < minTimeDiff) {
-                                minTimeDiff = timeDiff;
-                                closestIdx = j;
-                            }
-                        }
-                        
-                        // Calculate marker size based on signal strength (min 12, max 24)
-                        const baseSize = 12;
-                        const sizeMultiplier = lappData.signalStrengths[i] || 1;
-                        const markerSize = baseSize + (sizeMultiplier * 12);
-                        
-                        if (lappData.signals[i] === 1) { // Buy signal
-                            buySignals.x.push(lappData.timestamps[i]);
-                            buySignals.y.push(obmData.obmValues[closestIdx]);
-                            buySignals.marker.size.push(markerSize);
-                        } else if (lappData.signals[i] === -1) { // Sell signal
-                            sellSignals.x.push(lappData.timestamps[i]);
-                            sellSignals.y.push(obmData.obmValues[closestIdx]);
-                            sellSignals.marker.size.push(markerSize);
-                        }
-                    }
-                    
                     const obmLayout = {
                         title: {
-                            text: 'Order Book Momentum (OBM) with Least Action Signals',
+                            text: 'Order Book Momentum (OBM)',
                             font: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace'
@@ -948,30 +761,10 @@
                             t: 50,
                             pad: 4
                         },
-                        autosize: true,
-                        annotations: [
-                            {
-                                x: 0.01,
-                                y: 0.99,
-                                xref: 'paper',
-                                yref: 'paper',
-                                text: 'Signals based on Quantum Field Theory & Principle of Least Action',
-                                showarrow: false,
-                                font: {
-                                    family: 'Courier New, monospace',
-                                    size: 10,
-                                    color: 'rgba(255, 255, 255, 0.7)'
-                                }
-                            }
-                        ]
+                        autosize: true
                     };
                     
-                    // Add traces in the correct order (OBM line first, then signals on top)
-                    const traces = [obmTrace];
-                    if (buySignals.x.length > 0) traces.push(buySignals);
-                    if (sellSignals.x.length > 0) traces.push(sellSignals);
-                    
-                    Plotly.newPlot('obmChart', traces, obmLayout, {responsive: true});
+                    Plotly.newPlot('obmChart', [obmTrace], obmLayout, {responsive: true});
                 } else {
                     document.getElementById('obmChart').style.display = 'none';
                 }
