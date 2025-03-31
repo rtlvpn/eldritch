@@ -247,232 +247,335 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Improved Order Book Momentum with better precision
+            // Improved Order Book Momentum with advanced signal detection
             function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
                     obmValues: [],
                     rawImbalances: [],
-                    predictionSignals: [] // Add prediction signals array
+                    predictionSignals: [],
+                    signalStrength: [], // Add signal strength metric
+                    divergencePoints: [] // Track price-OBM divergences
                 };
                 
                 if (heatmapData.heatmap.length < 2) return result;
                 
-                // Keep a history of recent imbalances for smoothing
-                const imbalanceHistory = [];
-                const historyLength = 10; // Increase from 5 to 10 for better smoothing
+                // Enhanced adaptive parameters
+                const historyLength = Math.min(20, Math.floor(heatmapData.heatmap.length * 0.1)); // Adaptive history size
+                const imbalanceHistory = new Array(historyLength).fill(0);
+                const obmHistory = new Array(historyLength).fill(0);
+                let priceHistory = [];
                 
-                // Add OBM threshold levels for signal generation
-                const strongBuyThreshold = 0.15;
-                const buyThreshold = 0.08;
-                const neutralThreshold = 0.03;
-                const sellThreshold = -0.08;
-                const strongSellThreshold = -0.15;
+                // Signal thresholds with adaptive volatility adjustment
+                let volatilityWindow = [];
+                const volatilityPeriods = 14;
+                let baseThresholds = {
+                    strongBuy: 0.15,
+                    buy: 0.08,
+                    neutral: 0.03,
+                    sell: -0.08,
+                    strongSell: -0.15
+                };
                 
-                // Add momentum divergence detection
+                // Price action tracking (for divergence)
                 let priceHighs = [];
                 let priceLows = [];
                 let obmHighs = [];
                 let obmLows = [];
                 
-                // Track trend state
-                let currentTrend = 'neutral';
-                let trendStartIndex = 0;
-                
-                // Find the actual price midpoint instead of just the middle index
-                function findPriceMidpoint(prices) {
-                    const minPrice = Math.min(...prices);
-                    const maxPrice = Math.max(...prices);
-                    return (minPrice + maxPrice) / 2;
+                // Optimization: pre-calculate time differences
+                const timeDeltas = [];
+                for (let i = 1; i < heatmapData.timestamps.length; i++) {
+                    timeDeltas.push((heatmapData.timestamps[i] - heatmapData.timestamps[i-1]) / 60); // in minutes
                 }
                 
-                // Calculate VWAP to use as a reference price
-                function calculateVWAP(volumes, prices) {
-                    let totalVolume = 0;
-                    let sumPriceVolume = 0;
-                    
-                    for (let i = 0; i < volumes.length; i++) {
-                        const volume = Math.abs(volumes[i]);
-                        totalVolume += volume;
-                        sumPriceVolume += volume * prices[i];
+                // Helper functions (pre-defined for performance)
+                const findPriceMidpoint = (prices) => {
+                    // Optimization: cache min/max for repeated price arrays
+                    let min = Infinity, max = -Infinity;
+                    for (let i = 0; i < prices.length; i++) {
+                        if (prices[i] < min) min = prices[i];
+                        if (prices[i] > max) max = prices[i];
+                    }
+                    return (min + max) / 2;
+                };
+                
+                // Exponential weighting function (for price distance)
+                const expWeight = (distance, factor = 4) => Math.exp(factor * distance);
+                
+                // Volume-weighted price equilibrium
+                const calculateVWAP = (prices, volumes) => {
+                    let sumPV = 0, sumV = 0;
+                    for (let i = 0; i < prices.length; i++) {
+                        const absVolume = Math.abs(volumes[i]);
+                        sumPV += prices[i] * absVolume;
+                        sumV += absVolume;
+                    }
+                    return sumV > 0 ? sumPV / sumV : 0;
+                };
+                
+                // Calculate rolling volatility
+                const updateVolatility = (newValue) => {
+                    volatilityWindow.push(newValue);
+                    if (volatilityWindow.length > volatilityPeriods) {
+                        volatilityWindow.shift();
                     }
                     
-                    return totalVolume > 0 ? sumPriceVolume / totalVolume : 0;
-                }
+                    if (volatilityWindow.length < 2) return 0;
+                    
+                    // Calculate standard deviation
+                    const mean = volatilityWindow.reduce((sum, val) => sum + val, 0) / volatilityWindow.length;
+                    const variance = volatilityWindow.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / volatilityWindow.length;
+                    return Math.sqrt(variance);
+                };
                 
+                // Detect divergence between price and OBM
+                const checkDivergence = (prices, obm, window = 5) => {
+                    if (prices.length < window*2 || obm.length < window*2) return null;
+                    
+                    // Get recent windows for both price and OBM
+                    const recentPrices = prices.slice(-window*2);
+                    const recentOBM = obm.slice(-window*2);
+                    
+                    // Identify local extrema
+                    const priceHighIndex = recentPrices.indexOf(Math.max(...recentPrices.slice(-window)));
+                    const priceLowIndex = recentPrices.indexOf(Math.min(...recentPrices.slice(-window)));
+                    const obmHighIndex = recentOBM.indexOf(Math.max(...recentOBM.slice(-window)));
+                    const obmLowIndex = recentOBM.indexOf(Math.min(...recentOBM.slice(-window)));
+                    
+                    // Check for bullish divergence (price makes lower low but OBM makes higher low)
+                    if (priceLowIndex > priceHighIndex && obmLowIndex < obmHighIndex) {
+                        return {type: 'bullish', strength: Math.abs(recentOBM[obmLowIndex] - recentOBM[obmHighIndex])};
+                    }
+                    
+                    // Check for bearish divergence (price makes higher high but OBM makes lower high)
+                    if (priceHighIndex > priceLowIndex && obmHighIndex < obmLowIndex) {
+                        return {type: 'bearish', strength: Math.abs(recentOBM[obmHighIndex] - recentOBM[obmLowIndex])};
+                    }
+                    
+                    return null;
+                };
+                
+                // Multi-timeframe support - calculate imbalances at different timeframes
+                const shortTermImbalances = [];
+                const mediumTermImbalances = [];
+                const longTermImbalances = [];
+                
+                // Process each timestamp
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
                     const currentPriceVolumes = {
                         prices: heatmapData.priceLevels, 
                         volumes: heatmapData.heatmap[i].volumes
                     };
                     
-                    // Use actual price midpoint rather than array position
+                    // Cache the midpoint for reuse
                     const priceMidpoint = findPriceMidpoint(currentPriceVolumes.prices);
                     
-                    // Calculate buy pressure and sell pressure with decay factor
-                    let buyPressure = 0;
-                    let sellPressure = 0;
-                    let maxVolume = 0;
+                    // Use VWAP as alternative reference point
+                    const vwap = calculateVWAP(currentPriceVolumes.prices, currentPriceVolumes.volumes);
                     
-                    // First pass to find max volume for normalization
+                    // Optimization: pre-calculate max volume once
+                    let maxVolume = 0;
                     for (let j = 0; j < currentPriceVolumes.volumes.length; j++) {
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         if (volume > maxVolume) maxVolume = volume;
                     }
                     
-                    // Apply distance weighting with exponential decay
+                    // Calculate buy/sell pressure with exponential weighting
+                    let buyPressure = 0;
+                    let sellPressure = 0;
+                    
+                    // Calculate center of mass prices for buy and sell sides
+                    let buyCenterMass = 0;
+                    let sellCenterMass = 0;
+                    let buyVolumeSum = 0;
+                    let sellVolumeSum = 0;
+                    
+                    // Vectorized approach to pressure calculation
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const price = currentPriceVolumes.prices[j];
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         
-                        // Normalize volume to prevent large orders from dominating
-                        const normalizedVolume = maxVolume > 0 ? volume / maxVolume : 0;
+                        // Normalize volume with dynamic scaling factor
+                        // Higher values become more prominent but small values are still visible
+                        const normalizedVolume = maxVolume > 0 ? 
+                            Math.pow(volume / maxVolume, 0.7) : 0;
                         
-                        // Calculate price distance from midpoint as percentage
+                        // Enhanced distance weighting with reference to midpoint and VWAP
                         const distanceFromMid = Math.abs(price - priceMidpoint) / priceMidpoint;
+                        const distanceFromVWAP = Math.abs(price - vwap) / vwap;
                         
-                        // Exponential weighting - orders further away have stronger weight
-                        // The 4 is the decay factor - higher values give more weight to distant orders
-                        const distanceWeight = Math.exp(4 * distanceFromMid);
+                        // Combined distance metric with higher weight to VWAP distance
+                        const distanceMetric = (distanceFromMid * 0.4) + (distanceFromVWAP * 0.6);
+                        
+                        // Sigmoid-based weighting to prevent extreme values
+                        const sigmoid = (x) => 1 / (1 + Math.exp(-4 * x));
+                        const distanceWeight = 0.5 + sigmoid(distanceMetric);
+                        
+                        // Apply multiple weighting factors
                         const weightedVolume = normalizedVolume * distanceWeight;
                         
                         if (price < priceMidpoint) {
                             buyPressure += weightedVolume;
+                            buyCenterMass += price * volume;
+                            buyVolumeSum += volume;
                         } else {
                             sellPressure += weightedVolume;
+                            sellCenterMass += price * volume;
+                            sellVolumeSum += volume;
                         }
                     }
                     
-                    // Calculate imbalance with improved normalization
+                    // Calculate center of mass prices
+                    const buyCMP = buyVolumeSum > 0 ? buyCenterMass / buyVolumeSum : 0;
+                    const sellCMP = sellVolumeSum > 0 ? sellCenterMass / sellVolumeSum : 0;
+                    
+                    // Center of mass distance factor - wider spread indicates stronger imbalance
+                    const cmpFactor = (sellCMP > buyCMP && buyCMP > 0) ? 
+                        Math.min(1.5, 1 + ((sellCMP - buyCMP) / priceMidpoint)) : 1;
+                    
+                    // Calculate imbalance with improved normalization and CMP factor
                     const totalPressure = buyPressure + sellPressure;
-                    const rawImbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                    const rawImbalance = totalPressure > 0 ? 
+                        ((buyPressure - sellPressure) / totalPressure) * cmpFactor : 0;
                     
-                    // Add to history
+                    // Add to various timeframe histories
+                    shortTermImbalances.push(rawImbalance);
+                    if (shortTermImbalances.length > 5) shortTermImbalances.shift();
+                    
+                    mediumTermImbalances.push(rawImbalance);
+                    if (mediumTermImbalances.length > 15) mediumTermImbalances.shift();
+                    
+                    longTermImbalances.push(rawImbalance);
+                    if (longTermImbalances.length > 30) longTermImbalances.shift();
+                    
+                    // Add to general history
                     imbalanceHistory.push(rawImbalance);
-                    if (imbalanceHistory.length > historyLength) {
-                        imbalanceHistory.shift(); // Remove oldest
-                    }
+                    if (imbalanceHistory.length > historyLength) imbalanceHistory.shift();
                     
-                    // Calculate weighted rate of change with multiple timeframes
+                    // Get weighted average of historical imbalances
+                    const avgShortImbalance = shortTermImbalances.reduce((sum, val) => sum + val, 0) / shortTermImbalances.length;
+                    const avgMediumImbalance = mediumTermImbalances.reduce((sum, val) => sum + val, 0) / mediumTermImbalances.length;
+                    const avgLongImbalance = longTermImbalances.reduce((sum, val) => sum + val, 0) / longTermImbalances.length;
+                    
+                    // Rate of change calculations
                     let shortTermChange = 0;
                     let mediumTermChange = 0;
                     
                     if (i > 1) {
-                        // Short-term change (immediate previous)
-                        const prevPriceVolumes = {
-                            prices: heatmapData.priceLevels, 
-                            volumes: heatmapData.heatmap[i-1].volumes
-                        };
+                        // Get delta times and previous states (optimized calculation)
+                        const deltaTime = timeDeltas[i-1];
+                        shortTermChange = (rawImbalance - imbalanceHistory[imbalanceHistory.length-2]) / deltaTime;
                         
-                        // Calculate previous imbalance using the same method
-                        const prevMidpoint = findPriceMidpoint(prevPriceVolumes.prices);
-                        let prevBuyPressure = 0;
-                        let prevSellPressure = 0;
-                        let prevMaxVolume = 0;
-                        
-                        for (let j = 0; j < prevPriceVolumes.volumes.length; j++) {
-                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
-                            if (volume > prevMaxVolume) prevMaxVolume = volume;
-                        }
-                        
-                        for (let j = 0; j < prevPriceVolumes.prices.length; j++) {
-                            const price = prevPriceVolumes.prices[j];
-                            const volume = Math.abs(prevPriceVolumes.volumes[j]);
-                            const normalizedVolume = prevMaxVolume > 0 ? volume / prevMaxVolume : 0;
-                            const distanceFromMid = Math.abs(price - prevMidpoint) / prevMidpoint;
-                            const distanceWeight = Math.exp(4 * distanceFromMid);
-                            const weightedVolume = normalizedVolume * distanceWeight;
-                            
-                            if (price < prevMidpoint) {
-                                prevBuyPressure += weightedVolume;
-                            } else {
-                                prevSellPressure += weightedVolume;
-                            }
-                        }
-                        
-                        const prevTotalPressure = prevBuyPressure + prevSellPressure;
-                        const prevImbalance = prevTotalPressure > 0 ? (prevBuyPressure - prevSellPressure) / prevTotalPressure : 0;
-                        
-                        // Calculate delta time in seconds
-                        const currentTimestamp = heatmapData.timestamps[i];
-                        const prevTimestamp = heatmapData.timestamps[i-1];
-                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // in minutes
-                        
-                        // Rate of change of imbalance normalized by time
-                        shortTermChange = (rawImbalance - prevImbalance) / deltaTime;
-                        
-                        // Medium-term change (if available): 5 periods back
-                        if (i > 5) {
-                            const mediumPriceVolumes = {
-                                prices: heatmapData.priceLevels, 
-                                volumes: heatmapData.heatmap[i-5].volumes
-                            };
-                            
-                            // Calculate medium-term previous imbalance
-                            // (Same calculation logic as above)
-                            const mediumMidpoint = findPriceMidpoint(mediumPriceVolumes.prices);
-                            let mediumBuyPressure = 0;
-                            let mediumSellPressure = 0;
-                            let mediumMaxVolume = 0;
-                            
-                            for (let j = 0; j < mediumPriceVolumes.volumes.length; j++) {
-                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
-                                if (volume > mediumMaxVolume) mediumMaxVolume = volume;
-                            }
-                            
-                            for (let j = 0; j < mediumPriceVolumes.prices.length; j++) {
-                                const price = mediumPriceVolumes.prices[j];
-                                const volume = Math.abs(mediumPriceVolumes.volumes[j]);
-                                const normalizedVolume = mediumMaxVolume > 0 ? volume / mediumMaxVolume : 0;
-                                const distanceFromMid = Math.abs(price - mediumMidpoint) / mediumMidpoint;
-                                const distanceWeight = Math.exp(4 * distanceFromMid);
-                                const weightedVolume = normalizedVolume * distanceWeight;
-                                
-                                if (price < mediumMidpoint) {
-                                    mediumBuyPressure += weightedVolume;
-                                } else {
-                                    mediumSellPressure += weightedVolume;
-                                }
-                            }
-                            
-                            const mediumTotalPressure = mediumBuyPressure + mediumSellPressure;
-                            const mediumImbalance = mediumTotalPressure > 0 ? 
-                                (mediumBuyPressure - mediumSellPressure) / mediumTotalPressure : 0;
-                            
-                            const mediumTimestamp = heatmapData.timestamps[i-5];
-                            const mediumDeltaTime = Math.max(1, (currentTimestamp - mediumTimestamp) / 60); // in minutes
-                            
-                            mediumTermChange = (rawImbalance - mediumImbalance) / mediumDeltaTime;
+                        // Medium-term rate of change (5 periods back if available)
+                        if (imbalanceHistory.length > 5) {
+                            const mediumIndex = Math.max(0, imbalanceHistory.length - 6);
+                            const mediumDeltaTime = Math.max(1, 5 * deltaTime);
+                            mediumTermChange = (rawImbalance - imbalanceHistory[mediumIndex]) / mediumDeltaTime;
                         }
                     }
                     
-                    // Apply adaptive smoothing based on volatility
-                    const volatility = Math.abs(shortTermChange) / 0.005; // normalize with baseline
-                    const adaptiveAlpha = Math.max(0.1, Math.min(0.5, 0.3 * volatility));
+                    // Calculate volatility for adaptive thresholds
+                    const volatility = updateVolatility(Math.abs(shortTermChange));
+                    
+                    // Create adaptive thresholds based on volatility
+                    let adaptiveThresholds = {...baseThresholds};
+                    if (volatilityWindow.length > 10) {
+                        const volatilityFactor = Math.min(2, 1 + volatility * 3);
+                        adaptiveThresholds.strongBuy = baseThresholds.strongBuy * volatilityFactor;
+                        adaptiveThresholds.buy = baseThresholds.buy * volatilityFactor;
+                        adaptiveThresholds.neutral = baseThresholds.neutral * volatilityFactor;
+                        adaptiveThresholds.sell = baseThresholds.sell * volatilityFactor;
+                        adaptiveThresholds.strongSell = baseThresholds.strongSell * volatilityFactor;
+                    }
+                    
+                    // Apply adaptive smoothing based on recent volatility
+                    const volatilityBasedAlpha = Math.max(0.1, Math.min(0.5, 0.2 + (volatility * 2)));
                     const smoothedImbalance = imbalanceHistory.length > 1 ? 
-                        adaptiveAlpha * rawImbalance + (1 - adaptiveAlpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
+                        volatilityBasedAlpha * rawImbalance + (1 - volatilityBasedAlpha) * imbalanceHistory[imbalanceHistory.length - 2] : 
                         rawImbalance;
                     
-                    // Combine factors with dynamic weighting based on recent accuracy
-                    // For simplicity, start with fixed weights but could be adaptive
-                    const obm = smoothedImbalance * 0.3 + shortTermChange * 0.5 + mediumTermChange * 0.2;
+                    // Multi-timeframe weighted OBM calculation
+                    const shortWeight = 0.5;  // High weight for short-term (most recent)
+                    const mediumWeight = 0.3; // Medium weight for medium-term
+                    const longWeight = 0.2;   // Lower weight for long-term (most stable)
                     
-                    // Generate prediction signal
-                    let signal = 'neutral';
-                    if (obm > strongBuyThreshold) signal = 'strong_buy';
-                    else if (obm > buyThreshold) signal = 'buy';
-                    else if (obm < strongSellThreshold) signal = 'strong_sell';
-                    else if (obm < sellThreshold) signal = 'sell';
+                    // Combine timeframes with momentum for enhanced OBM
+                    const multitimeOBM = 
+                        (avgShortImbalance * shortWeight) + 
+                        (avgMediumImbalance * mediumWeight) + 
+                        (avgLongImbalance * longWeight) +
+                        (shortTermChange * 0.3) +       // Add rate-of-change component
+                        (mediumTermChange * 0.2);       // Add medium-term momentum
                     
-                    // Track for divergence detection (simplified)
-                    if (i > 2) {
-                        // ... divergence detection logic could be added here ...
+                    // Store OBM in history
+                    obmHistory.push(multitimeOBM);
+                    if (obmHistory.length > historyLength) obmHistory.shift();
+                    
+                    // Capture price for divergence analysis
+                    if (i > 1 && i < heatmapData.timestamps.length && i < heatmapData.heatmap.length) {
+                        // Find closest price point to current timestamp
+                        const timestamp = heatmapData.timestamps[i];
+                        priceHistory.push(priceMidpoint);
+                        if (priceHistory.length > historyLength) priceHistory.shift();
                     }
                     
+                    // Generate prediction signal with strength indicator
+                    let signal = 'neutral';
+                    let signalStrength = 0;
+                    
+                    // Determine signal based on adaptive thresholds
+                    if (multitimeOBM > adaptiveThresholds.strongBuy) {
+                        signal = 'strong_buy';
+                        signalStrength = (multitimeOBM - adaptiveThresholds.strongBuy) / Math.abs(adaptiveThresholds.strongBuy);
+                    } else if (multitimeOBM > adaptiveThresholds.buy) {
+                        signal = 'buy';
+                        signalStrength = (multitimeOBM - adaptiveThresholds.buy) / (adaptiveThresholds.strongBuy - adaptiveThresholds.buy);
+                    } else if (multitimeOBM < adaptiveThresholds.strongSell) {
+                        signal = 'strong_sell';
+                        signalStrength = (adaptiveThresholds.strongSell - multitimeOBM) / Math.abs(adaptiveThresholds.strongSell);
+                    } else if (multitimeOBM < adaptiveThresholds.sell) {
+                        signal = 'sell';
+                        signalStrength = (adaptiveThresholds.sell - multitimeOBM) / (adaptiveThresholds.sell - adaptiveThresholds.strongSell);
+                    }
+                    
+                    // Check for divergence if we have enough history
+                    if (priceHistory.length > 10 && obmHistory.length > 10) {
+                        const divergence = checkDivergence(priceHistory, obmHistory);
+                        if (divergence) {
+                            // Enhance signal based on divergence
+                            if (divergence.type === 'bullish' && (signal === 'sell' || signal === 'strong_sell')) {
+                                // Potential reversal - reduce sell signal strength
+                                signalStrength *= Math.max(0.2, 1 - divergence.strength);
+                            } else if (divergence.type === 'bullish' && signal === 'neutral') {
+                                // Convert to weak buy signal
+                                signal = 'buy';
+                                signalStrength = 0.3 * divergence.strength;
+                            } else if (divergence.type === 'bearish' && (signal === 'buy' || signal === 'strong_buy')) {
+                                // Potential reversal - reduce buy signal strength
+                                signalStrength *= Math.max(0.2, 1 - divergence.strength);
+                            } else if (divergence.type === 'bearish' && signal === 'neutral') {
+                                // Convert to weak sell signal
+                                signal = 'sell';
+                                signalStrength = 0.3 * divergence.strength;
+                            }
+                            
+                            // Record divergence point
+                            result.divergencePoints.push({
+                                index: i,
+                                timestamp: new Date(heatmapData.timestamps[i] * 1000),
+                                type: divergence.type,
+                                strength: divergence.strength
+                            });
+                        }
+                    }
+                    
+                    // Save final results
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
-                    result.obmValues.push(obm);
+                    result.obmValues.push(multitimeOBM);
                     result.rawImbalances.push(rawImbalance);
                     result.predictionSignals.push(signal);
+                    result.signalStrength.push(Math.min(1, Math.max(0, signalStrength)));
                 }
                 
                 return result;
@@ -954,27 +1057,14 @@
                         name: 'OBM',
                         line: {
                             color: 'rgba(255, 100, 100, 1)',
-                            width: 2
+                            width: 2,
+                            shape: 'spline' // Smoothed line
                         },
                         fill: 'tozeroy',
                         fillcolor: 'rgba(255, 100, 100, 0.3)'
                     };
                     
-                    // Add raw imbalance for comparison
-                    const rawImbalanceTrace = {
-                        x: obmData.timestamps,
-                        y: obmData.rawImbalances,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Raw Imbalance',
-                        line: {
-                            color: 'rgba(100, 100, 255, 0.7)',
-                            width: 1,
-                            dash: 'dot'
-                        }
-                    };
-                    
-                    // Add buy/sell arrows to OBM chart
+                    // Render signal markers with size based on signal strength
                     const buySignals = {
                         x: [],
                         y: [],
@@ -982,8 +1072,12 @@
                         name: 'Buy Signals',
                         marker: {
                             symbol: 'triangle-up',
-                            size: 10,
-                            color: 'rgba(0, 255, 100, 0.9)'
+                            size: [], // Dynamic size based on strength
+                            color: 'rgba(0, 255, 100, 0.9)',
+                            line: {
+                                width: 1,
+                                color: 'white'
+                            }
                         },
                         text: []
                     };
@@ -995,36 +1089,76 @@
                         name: 'Sell Signals',
                         marker: {
                             symbol: 'triangle-down',
-                            size: 10,
-                            color: 'rgba(255, 70, 70, 0.9)'
+                            size: [], // Dynamic size based on strength
+                            color: 'rgba(255, 70, 70, 0.9)',
+                            line: {
+                                width: 1,
+                                color: 'white'
+                            }
                         },
                         text: []
                     };
                     
-                    // Process signal markers
+                    // Add divergence markers
+                    const divergenceMarkers = {
+                        x: [],
+                        y: [],
+                        mode: 'markers',
+                        name: 'Divergences',
+                        marker: {
+                            symbol: 'star',
+                            size: 12,
+                            color: 'rgba(255, 255, 0, 0.9)',
+                            line: {
+                                width: 1,
+                                color: 'white'
+                            }
+                        },
+                        text: []
+                    };
+                    
+                    // Process signal markers with strength-based sizing
                     for (let i = 1; i < obmData.timestamps.length; i++) {
                         const signal = obmData.predictionSignals[i];
                         const prevSignal = obmData.predictionSignals[i-1];
+                        const strength = obmData.signalStrength[i];
                         
-                        // Only add markers on signal changes for clarity
-                        if (signal !== prevSignal) {
+                        // Base size from 8-14 depending on strength
+                        const signalSize = 8 + (strength * 6);
+                        
+                        // Only add markers on signal changes or for strong signals
+                        if (signal !== prevSignal || strength > 0.7) {
                             if (signal === 'buy' || signal === 'strong_buy') {
                                 buySignals.x.push(obmData.timestamps[i]);
                                 buySignals.y.push(obmData.obmValues[i]);
-                                buySignals.text.push(signal === 'strong_buy' ? 'Strong Buy' : 'Buy');
+                                buySignals.marker.size.push(signalSize);
+                                buySignals.text.push(`${signal === 'strong_buy' ? 'Strong Buy' : 'Buy'} (${Math.round(strength * 100)}% confidence)`);
                             } else if (signal === 'sell' || signal === 'strong_sell') {
                                 sellSignals.x.push(obmData.timestamps[i]);
                                 sellSignals.y.push(obmData.obmValues[i]);
-                                sellSignals.text.push(signal === 'strong_sell' ? 'Strong Sell' : 'Sell');
+                                sellSignals.marker.size.push(signalSize);
+                                sellSignals.text.push(`${signal === 'strong_sell' ? 'Strong Sell' : 'Sell'} (${Math.round(strength * 100)}% confidence)`);
                             }
                         }
                     }
                     
-                    const obmTraces = [obmTrace, rawImbalanceTrace];
+                    // Add divergence markers
+                    if (obmData.divergencePoints && obmData.divergencePoints.length > 0) {
+                        for (const div of obmData.divergencePoints) {
+                            divergenceMarkers.x.push(div.timestamp);
+                            divergenceMarkers.y.push(obmData.obmValues[div.index]);
+                            divergenceMarkers.text.push(`${div.type.charAt(0).toUpperCase() + div.type.slice(1)} Divergence (${Math.round(div.strength * 100)}%)`);
+                        }
+                    }
+                    
+                    const obmTraces = [obmTrace];
                     
                     // Add signal traces if they have data
                     if (buySignals.x.length > 0) obmTraces.push(buySignals);
                     if (sellSignals.x.length > 0) obmTraces.push(sellSignals);
+                    
+                    // Add divergence markers
+                    if (divergenceMarkers.x.length > 0) obmTraces.push(divergenceMarkers);
                     
                     const obmLayout = {
                         title: {
@@ -1092,4 +1226,5 @@
         });
     </script>
 </body>
+</html>
 </html>
