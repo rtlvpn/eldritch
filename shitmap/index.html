@@ -170,6 +170,10 @@
                 <option value="12h">12 Hours</option>
                 <option value="24h">1 Day</option>
                 <option value="48h">2 Days</option>
+                <option value="72h">3 Days</option>
+                <option value="96h">4 Days</option>
+                <option value="120h">5 Days</option>
+                <option value="144h">6 Days</option>
                 <option value="168h">7 Days</option>
             </select>
             
@@ -188,7 +192,7 @@
             
             <div class="slider-container">
                 <label for="marginPercent">Margin %:</label>
-                <input type="range" id="marginPercent" min="5" max="200" step="5" value="45">
+                <input type="range" id="marginPercent" min="5" max="100" step="5" value="45">
                 <span id="marginValue">45</span>
             </div>
             
@@ -415,6 +419,10 @@
                         case '12h': duration = 3600 * 12; break;
                         case '24h': duration = 3600 * 24; break;
                         case '48h': duration = 3600 * 48; break;
+                        case '72h': duration = 3600 * 72; break;
+                        case '96h': duration = 3600 * 96; break;
+                        case '120h': duration = 3600 * 120; break;
+                        case '144h': duration = 3600 * 144; break;
                         case '168h': duration = 3600 * 168; break;
                         default: duration = 3600;
                     }
@@ -451,6 +459,10 @@
                         case '12h': duration = 3600 * 12; break;
                         case '24h': duration = 3600 * 24; break;
                         case '48h': duration = 3600 * 48; break;
+                        case '72h': duration = 3600 * 72; break;
+                        case '96h': duration = 3600 * 96; break;
+                        case '120h': duration = 3600 * 120; break;
+                        case '144h': duration = 3600 * 144; break;
                         case '168h': duration = 3600 * 168; break;
                         default: duration = 3600;
                     }
