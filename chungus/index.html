@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -402,53 +401,6 @@
                 document.getElementById('marginValue').textContent = this.value;
             });
             
-            function createOptimizedAxiosInstance() {
-                // Create a custom Axios instance with optimized settings
-                const instance = axios.create({
-                    // Default headers that might help performance
-                    headers: {
-                        'Accept': 'application/json',
-                        'Cache-Control': 'no-cache',
-                        'Priority': 'u=1', // High priority hint
-                        'X-Use-HTTP3': 'true' // Custom header, server might respect this
-                    },
-                    // Enable keep-alive for connection reuse
-                    keepAlive: true,
-                    // Set reasonable timeouts
-                    timeout: 10000,
-                    // Enable HTTP response compression
-                    decompress: true
-                });
-                
-                // Add request interceptor for logging/monitoring
-                instance.interceptors.request.use(config => {
-                    const startTime = Date.now();
-                    config.metadata = { startTime };
-                    console.log(`Axios request to: ${config.url}`);
-                    return config;
-                });
-                
-                // Add response interceptor for performance tracking
-                instance.interceptors.response.use(response => {
-                    const endTime = Date.now();
-                    const duration = endTime - response.config.metadata.startTime;
-                    console.log(`Request to ${response.config.url} completed in ${duration}ms`);
-                    return response;
-                }, error => {
-                    // Implement exponential backoff for failed requests
-                    if (error.config && !error.config.__retryCount) {
-                        error.config.__retryCount = 0;
-                        return createOptimizedAxiosInstance().request(error.config);
-                    }
-                    return Promise.reject(error);
-                });
-                
-                return instance;
-            }
-            
-            // Create a single axios instance to reuse
-            const api = createOptimizedAxiosInstance();
-            
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
@@ -478,37 +430,54 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh with Axios
-                    Promise.all([
-                        api.get(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks`, {
-                            params: {
-                                startTime,
-                                endTime,
-                                interval: 60
-                            }
-                        }),
-                        api.get(`https://heatmapeldritch.gleeze.com:3500/api/heatmap`, {
-                            params: {
-                                startTime,
-                                endTime,
-                                buckets,
-                                marginPercent
+                    // Create separate promises with their own controllers to ensure independence
+                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`, {
+                        cache: 'no-store',
+                        priority: 'high'
+                    }).then(res => res.json());
+                    
+                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
+                        cache: 'no-store'
+                    }).then(res => res.json());
+                    
+                    // Process results as they come in
+                    let candlestickDataReady = false;
+                    let heatmapDataReady = false;
+                    
+                    candlestickPromise
+                        .then(data => {
+                            cachedCandlestickData = data;
+                            candlestickDataReady = true;
+                            if (heatmapDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
                             }
                         })
-                    ])
-                    .then(([candlestickResponse, heatmapResponse]) => {
-                        // Axios automatically parses JSON
-                        cachedCandlestickData = candlestickResponse.data;
-                        cachedHeatmapData = heatmapResponse.data;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        alert('Failed to load data. Please try again.');
-                    });
+                        .catch(error => {
+                            console.error('Error fetching candlestick data:', error);
+                            candlestickDataReady = true;
+                            if (cachedCandlestickData.length > 0 && heatmapDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
+                        });
+                    
+                    heatmapPromise
+                        .then(data => {
+                            cachedHeatmapData = data;
+                            heatmapDataReady = true;
+                            lastFetchTime = endTime;
+                            if (candlestickDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching heatmap data:', error);
+                            heatmapDataReady = true;
+                            if (cachedHeatmapData.timestamps.length > 0 && candlestickDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
+                        });
                 } else {
-                    // Auto-update case
+                    // Auto-update case: Use the same improved parallel fetching approach
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -528,33 +497,45 @@
                     
                     const startTime = endTime - duration;
                     
-                    Promise.all([
-                        api.get(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks`, {
-                            params: {
-                                startTime,
-                                endTime,
-                                interval: 60
-                            }
-                        }),
-                        api.get(`https://heatmapeldritch.gleeze.com:3500/api/heatmap`, {
-                            params: {
-                                startTime,
-                                endTime,
-                                buckets,
-                                marginPercent
+                    // Same pattern as above but for incremental updates
+                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`, {
+                        cache: 'no-store',
+                        priority: 'high'
+                    }).then(res => res.json());
+                    
+                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
+                        cache: 'no-store'
+                    }).then(res => res.json());
+                    
+                    let candlestickDataReady = false;
+                    let heatmapDataReady = false;
+                    
+                    candlestickPromise
+                        .then(data => {
+                            cachedCandlestickData = data;
+                            candlestickDataReady = true;
+                            if (heatmapDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
                             }
                         })
-                    ])
-                    .then(([candlestickResponse, heatmapResponse]) => {
-                        cachedCandlestickData = candlestickResponse.data;
-                        cachedHeatmapData = heatmapResponse.data;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        // Silently fail, will retry on next auto-update
-                    });
+                        .catch(error => {
+                            console.error('Error fetching candlestick data:', error);
+                            candlestickDataReady = true;
+                        });
+                    
+                    heatmapPromise
+                        .then(data => {
+                            cachedHeatmapData = data;
+                            heatmapDataReady = true;
+                            lastFetchTime = endTime;
+                            if (candlestickDataReady) {
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching heatmap data:', error);
+                            heatmapDataReady = true;
+                        });
                 }
             }
             
@@ -861,25 +842,6 @@
                 window.dispatchEvent(new Event('resize'));
             });
         });
-
-        // Create connection to the server immediately at page load 
-        // to warm up the HTTP/3 connection before we need it
-        (function preconnect() {
-            // Create link preconnect for immediate connection
-            const link = document.createElement('link');
-            link.rel = 'preconnect';
-            link.href = 'https://heatmapeldritch.gleeze.com:3500';
-            link.crossOrigin = 'anonymous';
-            document.head.appendChild(link);
-            
-            // Perform a tiny initial request to establish connection
-            fetch('https://heatmapeldritch.gleeze.com:3500/api/ping', { 
-                method: 'HEAD',
-                cache: 'no-store',
-                // This is critical to ensure true asynchronous behavior
-                keepalive: true
-            }).catch(() => {});
-        })();
     </script>
 </body>
 </html>
