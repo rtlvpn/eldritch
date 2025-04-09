@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@ygoe/msgpack@1.0.3/msgpack.min.js"></script>
+    <!-- Load the official MessagePack library for JavaScript -->
+    <script src="https://unpkg.com/@msgpack/msgpack/dist.umd/msgpack.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -477,7 +478,7 @@
                             // Convert ArrayBuffer to Uint8Array for MessagePack decoding
                             const uint8Array = new Uint8Array(buffer);
                             // Decode using the MessagePack library
-                            return msgpack.deserialize(uint8Array);
+                            return MessagePack.decode(uint8Array);
                         })
                         .catch(error => {
                             console.error('MessagePack error, falling back to JSON:', error);
@@ -565,7 +566,7 @@
                             // Convert ArrayBuffer to Uint8Array for MessagePack decoding
                             const uint8Array = new Uint8Array(buffer);
                             // Decode using the MessagePack library
-                            return msgpack.deserialize(uint8Array);
+                            return MessagePack.decode(uint8Array);
                         })
                         .catch(error => {
                             console.error('MessagePack error, falling back to JSON:', error);
