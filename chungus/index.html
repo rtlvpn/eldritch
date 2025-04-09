@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -430,54 +431,54 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Create separate promises with their own controllers to ensure independence
-                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`, {
-                        cache: 'no-store',
-                        priority: 'high'
-                    }).then(res => res.json());
+                    // Create axios configuration
+                    const axiosConfig = {
+                        timeout: 30000, // 30 second timeout
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        }
+                    };
                     
-                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
-                        cache: 'no-store'
-                    }).then(res => res.json());
+                    // Prepare URLs
+                    const candlesticksUrl = `https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`;
+                    const heatmapUrl = `https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`;
                     
-                    // Process results as they come in
-                    let candlestickDataReady = false;
-                    let heatmapDataReady = false;
-                    
-                    candlestickPromise
-                        .then(data => {
-                            cachedCandlestickData = data;
-                            candlestickDataReady = true;
-                            if (heatmapDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error fetching candlestick data:', error);
-                            candlestickDataReady = true;
-                            if (cachedCandlestickData.length > 0 && heatmapDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        });
-                    
-                    heatmapPromise
-                        .then(data => {
-                            cachedHeatmapData = data;
-                            heatmapDataReady = true;
-                            lastFetchTime = endTime;
-                            if (candlestickDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error fetching heatmap data:', error);
-                            heatmapDataReady = true;
-                            if (cachedHeatmapData.timestamps.length > 0 && candlestickDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        });
+                    // Use axios for parallel requests
+                    Promise.all([
+                        axios.get(candlesticksUrl, axiosConfig),
+                        axios.get(heatmapUrl, axiosConfig)
+                    ])
+                    .then(([candlestickResponse, heatmapResponse]) => {
+                        // Axios automatically parses JSON response
+                        const candlestickData = candlestickResponse.data;
+                        const heatmapData = heatmapResponse.data;
+                        
+                        // Store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        
+                        if (error.code === 'ECONNABORTED') {
+                            alert('Data fetch timed out. Please try again or check your connection.');
+                        } else if (error.response) {
+                            // The request was made and the server responded with a status code
+                            // that falls out of the range of 2xx
+                            alert(`Server error: ${error.response.status}`);
+                        } else if (error.request) {
+                            // The request was made but no response was received
+                            alert('No response from server. Please check your connection.');
+                        } else {
+                            // Something happened in setting up the request
+                            alert('Failed to load data. Please try again.');
+                        }
+                    });
                 } else {
-                    // Auto-update case: Use the same improved parallel fetching approach
+                    // Auto-update case
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -497,45 +498,40 @@
                     
                     const startTime = endTime - duration;
                     
-                    // Same pattern as above but for incremental updates
-                    const candlestickPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`, {
-                        cache: 'no-store',
-                        priority: 'high'
-                    }).then(res => res.json());
+                    // Create axios configuration
+                    const axiosConfig = {
+                        timeout: 30000, // 30 second timeout
+                        headers: {
+                            'Accept': 'application/json',
+                            'Cache-Control': 'no-cache'
+                        }
+                    };
                     
-                    const heatmapPromise = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
-                        cache: 'no-store'
-                    }).then(res => res.json());
+                    // Prepare URLs
+                    const candlesticksUrl = `https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`;
+                    const heatmapUrl = `https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`;
                     
-                    let candlestickDataReady = false;
-                    let heatmapDataReady = false;
-                    
-                    candlestickPromise
-                        .then(data => {
-                            cachedCandlestickData = data;
-                            candlestickDataReady = true;
-                            if (heatmapDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error fetching candlestick data:', error);
-                            candlestickDataReady = true;
-                        });
-                    
-                    heatmapPromise
-                        .then(data => {
-                            cachedHeatmapData = data;
-                            heatmapDataReady = true;
-                            lastFetchTime = endTime;
-                            if (candlestickDataReady) {
-                                renderChart(cachedCandlestickData, cachedHeatmapData);
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error fetching heatmap data:', error);
-                            heatmapDataReady = true;
-                        });
+                    // Use axios for parallel requests
+                    Promise.all([
+                        axios.get(candlesticksUrl, axiosConfig),
+                        axios.get(heatmapUrl, axiosConfig)
+                    ])
+                    .then(([candlestickResponse, heatmapResponse]) => {
+                        // Axios automatically parses JSON response
+                        const candlestickData = candlestickResponse.data;
+                        const heatmapData = heatmapResponse.data;
+                        
+                        // Store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        // Silently fail for auto-updates, will retry next time
+                        console.warn('Auto-update failed, will retry next cycle');
+                    });
                 }
             }
             
