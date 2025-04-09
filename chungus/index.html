@@ -508,6 +508,19 @@
                         lastLoadTime = performance.now() - startLoadTime;
                         updatePerformanceInfo(lastLoadTime, lastDataSize);
                         
+                        // Validate response data before proceeding
+                        if (!candlestickData || !Array.isArray(candlestickData)) {
+                            console.error('Invalid candlestick data format:', candlestickData);
+                            performanceInfo.textContent = 'Error: Invalid candlestick data';
+                            return;
+                        }
+                        
+                        if (!heatmapData || !heatmapData.timestamps || !heatmapData.priceLevels || !heatmapData.heatmap) {
+                            console.error('Invalid heatmap data format:', heatmapData);
+                            performanceInfo.textContent = 'Error: Invalid heatmap data';
+                            return;
+                        }
+                        
                         // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
@@ -517,7 +530,7 @@
                     .catch(error => {
                         console.error('Error fetching data:', error);
                         performanceInfo.textContent = 'Error loading data';
-                        alert('Failed to load data. Please try again.');
+                        document.getElementById('chart').innerHTML = 'Failed to load data. Please try again.';
                     });
                 } else {
                     // Auto-update case with the same approach as full refresh
@@ -596,6 +609,19 @@
                         lastLoadTime = performance.now() - startLoadTime;
                         updatePerformanceInfo(lastLoadTime, lastDataSize);
                         
+                        // Validate response data before proceeding
+                        if (!candlestickData || !Array.isArray(candlestickData)) {
+                            console.error('Invalid candlestick data format:', candlestickData);
+                            performanceInfo.textContent = 'Error: Invalid candlestick data';
+                            return;
+                        }
+                        
+                        if (!heatmapData || !heatmapData.timestamps || !heatmapData.priceLevels || !heatmapData.heatmap) {
+                            console.error('Invalid heatmap data format:', heatmapData);
+                            performanceInfo.textContent = 'Error: Invalid heatmap data';
+                            return;
+                        }
+                        
                         // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
@@ -604,7 +630,8 @@
                     })
                     .catch(error => {
                         console.error('Error fetching data:', error);
-                        // Silently fail, will retry on next auto-update
+                        // Provide visual feedback instead of silently failing
+                        performanceInfo.textContent = 'Error loading data';
                     });
                 }
             }
@@ -651,6 +678,18 @@
             }
             
             function renderChart(candlestickData, heatmapData) {
+                // Add more comprehensive error checking
+                if (!candlestickData || !Array.isArray(candlestickData) || !heatmapData || 
+                    !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) || 
+                    !heatmapData.priceLevels || !heatmapData.heatmap) {
+                    console.error('Invalid data structure:', { 
+                        candlestickData: candlestickData ? typeof candlestickData : 'undefined', 
+                        heatmapData: heatmapData ? Object.keys(heatmapData) : 'undefined' 
+                    });
+                    document.getElementById('chart').innerHTML = 'Error: Invalid data received. Please try again.';
+                    return;
+                }
+                
                 if (!candlestickData.length || !heatmapData.timestamps.length) {
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
                     return;
