@@ -431,48 +431,76 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Create axios configuration
-                    const axiosConfig = {
-                        timeout: 30000, // 30 second timeout
-                    };
+                    // Create dedicated axios instances for each request to ensure they're truly parallel
+                    const candlestickClient = axios.create({
+                        timeout: 30000,
+                        maxRedirects: 0
+                    });
+                    
+                    const heatmapClient = axios.create({
+                        timeout: 30000,
+                        maxRedirects: 0
+                    });
                     
                     // Prepare URLs
                     const candlesticksUrl = `https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`;
                     const heatmapUrl = `https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`;
                     
-                    // Use axios for parallel requests
-                    Promise.all([
-                        axios.get(candlesticksUrl, axiosConfig),
-                        axios.get(heatmapUrl, axiosConfig)
-                    ])
-                    .then(([candlestickResponse, heatmapResponse]) => {
-                        // Axios automatically parses JSON response
-                        const candlestickData = candlestickResponse.data;
-                        const heatmapData = heatmapResponse.data;
-                        
-                        // Store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        
-                        if (error.code === 'ECONNABORTED') {
-                            alert('Data fetch timed out. Please try again or check your connection.');
-                        } else if (error.response) {
-                            // The request was made and the server responded with a status code
-                            // that falls out of the range of 2xx
-                            alert(`Server error: ${error.response.status}`);
-                        } else if (error.request) {
-                            // The request was made but no response was received
-                            alert('No response from server. Please check your connection.');
-                        } else {
-                            // Something happened in setting up the request
-                            alert('Failed to load data. Please try again.');
+                    console.time('candlesticks-request');
+                    console.time('heatmap-request');
+                    console.time('total-requests');
+                    
+                    // Make truly parallel requests - avoiding Promise.all as it might be causing queuing
+                    let candlestickData = null;
+                    let heatmapData = null;
+                    let candlestickDone = false;
+                    let heatmapDone = false;
+                    
+                    // Function to check if both requests are complete
+                    const checkBothComplete = () => {
+                        if (candlestickDone && heatmapDone) {
+                            console.timeEnd('total-requests');
+                            if (candlestickData && heatmapData) {
+                                // Store the complete data
+                                cachedCandlestickData = candlestickData;
+                                cachedHeatmapData = heatmapData;
+                                lastFetchTime = endTime;
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
                         }
-                    });
+                    };
+                    
+                    // Launch candlestick request independently
+                    candlestickClient.get(candlesticksUrl)
+                        .then(response => {
+                            console.timeEnd('candlesticks-request');
+                            candlestickData = response.data;
+                            candlestickDone = true;
+                            console.log('Candlestick data received first');
+                            checkBothComplete();
+                        })
+                        .catch(error => {
+                            console.timeEnd('candlesticks-request');
+                            console.error('Candlestick request error:', error);
+                            candlestickDone = true;
+                            checkBothComplete();
+                        });
+                    
+                    // Launch heatmap request independently
+                    heatmapClient.get(heatmapUrl)
+                        .then(response => {
+                            console.timeEnd('heatmap-request');
+                            heatmapData = response.data;
+                            heatmapDone = true;
+                            console.log('Heatmap data received first');
+                            checkBothComplete();
+                        })
+                        .catch(error => {
+                            console.timeEnd('heatmap-request');
+                            console.error('Heatmap request error:', error);
+                            heatmapDone = true;
+                            checkBothComplete();
+                        });
                 } else {
                     // Auto-update case
                     const endTime = Math.floor(Date.now() / 1000);
@@ -494,36 +522,74 @@
                     
                     const startTime = endTime - duration;
                     
-                    // Create axios configuration
-                    const axiosConfig = {
-                        timeout: 30000, // 30 second timeout
-                    };
+                    // Create dedicated axios instances for each request
+                    const candlestickClient = axios.create({
+                        timeout: 30000,
+                        maxRedirects: 0
+                    });
+                    
+                    const heatmapClient = axios.create({
+                        timeout: 30000,
+                        maxRedirects: 0
+                    });
                     
                     // Prepare URLs
                     const candlesticksUrl = `https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`;
                     const heatmapUrl = `https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`;
                     
-                    // Use axios for parallel requests
-                    Promise.all([
-                        axios.get(candlesticksUrl, axiosConfig),
-                        axios.get(heatmapUrl, axiosConfig)
-                    ])
-                    .then(([candlestickResponse, heatmapResponse]) => {
-                        // Axios automatically parses JSON response
-                        const candlestickData = candlestickResponse.data;
-                        const heatmapData = heatmapResponse.data;
-                        
-                        // Store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        // Silently fail for auto-updates, will retry next time
-                        console.warn('Auto-update failed, will retry next cycle');
-                    });
+                    console.time('candlesticks-request-auto');
+                    console.time('heatmap-request-auto');
+                    console.time('total-requests-auto');
+                    
+                    // Make truly parallel requests - avoiding Promise.all
+                    let candlestickData = null;
+                    let heatmapData = null;
+                    let candlestickDone = false;
+                    let heatmapDone = false;
+                    
+                    // Function to check if both requests are complete
+                    const checkBothComplete = () => {
+                        if (candlestickDone && heatmapDone) {
+                            console.timeEnd('total-requests-auto');
+                            if (candlestickData && heatmapData) {
+                                // Store the complete data
+                                cachedCandlestickData = candlestickData;
+                                cachedHeatmapData = heatmapData;
+                                lastFetchTime = endTime;
+                                renderChart(cachedCandlestickData, cachedHeatmapData);
+                            }
+                        }
+                    };
+                    
+                    // Launch candlestick request independently
+                    candlestickClient.get(candlesticksUrl)
+                        .then(response => {
+                            console.timeEnd('candlesticks-request-auto');
+                            candlestickData = response.data;
+                            candlestickDone = true;
+                            checkBothComplete();
+                        })
+                        .catch(error => {
+                            console.timeEnd('candlesticks-request-auto');
+                            console.error('Auto-update candlestick request error:', error);
+                            candlestickDone = true;
+                            checkBothComplete();
+                        });
+                    
+                    // Launch heatmap request independently
+                    heatmapClient.get(heatmapUrl)
+                        .then(response => {
+                            console.timeEnd('heatmap-request-auto');
+                            heatmapData = response.data;
+                            heatmapDone = true;
+                            checkBothComplete();
+                        })
+                        .catch(error => {
+                            console.timeEnd('heatmap-request-auto');
+                            console.error('Auto-update heatmap request error:', error);
+                            heatmapDone = true;
+                            checkBothComplete();
+                        });
                 }
             }
             
