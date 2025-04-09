@@ -360,6 +360,12 @@
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
             
+            // Performance tracking variables - moved before loadData call
+            let useMessagePack = true;
+            let lastLoadTime = 0;
+            let lastDataSize = 0;
+            const performanceInfo = document.querySelector('.performance-info');
+            
             // Initial load
             loadData(true); // true indicates a full load
             
@@ -416,12 +422,6 @@
             document.getElementById('marginPercent').addEventListener('input', function() {
                 document.getElementById('marginValue').textContent = this.value;
             });
-            
-            // Performance tracking variables
-            let useMessagePack = true;
-            let lastLoadTime = 0;
-            let lastDataSize = 0;
-            const performanceInfo = document.querySelector('.performance-info');
             
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
