@@ -274,6 +274,14 @@
                     obmValues: []
                 };
                 
+                // Extra safety check to prevent errors
+                if (!heatmapData || !heatmapData.heatmap || !Array.isArray(heatmapData.heatmap) || 
+                    !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) ||
+                    !heatmapData.priceLevels || !Array.isArray(heatmapData.priceLevels)) {
+                    console.error('Invalid heatmap data structure in OBM calculation');
+                    return result;
+                }
+                
                 if (heatmapData.heatmap.length < 2) return result;
                 
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
@@ -678,171 +686,91 @@
             }
             
             function renderChart(candlestickData, heatmapData) {
-                // Add more comprehensive error checking
-                if (!candlestickData || !Array.isArray(candlestickData) || !heatmapData || 
-                    !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) || 
-                    !heatmapData.priceLevels || !heatmapData.heatmap) {
-                    console.error('Invalid data structure:', { 
-                        candlestickData: candlestickData ? typeof candlestickData : 'undefined', 
-                        heatmapData: heatmapData ? Object.keys(heatmapData) : 'undefined' 
-                    });
-                    document.getElementById('chart').innerHTML = 'Error: Invalid data received. Please try again.';
-                    return;
-                }
-                
-                if (!candlestickData.length || !heatmapData.timestamps.length) {
-                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
-                    return;
-                }
-                
-                // Calculate Order Book Momentum
-                const obmData = calculateOBM(heatmapData);
-                
-                // Prepare price data
-                const times = candlestickData.map(item => new Date(item.timestamp));
-                const prices = candlestickData.map(item => item.close);
-                
-                // Prepare heatmap data
-                const heatmapZ = [];
-                const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
-                const priceLevels = heatmapData.priceLevels;
-                
-                // Convert the heatmap result to a matrix format that Plotly can use
-                // Each row represents a price level, each column represents a timestamp
-                for (let i = 0; i < priceLevels.length; i++) {
-                    const row = [];
-                    for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                        // Get the volume for this price level at this timestamp
-                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
-                        row.push(volume);
+                try {
+                    // Add more comprehensive error checking
+                    if (!candlestickData || !Array.isArray(candlestickData) || !heatmapData || 
+                        !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) || 
+                        !heatmapData.priceLevels || !heatmapData.heatmap) {
+                        console.error('Invalid data structure:', { 
+                            candlestickData: candlestickData ? typeof candlestickData : 'undefined', 
+                            heatmapData: heatmapData ? Object.keys(heatmapData) : 'undefined' 
+                        });
+                        document.getElementById('chart').innerHTML = 'Error: Invalid data received. Please try again.';
+                        return;
                     }
-                    heatmapZ.push(row);
-                }
-                
-                // Find the price range from priceLevels for consistent scaling
-                const minPrice = Math.min(...priceLevels);
-                const maxPrice = Math.max(...priceLevels);
-                
-                // Create the combined plot
-                const trace1 = {
-                    x: times,
-                    y: prices,
-                    mode: 'lines',
-                    name: 'Price',
-                    line: {
-                        shape: 'spline',
-                        color: 'rgba(255, 100, 100, 1)',
-                        width: 3
-                    },
-                    // Use the same y-axis as the heatmap
-                    yaxis: 'y',
-                    type: 'scatter'
-                };
-                
-                // Get color density value
-                const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                
-                const trace2 = {
-                    x: timestamps,
-                    y: priceLevels,
-                    z: heatmapZ,
-                    type: 'heatmap',
-                    colorscale: generateWeightedColorscale(colorDensity),
-                    name: 'Order Density',
-                    colorbar: {
-                        title: 'Order Volume',
-                        titleside: 'right',
-                        titlefont: { color: '#00ff9d' },
-                        tickfont: { color: '#00ff9d' }
-                    },
-                    zsmooth: false,
-                    showscale: true
-                };
-                
-                const layout = {
-                    title: {
-                        text: 'Milk Price and Orderbook Heatmap',
-                        font: {
-                            color: '#00ff9d',
-                            family: 'Courier New, monospace'
-                        }
-                    },
-                    plot_bgcolor: '#0a0a12',
-                    paper_bgcolor: '#0f0f1f',
-                    height: 600,
-                    yaxis: {
-                        title: {
-                            text: 'Price (USDT)',
-                            font: { color: '#00ff9d' }
-                        },
-                        side: 'left',
-                        range: [minPrice, maxPrice],
-                        autorange: false,
-                        showgrid: true,
-                        gridcolor: 'rgba(0, 255, 157, 0.1)',
-                        tickfont: { color: '#00ff9d' },
-                        zeroline: false
-                    },
-                    xaxis: {
-                        title: {
-                            text: 'Time',
-                            font: { color: '#00ff9d' }
-                        },
-                        showgrid: true,
-                        gridcolor: 'rgba(0, 255, 157, 0.1)',
-                        tickfont: { color: '#00ff9d' }
-                    },
-                    hovermode: 'closest',
-                    showlegend: true,
-                    legend: {
-                        font: { color: '#00ff9d' },
-                        bgcolor: 'rgba(10, 10, 18, 0.8)',
-                        bordercolor: '#00ff9d',
-                        borderwidth: 1
-                    },
-                    margin: {
-                        l: 50,
-                        r: 50,
-                        b: 50,
-                        t: 50,
-                        pad: 4
-                    },
-                    autosize: true
-                };
-                
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
-                
-                // Create the volume profile chart if enabled
-                const showCVP = document.getElementById('showCVP').checked;
-                if (showCVP) {
-                    // Calculate aggregate volume for each price level
-                    const volumeByPrice = new Array(priceLevels.length).fill(0);
                     
+                    if (!candlestickData.length || !heatmapData.timestamps.length) {
+                        document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                        return;
+                    }
+                    
+                    // Calculate Order Book Momentum
+                    const obmData = calculateOBM(heatmapData);
+                    
+                    // Prepare price data
+                    const times = candlestickData.map(item => new Date(item.timestamp));
+                    const prices = candlestickData.map(item => item.close);
+                    
+                    // Prepare heatmap data
+                    const heatmapZ = [];
+                    const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                    const priceLevels = heatmapData.priceLevels;
+                    
+                    // Convert the heatmap result to a matrix format that Plotly can use
+                    // Each row represents a price level, each column represents a timestamp
                     for (let i = 0; i < priceLevels.length; i++) {
+                        const row = [];
                         for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                            // Get the volume for this price level at this timestamp
+                            const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
+                            row.push(volume);
                         }
+                        heatmapZ.push(row);
                     }
                     
-                    // Create the Volume Profile trace as a vertical bar chart
-                    const cvpTrace = {
-                        y: priceLevels,
-                        x: volumeByPrice,
-                        type: 'bar',
-                        orientation: 'h',
-                        name: 'Volume Profile',
-                        marker: {
-                            color: 'rgba(0, 255, 157, 0.7)',
-                            line: {
-                                color: 'rgba(0, 255, 157, 1)',
-                                width: 1
-                            }
-                        }
+                    // Find the price range from priceLevels for consistent scaling
+                    const minPrice = Math.min(...priceLevels);
+                    const maxPrice = Math.max(...priceLevels);
+                    
+                    // Create the combined plot
+                    const trace1 = {
+                        x: times,
+                        y: prices,
+                        mode: 'lines',
+                        name: 'Price',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 100, 100, 1)',
+                            width: 3
+                        },
+                        // Use the same y-axis as the heatmap
+                        yaxis: 'y',
+                        type: 'scatter'
                     };
                     
-                    const cvpLayout = {
+                    // Get color density value
+                    const colorDensity = parseInt(document.getElementById('colorDensity').value);
+                    
+                    const trace2 = {
+                        x: timestamps,
+                        y: priceLevels,
+                        z: heatmapZ,
+                        type: 'heatmap',
+                        colorscale: generateWeightedColorscale(colorDensity),
+                        name: 'Order Density',
+                        colorbar: {
+                            title: 'Order Volume',
+                            titleside: 'right',
+                            titlefont: { color: '#00ff9d' },
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        zsmooth: false,
+                        showscale: true
+                    };
+                    
+                    const layout = {
                         title: {
-                            text: 'Volume Profile',
+                            text: 'Milk Price and Orderbook Heatmap',
                             font: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace'
@@ -852,8 +780,11 @@
                         paper_bgcolor: '#0f0f1f',
                         height: 600,
                         yaxis: {
-                            title: '',
-                            side: 'right',
+                            title: {
+                                text: 'Price (USDT)',
+                                font: { color: '#00ff9d' }
+                            },
+                            side: 'left',
                             range: [minPrice, maxPrice],
                             autorange: false,
                             showgrid: true,
@@ -863,73 +794,20 @@
                         },
                         xaxis: {
                             title: {
-                                text: 'Volume',
-                                font: { color: '#00ff9d' }
-                            },
-                            showgrid: true,
-                            gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' }
-                        },
-                        margin: {
-                            l: 0,
-                            r: 50,
-                            b: 50,
-                            t: 50,
-                            pad: 4
-                        },
-                        autosize: true
-                    };
-                    
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
-                }
-                
-                // Create the OBM chart if enabled
-                const showOBM = document.getElementById('showOBM').checked;
-                if (showOBM && obmData.timestamps.length > 0) {
-                    const obmTrace = {
-                        x: obmData.timestamps,
-                        y: obmData.obmValues,
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'OBM',
-                        line: {
-                            color: 'rgba(255, 100, 100, 1)',
-                            width: 2
-                        },
-                        fill: 'tozeroy',
-                        fillcolor: 'rgba(255, 100, 100, 0.3)'
-                    };
-                    
-                    const obmLayout = {
-                        title: {
-                            text: 'Order Book Momentum (OBM)',
-                            font: {
-                                color: '#00ff9d',
-                                family: 'Courier New, monospace'
-                            }
-                        },
-                        plot_bgcolor: '#0a0a12',
-                        paper_bgcolor: '#0f0f1f',
-                        height: 200,
-                        yaxis: {
-                            title: {
-                                text: 'OBM Value',
-                                font: { color: '#00ff9d' }
-                            },
-                            zeroline: true,
-                            zerolinecolor: 'rgba(0, 255, 157, 0.5)',
-                            gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' }
-                        },
-                        xaxis: {
-                            title: {
                                 text: 'Time',
                                 font: { color: '#00ff9d' }
                             },
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' },
-                            range: [times[0], times[times.length - 1]] // Match time range with main chart
+                            tickfont: { color: '#00ff9d' }
+                        },
+                        hovermode: 'closest',
+                        showlegend: true,
+                        legend: {
+                            font: { color: '#00ff9d' },
+                            bgcolor: 'rgba(10, 10, 18, 0.8)',
+                            bordercolor: '#00ff9d',
+                            borderwidth: 1
                         },
                         margin: {
                             l: 50,
@@ -941,9 +819,146 @@
                         autosize: true
                     };
                     
-                    Plotly.newPlot('obmChart', [obmTrace], obmLayout, {responsive: true});
-                } else {
-                    document.getElementById('obmChart').style.display = 'none';
+                    Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                    
+                    // Create the volume profile chart if enabled
+                    const showCVP = document.getElementById('showCVP').checked;
+                    if (showCVP) {
+                        // Calculate aggregate volume for each price level
+                        const volumeByPrice = new Array(priceLevels.length).fill(0);
+                        
+                        for (let i = 0; i < priceLevels.length; i++) {
+                            for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                                volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                            }
+                        }
+                        
+                        // Create the Volume Profile trace as a vertical bar chart
+                        const cvpTrace = {
+                            y: priceLevels,
+                            x: volumeByPrice,
+                            type: 'bar',
+                            orientation: 'h',
+                            name: 'Volume Profile',
+                            marker: {
+                                color: 'rgba(0, 255, 157, 0.7)',
+                                line: {
+                                    color: 'rgba(0, 255, 157, 1)',
+                                    width: 1
+                                }
+                            }
+                        };
+                        
+                        const cvpLayout = {
+                            title: {
+                                text: 'Volume Profile',
+                                font: {
+                                    color: '#00ff9d',
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            plot_bgcolor: '#0a0a12',
+                            paper_bgcolor: '#0f0f1f',
+                            height: 600,
+                            yaxis: {
+                                title: '',
+                                side: 'right',
+                                range: [minPrice, maxPrice],
+                                autorange: false,
+                                showgrid: true,
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' },
+                                zeroline: false
+                            },
+                            xaxis: {
+                                title: {
+                                    text: 'Volume',
+                                    font: { color: '#00ff9d' }
+                                },
+                                showgrid: true,
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' }
+                            },
+                            margin: {
+                                l: 0,
+                                r: 50,
+                                b: 50,
+                                t: 50,
+                                pad: 4
+                            },
+                            autosize: true
+                        };
+                        
+                        Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                    }
+                    
+                    // Create the OBM chart if enabled
+                    const showOBM = document.getElementById('showOBM').checked;
+                    if (showOBM && obmData && obmData.timestamps && obmData.timestamps.length > 0) {
+                        const obmTrace = {
+                            x: obmData.timestamps,
+                            y: obmData.obmValues,
+                            type: 'scatter',
+                            mode: 'lines',
+                            name: 'OBM',
+                            line: {
+                                color: 'rgba(255, 100, 100, 1)',
+                                width: 2
+                            },
+                            fill: 'tozeroy',
+                            fillcolor: 'rgba(255, 100, 100, 0.3)'
+                        };
+                        
+                        const obmLayout = {
+                            title: {
+                                text: 'Order Book Momentum (OBM)',
+                                font: {
+                                    color: '#00ff9d',
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            plot_bgcolor: '#0a0a12',
+                            paper_bgcolor: '#0f0f1f',
+                            height: 200,
+                            yaxis: {
+                                title: {
+                                    text: 'OBM Value',
+                                    font: { color: '#00ff9d' }
+                                },
+                                zeroline: true,
+                                zerolinecolor: 'rgba(0, 255, 157, 0.5)',
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' }
+                            },
+                            xaxis: {
+                                title: {
+                                    text: 'Time',
+                                    font: { color: '#00ff9d' }
+                                },
+                                showgrid: true,
+                                gridcolor: 'rgba(0, 255, 157, 0.1)',
+                                tickfont: { color: '#00ff9d' },
+                                range: times && times.length >= 2 ? [times[0], times[times.length - 1]] : null // Match time range with main chart
+                            },
+                            margin: {
+                                l: 50,
+                                r: 50,
+                                b: 50,
+                                t: 50,
+                                pad: 4
+                            },
+                            autosize: true
+                        };
+                        
+                        Plotly.newPlot('obmChart', [obmTrace], obmLayout, {responsive: true});
+                    } else {
+                        document.getElementById('obmChart').style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('Error rendering chart:', error);
+                    document.getElementById('chart').innerHTML = 'An error occurred while rendering the chart. Please try again.';
+                    document.getElementById('cvpChart').innerHTML = '';
+                    document.getElementById('obmChart').innerHTML = '';
                 }
             }
             
