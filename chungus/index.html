@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
-    <!-- Add MessagePack decoder library -->
-    <script src="https://unpkg.com/@msgpack/msgpack@2.8.0/dist.es5+umd/msgpack.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@ygoe/msgpack@1.0.3/msgpack.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -75,6 +74,15 @@
             padding: 15px;
             border-radius: 4px;
             border-left: 3px solid #00ff9d;
+        }
+        .performance-info {
+            margin-left: auto;
+            font-size: 0.8em;
+            color: #00ff9d;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 5px 10px;
+            border-radius: 3px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
         }
         select, button {
             padding: 8px 12px;
@@ -207,6 +215,11 @@
                 <input type="checkbox" id="showOBM" checked>
                 <label for="showOBM">Show Order Book Momentum</label>
             </div>
+            <div class="checkbox-container">
+                <input type="checkbox" id="useMsgPack" checked>
+                <label for="useMsgPack">Use MessagePack</label>
+            </div>
+            <div class="performance-info">Initializing...</div>
         </div>
         
         <div class="charts-wrapper">
@@ -403,6 +416,12 @@
                 document.getElementById('marginValue').textContent = this.value;
             });
             
+            // Performance tracking variables
+            let useMessagePack = true;
+            let lastLoadTime = 0;
+            let lastDataSize = 0;
+            const performanceInfo = document.querySelector('.performance-info');
+            
             function loadData(fullRefresh = false) {
                 const timeRange = document.getElementById('timeRange').value;
                 const buckets = document.getElementById('buckets').value;
@@ -432,20 +451,63 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Full refresh - fetch all data with margin percent parameter
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all([
-                        responses[0].json(),
-                        responses[1].arrayBuffer().then(buffer => {
-                            // Decode MessagePack data
-                            return msgpack.decode(new Uint8Array(buffer));
+                    // Start timing
+                    const startLoadTime = performance.now();
+                    
+                    // Fetch candlestick data with JSON
+                    const candlestickFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                        .then(res => res.json());
+                        
+                    // Fetch heatmap data with MessagePack or fallback to JSON
+                    let heatmapFetch;
+                    
+                    if (useMessagePack) {
+                        // Use MessagePack
+                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
+                            headers: {
+                                'Accept': 'application/x-msgpack'
+                            }
                         })
-                    ]))
+                        .then(res => {
+                            // Track response size
+                            lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                            return res.arrayBuffer();
+                        })
+                        .then(buffer => {
+                            // Convert ArrayBuffer to Uint8Array for MessagePack decoding
+                            const uint8Array = new Uint8Array(buffer);
+                            // Decode using the MessagePack library
+                            return msgpack.deserialize(uint8Array);
+                        })
+                        .catch(error => {
+                            console.error('MessagePack error, falling back to JSON:', error);
+                            useMessagePack = false; // Fallback to JSON for future requests
+                            performanceInfo.textContent = 'Using JSON (MessagePack failed)';
+                            
+                            // Fallback to JSON
+                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                                .then(res => {
+                                    lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                                    return res.json();
+                                });
+                        });
+                    } else {
+                        // Use JSON directly
+                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                            .then(res => {
+                                lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                                return res.json();
+                            });
+                    }
+                    
+                    // Combine fetches
+                    Promise.all([candlestickFetch, heatmapFetch])
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
+                        // Calculate and display performance metrics
+                        lastLoadTime = performance.now() - startLoadTime;
+                        updatePerformanceInfo(lastLoadTime, lastDataSize);
+                        
+                        // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -453,11 +515,11 @@
                     })
                     .catch(error => {
                         console.error('Error fetching data:', error);
+                        performanceInfo.textContent = 'Error loading data';
                         alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Auto-update case: Get a full refresh but with a shorter interval
-                    // This is simpler and more reliable than trying to merge
+                    // Auto-update case with the same approach as full refresh
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -475,23 +537,65 @@
                         default: duration = 3600;
                     }
                     
-                    // Just get data for the last 5 minutes + the current duration
-                    // This way we ensure we have proper overlap with existing data
                     const startTime = endTime - duration;
                     
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all([
-                        responses[0].json(),
-                        responses[1].arrayBuffer().then(buffer => {
-                            // Decode MessagePack data
-                            return msgpack.decode(new Uint8Array(buffer));
+                    // Start timing
+                    const startLoadTime = performance.now();
+                    
+                    // Fetch candlestick data with JSON
+                    const candlestickFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
+                        .then(res => res.json());
+                        
+                    // Fetch heatmap data with MessagePack or fallback to JSON
+                    let heatmapFetch;
+                    
+                    if (useMessagePack) {
+                        // Use MessagePack
+                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
+                            headers: {
+                                'Accept': 'application/x-msgpack'
+                            }
                         })
-                    ]))
+                        .then(res => {
+                            // Track response size
+                            lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                            return res.arrayBuffer();
+                        })
+                        .then(buffer => {
+                            // Convert ArrayBuffer to Uint8Array for MessagePack decoding
+                            const uint8Array = new Uint8Array(buffer);
+                            // Decode using the MessagePack library
+                            return msgpack.deserialize(uint8Array);
+                        })
+                        .catch(error => {
+                            console.error('MessagePack error, falling back to JSON:', error);
+                            useMessagePack = false; // Fallback to JSON for future requests
+                            performanceInfo.textContent = 'Using JSON (MessagePack failed)';
+                            
+                            // Fallback to JSON
+                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                                .then(res => {
+                                    lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                                    return res.json();
+                                });
+                        });
+                    } else {
+                        // Use JSON directly
+                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                            .then(res => {
+                                lastDataSize = parseInt(res.headers.get('content-length') || '0');
+                                return res.json();
+                            });
+                    }
+                    
+                    // Combine fetches
+                    Promise.all([candlestickFetch, heatmapFetch])
                     .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
+                        // Calculate and display performance metrics
+                        lastLoadTime = performance.now() - startLoadTime;
+                        updatePerformanceInfo(lastLoadTime, lastDataSize);
+                        
+                        // Store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -502,6 +606,13 @@
                         // Silently fail, will retry on next auto-update
                     });
                 }
+            }
+            
+            // Update performance info display
+            function updatePerformanceInfo(loadTime, dataSize) {
+                const format = useMessagePack ? 'MessagePack' : 'JSON';
+                const sizeKB = (dataSize / 1024).toFixed(1);
+                performanceInfo.textContent = `${format}: ${loadTime.toFixed(0)}ms | ${sizeKB}KB`;
             }
             
             // Generate a colorscale with weights adjusted by the density value
@@ -805,6 +916,14 @@
                 }
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
+            });
+            
+            // Add event listener for the MessagePack toggle
+            document.getElementById('useMsgPack').addEventListener('change', function() {
+                useMessagePack = this.checked;
+                performanceInfo.textContent = `Using ${useMessagePack ? 'MessagePack' : 'JSON'}...`;
+                // Refresh data to apply the change
+                loadData(true);
             });
         });
     </script>
