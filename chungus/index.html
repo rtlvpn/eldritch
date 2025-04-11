@@ -791,10 +791,20 @@
                     // Add custom title div element
                     document.getElementById('obmChart').innerHTML = '<div class="obm-title">ORDER BOOK MOMENTUM ANALYZER</div>';
                     
+                    // Create detailed hover text for each data point
+                    const positiveHoverTexts = obmData.obmValues.map(val => 
+                        val >= 0 ? `OBM: ${val.toFixed(4)}\nBULLISH SIGNAL` : null
+                    );
+                    
+                    const negativeHoverTexts = obmData.obmValues.map(val => 
+                        val <= 0 ? `OBM: ${val.toFixed(4)}\nBEARISH SIGNAL` : null
+                    );
+                    
                     // Create multiple traces for more visual appeal
                     const obmTracePositive = {
                         x: obmData.timestamps,
                         y: obmData.obmValues.map(val => val >= 0 ? val : null),
+                        text: positiveHoverTexts,
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bullish Pressure',
@@ -806,7 +816,7 @@
                         fill: 'tozeroy',
                         fillcolor: 'rgba(0, 255, 157, 0.2)',
                         connectgaps: false,
-                        hoverinfo: 'x+y',
+                        hoverinfo: 'text+x',
                         hoverlabel: {
                             bgcolor: 'rgba(0, 20, 40, 0.9)',
                             bordercolor: 'rgba(0, 255, 157, 1)',
@@ -821,6 +831,7 @@
                     const obmTraceNegative = {
                         x: obmData.timestamps,
                         y: obmData.obmValues.map(val => val <= 0 ? val : null),
+                        text: negativeHoverTexts,
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bearish Pressure',
@@ -832,7 +843,7 @@
                         fill: 'tozeroy',
                         fillcolor: 'rgba(255, 41, 105, 0.2)',
                         connectgaps: false,
-                        hoverinfo: 'x+y',
+                        hoverinfo: 'text+x',
                         hoverlabel: {
                             bgcolor: 'rgba(40, 0, 20, 0.9)',
                             bordercolor: 'rgba(255, 41, 105, 1)',
@@ -840,6 +851,38 @@
                                 family: 'Courier New, monospace',
                                 size: 13,
                                 color: 'rgb(255, 150, 170)'
+                            }
+                        }
+                    };
+                    
+                    // Add the full line trace with hover info for all points
+                    const fullLineTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues,
+                        text: obmData.obmValues.map(val => `OBM: ${val.toFixed(4)}`),
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(0, 0, 0, 0)' // Transparent line
+                        },
+                        marker: {
+                            size: 3,
+                            color: 'rgba(150, 150, 150, 0.1)',
+                            line: {
+                                width: 1,
+                                color: 'rgba(150, 150, 150, 0.3)'
+                            }
+                        },
+                        showlegend: false,
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(20, 20, 40, 0.9)',
+                            bordercolor: 'rgba(150, 150, 255, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(180, 220, 255)'
                             }
                         }
                     };
@@ -1086,10 +1129,11 @@
                         }
                     };
                     
-                    // Create plot with all our traces
+                    // Change the plot order to ensure all points are hoverable
                     Plotly.newPlot('obmChart', [
                         obmTracePositive, 
-                        obmTraceNegative, 
+                        obmTraceNegative,
+                        fullLineTrace,  // Add this trace to ensure all points are hoverable
                         ghostTrace, 
                         extremeHighsTrace, 
                         extremeLowsTrace
