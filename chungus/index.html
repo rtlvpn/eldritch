@@ -5,8 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
-    <!-- Load the official MessagePack library for JavaScript -->
-    <script src="https://unpkg.com/@msgpack/msgpack/dist.umd/msgpack.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -75,15 +73,6 @@
             padding: 15px;
             border-radius: 4px;
             border-left: 3px solid #00ff9d;
-        }
-        .performance-info {
-            margin-left: auto;
-            font-size: 0.8em;
-            color: #00ff9d;
-            background-color: rgba(0, 0, 0, 0.3);
-            padding: 5px 10px;
-            border-radius: 3px;
-            border: 1px solid rgba(0, 255, 157, 0.3);
         }
         select, button {
             padding: 8px 12px;
@@ -161,10 +150,77 @@
         /* Add style for the OBM chart */
         .obm-chart-container {
             width: 100%;
-            height: 200px;
-            border: 1px solid rgba(0, 255, 157, 0.3);
+            height: 250px; /* Increase height for more impact */
+            border: 1px solid rgba(0, 255, 157, 0.6);
             margin-top: 20px;
-            background-color: rgba(10, 10, 20, 0.5);
+            background-color: rgba(10, 10, 20, 0.8);
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        /* Add scan lines effect */
+        .obm-chart-container::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom,
+                rgba(10, 10, 20, 0) 50%,
+                rgba(0, 255, 157, 0.03) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+            animation: scanlines 8s linear infinite;
+        }
+        /* Add CRT edge effect */
+        .obm-chart-container::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(
+                ellipse at center,
+                rgba(10, 10, 20, 0) 60%,
+                rgba(0, 0, 30, 0.6) 100%
+            );
+            pointer-events: none;
+            z-index: 11;
+        }
+        /* Pulse animation */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+            50% { box-shadow: 0 0 30px rgba(0, 255, 157, 0.6), inset 0 0 40px rgba(0, 0, 20, 0.7); }
+            100% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+        }
+        /* Scan lines animation */
+        @keyframes scanlines {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+        /* Glow and pulse on hover */
+        .obm-chart-container:hover {
+            animation: pulse 3s infinite;
+            border-color: rgba(0, 255, 200, 0.8);
+        }
+        /* Custom title for OBM chart */
+        .obm-title {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Courier New', monospace;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 12;
+            letter-spacing: 2px;
+            text-transform: uppercase;
         }
     </style>
 </head>
@@ -216,11 +272,6 @@
                 <input type="checkbox" id="showOBM" checked>
                 <label for="showOBM">Show Order Book Momentum</label>
             </div>
-            <div class="checkbox-container">
-                <input type="checkbox" id="useMsgPack" checked>
-                <label for="useMsgPack">Use MessagePack</label>
-            </div>
-            <div class="performance-info">Initializing...</div>
         </div>
         
         <div class="charts-wrapper">
@@ -273,14 +324,6 @@
                     timestamps: [],
                     obmValues: []
                 };
-                
-                // Extra safety check to prevent errors
-                if (!heatmapData || !heatmapData.heatmap || !Array.isArray(heatmapData.heatmap) || 
-                    !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) ||
-                    !heatmapData.priceLevels || !Array.isArray(heatmapData.priceLevels)) {
-                    console.error('Invalid heatmap data structure in OBM calculation');
-                    return result;
-                }
                 
                 if (heatmapData.heatmap.length < 2) return result;
                 
@@ -368,12 +411,6 @@
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
             
-            // Performance tracking variables - moved before loadData call
-            let useMessagePack = true;
-            let lastLoadTime = 0;
-            let lastDataSize = 0;
-            const performanceInfo = document.querySelector('.performance-info');
-            
             // Initial load
             loadData(true); // true indicates a full load
             
@@ -460,76 +497,14 @@
                     const endTime = Math.floor(Date.now() / 1000);
                     const startTime = endTime - duration;
                     
-                    // Start timing
-                    const startLoadTime = performance.now();
-                    
-                    // Fetch candlestick data with JSON
-                    const candlestickFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                        .then(res => res.json());
-                        
-                    // Fetch heatmap data with MessagePack or fallback to JSON
-                    let heatmapFetch;
-                    
-                    if (useMessagePack) {
-                        // Use MessagePack
-                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
-                            headers: {
-                                'Accept': 'application/x-msgpack'
-                            }
-                        })
-                        .then(res => {
-                            // Track response size
-                            lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                            return res.arrayBuffer();
-                        })
-                        .then(buffer => {
-                            // Convert ArrayBuffer to Uint8Array for MessagePack decoding
-                            const uint8Array = new Uint8Array(buffer);
-                            // Decode using the MessagePack library
-                            return MessagePack.decode(uint8Array);
-                        })
-                        .catch(error => {
-                            console.error('MessagePack error, falling back to JSON:', error);
-                            useMessagePack = false; // Fallback to JSON for future requests
-                            performanceInfo.textContent = 'Using JSON (MessagePack failed)';
-                            
-                            // Fallback to JSON
-                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                                .then(res => {
-                                    lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                                    return res.json();
-                                });
-                        });
-                    } else {
-                        // Use JSON directly
-                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                            .then(res => {
-                                lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                                return res.json();
-                            });
-                    }
-                    
-                    // Combine fetches
-                    Promise.all([candlestickFetch, heatmapFetch])
+                    // Full refresh - fetch all data with margin percent parameter
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Calculate and display performance metrics
-                        lastLoadTime = performance.now() - startLoadTime;
-                        updatePerformanceInfo(lastLoadTime, lastDataSize);
-                        
-                        // Validate response data before proceeding
-                        if (!candlestickData || !Array.isArray(candlestickData)) {
-                            console.error('Invalid candlestick data format:', candlestickData);
-                            performanceInfo.textContent = 'Error: Invalid candlestick data';
-                            return;
-                        }
-                        
-                        if (!heatmapData || !heatmapData.timestamps || !heatmapData.priceLevels || !heatmapData.heatmap) {
-                            console.error('Invalid heatmap data format:', heatmapData);
-                            performanceInfo.textContent = 'Error: Invalid heatmap data';
-                            return;
-                        }
-                        
-                        // Store the complete data
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -537,11 +512,11 @@
                     })
                     .catch(error => {
                         console.error('Error fetching data:', error);
-                        performanceInfo.textContent = 'Error loading data';
-                        document.getElementById('chart').innerHTML = 'Failed to load data. Please try again.';
+                        alert('Failed to load data. Please try again.');
                     });
                 } else {
-                    // Auto-update case with the same approach as full refresh
+                    // Auto-update case: Get a full refresh but with a shorter interval
+                    // This is simpler and more reliable than trying to merge
                     const endTime = Math.floor(Date.now() / 1000);
                     let duration;
                     switch(timeRange) {
@@ -559,78 +534,17 @@
                         default: duration = 3600;
                     }
                     
+                    // Just get data for the last 5 minutes + the current duration
+                    // This way we ensure we have proper overlap with existing data
                     const startTime = endTime - duration;
                     
-                    // Start timing
-                    const startLoadTime = performance.now();
-                    
-                    // Fetch candlestick data with JSON
-                    const candlestickFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`)
-                        .then(res => res.json());
-                        
-                    // Fetch heatmap data with MessagePack or fallback to JSON
-                    let heatmapFetch;
-                    
-                    if (useMessagePack) {
-                        // Use MessagePack
-                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap/msgpack?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`, {
-                            headers: {
-                                'Accept': 'application/x-msgpack'
-                            }
-                        })
-                        .then(res => {
-                            // Track response size
-                            lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                            return res.arrayBuffer();
-                        })
-                        .then(buffer => {
-                            // Convert ArrayBuffer to Uint8Array for MessagePack decoding
-                            const uint8Array = new Uint8Array(buffer);
-                            // Decode using the MessagePack library
-                            return MessagePack.decode(uint8Array);
-                        })
-                        .catch(error => {
-                            console.error('MessagePack error, falling back to JSON:', error);
-                            useMessagePack = false; // Fallback to JSON for future requests
-                            performanceInfo.textContent = 'Using JSON (MessagePack failed)';
-                            
-                            // Fallback to JSON
-                            return fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                                .then(res => {
-                                    lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                                    return res.json();
-                                });
-                        });
-                    } else {
-                        // Use JSON directly
-                        heatmapFetch = fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                            .then(res => {
-                                lastDataSize = parseInt(res.headers.get('content-length') || '0');
-                                return res.json();
-                            });
-                    }
-                    
-                    // Combine fetches
-                    Promise.all([candlestickFetch, heatmapFetch])
+                    Promise.all([
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                    ])
+                    .then(responses => Promise.all(responses.map(res => res.json())))
                     .then(([candlestickData, heatmapData]) => {
-                        // Calculate and display performance metrics
-                        lastLoadTime = performance.now() - startLoadTime;
-                        updatePerformanceInfo(lastLoadTime, lastDataSize);
-                        
-                        // Validate response data before proceeding
-                        if (!candlestickData || !Array.isArray(candlestickData)) {
-                            console.error('Invalid candlestick data format:', candlestickData);
-                            performanceInfo.textContent = 'Error: Invalid candlestick data';
-                            return;
-                        }
-                        
-                        if (!heatmapData || !heatmapData.timestamps || !heatmapData.priceLevels || !heatmapData.heatmap) {
-                            console.error('Invalid heatmap data format:', heatmapData);
-                            performanceInfo.textContent = 'Error: Invalid heatmap data';
-                            return;
-                        }
-                        
-                        // Store the complete data
+                        // Just store the complete data
                         cachedCandlestickData = candlestickData;
                         cachedHeatmapData = heatmapData;
                         lastFetchTime = endTime;
@@ -638,17 +552,9 @@
                     })
                     .catch(error => {
                         console.error('Error fetching data:', error);
-                        // Provide visual feedback instead of silently failing
-                        performanceInfo.textContent = 'Error loading data';
+                        // Silently fail, will retry on next auto-update
                     });
                 }
-            }
-            
-            // Update performance info display
-            function updatePerformanceInfo(loadTime, dataSize) {
-                const format = useMessagePack ? 'MessagePack' : 'JSON';
-                const sizeKB = (dataSize / 1024).toFixed(1);
-                performanceInfo.textContent = `${format}: ${loadTime.toFixed(0)}ms | ${sizeKB}KB`;
             }
             
             // Generate a colorscale with weights adjusted by the density value
@@ -686,91 +592,159 @@
             }
             
             function renderChart(candlestickData, heatmapData) {
-                try {
-                    // Add more comprehensive error checking
-                    if (!candlestickData || !Array.isArray(candlestickData) || !heatmapData || 
-                        !heatmapData.timestamps || !Array.isArray(heatmapData.timestamps) || 
-                        !heatmapData.priceLevels || !heatmapData.heatmap) {
-                        console.error('Invalid data structure:', { 
-                            candlestickData: candlestickData ? typeof candlestickData : 'undefined', 
-                            heatmapData: heatmapData ? Object.keys(heatmapData) : 'undefined' 
-                        });
-                        document.getElementById('chart').innerHTML = 'Error: Invalid data received. Please try again.';
-                        return;
+                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                    return;
+                }
+                
+                // Calculate Order Book Momentum
+                const obmData = calculateOBM(heatmapData);
+                
+                // Prepare price data
+                const times = candlestickData.map(item => new Date(item.timestamp));
+                const prices = candlestickData.map(item => item.close);
+                
+                // Prepare heatmap data
+                const heatmapZ = [];
+                const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                const priceLevels = heatmapData.priceLevels;
+                
+                // Convert the heatmap result to a matrix format that Plotly can use
+                // Each row represents a price level, each column represents a timestamp
+                for (let i = 0; i < priceLevels.length; i++) {
+                    const row = [];
+                    for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                        // Get the volume for this price level at this timestamp
+                        const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        row.push(volume);
                     }
-                    
-                    if (!candlestickData.length || !heatmapData.timestamps.length) {
-                        document.getElementById('chart').innerHTML = 'No data available for the selected time range';
-                        return;
-                    }
-                    
-                    // Calculate Order Book Momentum
-                    const obmData = calculateOBM(heatmapData);
-                    
-                    // Prepare price data
-                    const times = candlestickData.map(item => new Date(item.timestamp));
-                    const prices = candlestickData.map(item => item.close);
-                    
-                    // Prepare heatmap data
-                    const heatmapZ = [];
-                    const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
-                    const priceLevels = heatmapData.priceLevels;
-                    
-                    // Convert the heatmap result to a matrix format that Plotly can use
-                    // Each row represents a price level, each column represents a timestamp
-                    for (let i = 0; i < priceLevels.length; i++) {
-                        const row = [];
-                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                            // Get the volume for this price level at this timestamp
-                            const volume = Math.abs(heatmapData.heatmap[j].volumes[i]);
-                            row.push(volume);
+                    heatmapZ.push(row);
+                }
+                
+                // Find the price range from priceLevels for consistent scaling
+                const minPrice = Math.min(...priceLevels);
+                const maxPrice = Math.max(...priceLevels);
+                
+                // Create the combined plot
+                const trace1 = {
+                    x: times,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 100, 100, 1)',
+                        width: 3
+                    },
+                    // Use the same y-axis as the heatmap
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
+                
+                // Get color density value
+                const colorDensity = parseInt(document.getElementById('colorDensity').value);
+                
+                const trace2 = {
+                    x: timestamps,
+                    y: priceLevels,
+                    z: heatmapZ,
+                    type: 'heatmap',
+                    colorscale: generateWeightedColorscale(colorDensity),
+                    name: 'Order Density',
+                    colorbar: {
+                        title: 'Order Volume',
+                        titleside: 'right',
+                        titlefont: { color: '#00ff9d' },
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    zsmooth: false,
+                    showscale: true
+                };
+                
+                const layout = {
+                    title: {
+                        text: 'Milk Price and Orderbook Heatmap',
+                        font: {
+                            color: '#00ff9d',
+                            family: 'Courier New, monospace'
                         }
-                        heatmapZ.push(row);
+                    },
+                    plot_bgcolor: '#0a0a12',
+                    paper_bgcolor: '#0f0f1f',
+                    height: 600,
+                    yaxis: {
+                        title: {
+                            text: 'Price (USDT)',
+                            font: { color: '#00ff9d' }
+                        },
+                        side: 'left',
+                        range: [minPrice, maxPrice],
+                        autorange: false,
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' },
+                        zeroline: false
+                    },
+                    xaxis: {
+                        title: {
+                            text: 'Time',
+                            font: { color: '#00ff9d' }
+                        },
+                        showgrid: true,
+                        gridcolor: 'rgba(0, 255, 157, 0.1)',
+                        tickfont: { color: '#00ff9d' }
+                    },
+                    hovermode: 'closest',
+                    showlegend: true,
+                    legend: {
+                        font: { color: '#00ff9d' },
+                        bgcolor: 'rgba(10, 10, 18, 0.8)',
+                        bordercolor: '#00ff9d',
+                        borderwidth: 1
+                    },
+                    margin: {
+                        l: 50,
+                        r: 50,
+                        b: 50,
+                        t: 50,
+                        pad: 4
+                    },
+                    autosize: true
+                };
+                
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                
+                // Create the volume profile chart if enabled
+                const showCVP = document.getElementById('showCVP').checked;
+                if (showCVP) {
+                    // Calculate aggregate volume for each price level
+                    const volumeByPrice = new Array(priceLevels.length).fill(0);
+                    
+                    for (let i = 0; i < priceLevels.length; i++) {
+                        for (let j = 0; j < heatmapData.heatmap.length; j++) {
+                            volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
+                        }
                     }
                     
-                    // Find the price range from priceLevels for consistent scaling
-                    const minPrice = Math.min(...priceLevels);
-                    const maxPrice = Math.max(...priceLevels);
-                    
-                    // Create the combined plot
-                    const trace1 = {
-                        x: times,
-                        y: prices,
-                        mode: 'lines',
-                        name: 'Price',
-                        line: {
-                            shape: 'spline',
-                            color: 'rgba(255, 100, 100, 1)',
-                            width: 3
-                        },
-                        // Use the same y-axis as the heatmap
-                        yaxis: 'y',
-                        type: 'scatter'
-                    };
-                    
-                    // Get color density value
-                    const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                    
-                    const trace2 = {
-                        x: timestamps,
+                    // Create the Volume Profile trace as a vertical bar chart
+                    const cvpTrace = {
                         y: priceLevels,
-                        z: heatmapZ,
-                        type: 'heatmap',
-                        colorscale: generateWeightedColorscale(colorDensity),
-                        name: 'Order Density',
-                        colorbar: {
-                            title: 'Order Volume',
-                            titleside: 'right',
-                            titlefont: { color: '#00ff9d' },
-                            tickfont: { color: '#00ff9d' }
-                        },
-                        zsmooth: false,
-                        showscale: true
+                        x: volumeByPrice,
+                        type: 'bar',
+                        orientation: 'h',
+                        name: 'Volume Profile',
+                        marker: {
+                            color: 'rgba(0, 255, 157, 0.7)',
+                            line: {
+                                color: 'rgba(0, 255, 157, 1)',
+                                width: 1
+                            }
+                        }
                     };
                     
-                    const layout = {
+                    const cvpLayout = {
                         title: {
-                            text: 'Milk Price and Orderbook Heatmap',
+                            text: 'Volume Profile',
                             font: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace'
@@ -780,11 +754,8 @@
                         paper_bgcolor: '#0f0f1f',
                         height: 600,
                         yaxis: {
-                            title: {
-                                text: 'Price (USDT)',
-                                font: { color: '#00ff9d' }
-                            },
-                            side: 'left',
+                            title: '',
+                            side: 'right',
                             range: [minPrice, maxPrice],
                             autorange: false,
                             showgrid: true,
@@ -794,23 +765,15 @@
                         },
                         xaxis: {
                             title: {
-                                text: 'Time',
+                                text: 'Volume',
                                 font: { color: '#00ff9d' }
                             },
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
                             tickfont: { color: '#00ff9d' }
                         },
-                        hovermode: 'closest',
-                        showlegend: true,
-                        legend: {
-                            font: { color: '#00ff9d' },
-                            bgcolor: 'rgba(10, 10, 18, 0.8)',
-                            bordercolor: '#00ff9d',
-                            borderwidth: 1
-                        },
                         margin: {
-                            l: 50,
+                            l: 0,
                             r: 50,
                             b: 50,
                             t: 50,
@@ -819,146 +782,305 @@
                         autosize: true
                     };
                     
-                    Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                }
+                
+                // Create the OBM chart if enabled
+                const showOBM = document.getElementById('showOBM').checked;
+                if (showOBM && obmData.timestamps.length > 0) {
+                    // Add custom title div element
+                    document.getElementById('obmChart').innerHTML = '<div class="obm-title">ORDER BOOK MOMENTUM ANALYZER</div>';
                     
-                    // Create the volume profile chart if enabled
-                    const showCVP = document.getElementById('showCVP').checked;
-                    if (showCVP) {
-                        // Calculate aggregate volume for each price level
-                        const volumeByPrice = new Array(priceLevels.length).fill(0);
+                    // Create multiple traces for more visual appeal
+                    const obmTracePositive = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues.map(val => val > 0 ? val : 0),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Bullish Pressure',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(0, 255, 157, 1)',
+                            width: 3
+                        },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(0, 255, 157, 0.2)'
+                    };
+                    
+                    const obmTraceNegative = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues.map(val => val < 0 ? val : 0),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Bearish Pressure',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 41, 105, 1)',
+                            width: 3
+                        },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(255, 41, 105, 0.2)'
+                    };
+                    
+                    // Add ghost line trace for cyberpunk effect
+                    const ghostTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues,
+                        type: 'scatter',
+                        mode: 'lines',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(180, 255, 217, 0.4)',
+                            width: 1,
+                            dash: 'dot'
+                        },
+                        showlegend: false,
+                        hoverinfo: 'none'
+                    };
+                    
+                    // Add extreme points markers
+                    const highPoints = [], lowPoints = [];
+                    for (let i = 1; i < obmData.obmValues.length-1; i++) {
+                        const prev = obmData.obmValues[i-1];
+                        const curr = obmData.obmValues[i];
+                        const next = obmData.obmValues[i+1];
                         
-                        for (let i = 0; i < priceLevels.length; i++) {
-                            for (let j = 0; j < heatmapData.heatmap.length; j++) {
-                                volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
-                            }
+                        if (curr > prev && curr > next && curr > 0.1) {
+                            highPoints.push({
+                                x: obmData.timestamps[i],
+                                y: curr
+                            });
                         }
                         
-                        // Create the Volume Profile trace as a vertical bar chart
-                        const cvpTrace = {
-                            y: priceLevels,
-                            x: volumeByPrice,
-                            type: 'bar',
-                            orientation: 'h',
-                            name: 'Volume Profile',
-                            marker: {
-                                color: 'rgba(0, 255, 157, 0.7)',
-                                line: {
-                                    color: 'rgba(0, 255, 157, 1)',
-                                    width: 1
-                                }
-                            }
-                        };
-                        
-                        const cvpLayout = {
-                            title: {
-                                text: 'Volume Profile',
-                                font: {
-                                    color: '#00ff9d',
-                                    family: 'Courier New, monospace'
-                                }
-                            },
-                            plot_bgcolor: '#0a0a12',
-                            paper_bgcolor: '#0f0f1f',
-                            height: 600,
-                            yaxis: {
-                                title: '',
-                                side: 'right',
-                                range: [minPrice, maxPrice],
-                                autorange: false,
-                                showgrid: true,
-                                gridcolor: 'rgba(0, 255, 157, 0.1)',
-                                tickfont: { color: '#00ff9d' },
-                                zeroline: false
-                            },
-                            xaxis: {
-                                title: {
-                                    text: 'Volume',
-                                    font: { color: '#00ff9d' }
-                                },
-                                showgrid: true,
-                                gridcolor: 'rgba(0, 255, 157, 0.1)',
-                                tickfont: { color: '#00ff9d' }
-                            },
-                            margin: {
-                                l: 0,
-                                r: 50,
-                                b: 50,
-                                t: 50,
-                                pad: 4
-                            },
-                            autosize: true
-                        };
-                        
-                        Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                        if (curr < prev && curr < next && curr < -0.1) {
+                            lowPoints.push({
+                                x: obmData.timestamps[i],
+                                y: curr
+                            });
+                        }
                     }
                     
-                    // Create the OBM chart if enabled
-                    const showOBM = document.getElementById('showOBM').checked;
-                    if (showOBM && obmData && obmData.timestamps && obmData.timestamps.length > 0) {
-                        const obmTrace = {
-                            x: obmData.timestamps,
-                            y: obmData.obmValues,
-                            type: 'scatter',
-                            mode: 'lines',
-                            name: 'OBM',
+                    const extremeHighsTrace = {
+                        x: highPoints.map(p => p.x),
+                        y: highPoints.map(p => p.y),
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: {
+                            color: 'rgba(255, 255, 0, 0.8)',
+                            size: 8,
+                            symbol: 'diamond',
                             line: {
-                                color: 'rgba(255, 100, 100, 1)',
-                                width: 2
-                            },
-                            fill: 'tozeroy',
-                            fillcolor: 'rgba(255, 100, 100, 0.3)'
-                        };
-                        
-                        const obmLayout = {
+                                color: 'rgba(255, 255, 255, 1)',
+                                width: 1
+                            }
+                        },
+                        name: 'Momentum Peaks',
+                        hoverinfo: 'y'
+                    };
+                    
+                    const extremeLowsTrace = {
+                        x: lowPoints.map(p => p.x),
+                        y: lowPoints.map(p => p.y),
+                        type: 'scatter',
+                        mode: 'markers',
+                        marker: {
+                            color: 'rgba(255, 41, 105, 0.8)',
+                            size: 8,
+                            symbol: 'x',
+                            line: {
+                                color: 'rgba(255, 255, 255, 1)',
+                                width: 1
+                            }
+                        },
+                        name: 'Momentum Troughs',
+                        hoverinfo: 'y'
+                    };
+                    
+                    const obmLayout = {
+                        plot_bgcolor: 'rgba(15, 15, 35, 0.9)',
+                        paper_bgcolor: 'rgba(10, 10, 25, 0)',
+                        height: 250,
+                        yaxis: {
                             title: {
-                                text: 'Order Book Momentum (OBM)',
-                                font: {
+                                text: 'MOMENTUM SIGNAL',
+                                font: { 
                                     color: '#00ff9d',
+                                    size: 12,
                                     family: 'Courier New, monospace'
                                 }
                             },
-                            plot_bgcolor: '#0a0a12',
-                            paper_bgcolor: '#0f0f1f',
-                            height: 200,
-                            yaxis: {
-                                title: {
-                                    text: 'OBM Value',
-                                    font: { color: '#00ff9d' }
+                            zeroline: true,
+                            zerolinecolor: 'rgba(0, 255, 157, 0.7)',
+                            zerolinewidth: 2,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            gridwidth: 1,
+                            tickfont: { 
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
+                            tickformat: '.2f',
+                            showticklabels: true,
+                            showline: true,
+                            linecolor: 'rgba(0, 255, 157, 0.5)',
+                            linewidth: 2
+                        },
+                        xaxis: {
+                            showgrid: true,
+                            gridcolor: 'rgba(0, 255, 157, 0.1)',
+                            tickfont: { 
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
+                            range: [times[0], times[times.length - 1]] // Match time range with main chart
+                        },
+                        legend: {
+                            orientation: 'h',
+                            xanchor: 'center',
+                            yanchor: 'bottom',
+                            x: 0.5,
+                            y: 1,
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
+                            bgcolor: 'rgba(10, 10, 25, 0.7)',
+                            bordercolor: 'rgba(0, 255, 157, 0.5)',
+                            borderwidth: 1
+                        },
+                        margin: {
+                            l: 50,
+                            r: 50,
+                            b: 50,
+                            t: 60,
+                            pad: 4
+                        },
+                        autosize: true,
+                        shapes: [
+                            // Add horizontal regions for bullish/bearish/neutral
+                            {
+                                type: 'rect',
+                                xref: 'paper',
+                                yref: 'y',
+                                x0: 0,
+                                y0: 0.1,
+                                x1: 1,
+                                y1: 0.5,
+                                fillcolor: 'rgba(0, 255, 157, 0.05)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            },
+                            {
+                                type: 'rect',
+                                xref: 'paper',
+                                yref: 'y',
+                                x0: 0,
+                                y0: -0.1,
+                                x1: 1,
+                                y1: 0.1,
+                                fillcolor: 'rgba(255, 255, 255, 0.03)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            },
+                            {
+                                type: 'rect',
+                                xref: 'paper',
+                                yref: 'y',
+                                x0: 0,
+                                y0: -0.5,
+                                x1: 1,
+                                y1: -0.1,
+                                fillcolor: 'rgba(255, 41, 105, 0.05)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            }
+                        ],
+                        annotations: [
+                            {
+                                x: 0.02,
+                                y: 0.25,
+                                xref: 'paper',
+                                yref: 'y',
+                                text: 'BULLISH',
+                                showarrow: false,
+                                font: {
+                                    color: 'rgba(0, 255, 157, 0.5)',
+                                    size: 10,
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            {
+                                x: 0.02,
+                                y: -0.25,
+                                xref: 'paper',
+                                yref: 'y',
+                                text: 'BEARISH',
+                                showarrow: false,
+                                font: {
+                                    color: 'rgba(255, 41, 105, 0.5)',
+                                    size: 10,
+                                    family: 'Courier New, monospace'
+                                }
+                            }
+                        ],
+                        hovermode: 'closest',
+                        // Add config for more interaction
+                        modebar: {
+                            bgcolor: 'rgba(10, 10, 25, 0.7)',
+                            color: '#00ff9d'
+                        }
+                    };
+                    
+                    // Create plot with all our traces
+                    Plotly.newPlot('obmChart', [
+                        obmTracePositive, 
+                        obmTraceNegative, 
+                        ghostTrace, 
+                        extremeHighsTrace, 
+                        extremeLowsTrace
+                    ], obmLayout, {
+                        responsive: true,
+                        displayModeBar: true,
+                        modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines'],
+                        toImageButtonOptions: {
+                            format: 'png',
+                            filename: 'orderbook_momentum_analyzer',
+                            height: 500,
+                            width: 1200,
+                            scale: 2
+                        }
+                    });
+                    
+                    // Add pulsing highlight when OBM crosses zero
+                    let lastValue = null;
+                    for (let i = 1; i < obmData.obmValues.length; i++) {
+                        if ((obmData.obmValues[i-1] < 0 && obmData.obmValues[i] > 0) ||
+                            (obmData.obmValues[i-1] > 0 && obmData.obmValues[i] < 0)) {
+                            
+                            Plotly.addTraces('obmChart', {
+                                x: [obmData.timestamps[i]],
+                                y: [obmData.obmValues[i]],
+                                type: 'scatter',
+                                mode: 'markers',
+                                marker: {
+                                    color: 'rgba(255, 255, 255, 0.9)',
+                                    size: 10,
+                                    symbol: 'circle',
+                                    line: {
+                                        color: 'rgba(0, 255, 157, 1)',
+                                        width: 2
+                                    }
                                 },
-                                zeroline: true,
-                                zerolinecolor: 'rgba(0, 255, 157, 0.5)',
-                                gridcolor: 'rgba(0, 255, 157, 0.1)',
-                                tickfont: { color: '#00ff9d' }
-                            },
-                            xaxis: {
-                                title: {
-                                    text: 'Time',
-                                    font: { color: '#00ff9d' }
-                                },
-                                showgrid: true,
-                                gridcolor: 'rgba(0, 255, 157, 0.1)',
-                                tickfont: { color: '#00ff9d' },
-                                range: times && times.length >= 2 ? [times[0], times[times.length - 1]] : null // Match time range with main chart
-                            },
-                            margin: {
-                                l: 50,
-                                r: 50,
-                                b: 50,
-                                t: 50,
-                                pad: 4
-                            },
-                            autosize: true
-                        };
-                        
-                        Plotly.newPlot('obmChart', [obmTrace], obmLayout, {responsive: true});
-                    } else {
-                        document.getElementById('obmChart').style.display = 'none';
+                                showlegend: false,
+                                hoverinfo: 'y+text',
+                                hovertext: 'REVERSAL POINT'
+                            });
+                        }
                     }
-                } catch (error) {
-                    console.error('Error rendering chart:', error);
-                    document.getElementById('chart').innerHTML = 'An error occurred while rendering the chart. Please try again.';
-                    document.getElementById('cvpChart').innerHTML = '';
-                    document.getElementById('obmChart').innerHTML = '';
+                } else {
+                    document.getElementById('obmChart').style.display = 'none';
                 }
             }
             
@@ -971,14 +1093,6 @@
                 }
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
-            });
-            
-            // Add event listener for the MessagePack toggle
-            document.getElementById('useMsgPack').addEventListener('change', function() {
-                useMessagePack = this.checked;
-                performanceInfo.textContent = `Using ${useMessagePack ? 'MessagePack' : 'JSON'}...`;
-                // Refresh data to apply the change
-                loadData(true);
             });
         });
     </script>
