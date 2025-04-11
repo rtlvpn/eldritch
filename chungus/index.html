@@ -794,7 +794,7 @@
                     // Create multiple traces for more visual appeal
                     const obmTracePositive = {
                         x: obmData.timestamps,
-                        y: obmData.obmValues.map(val => val >= 0 ? val : null),  // Use null for negative values
+                        y: obmData.obmValues.map(val => val >= 0 ? val : null),
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bullish Pressure',
@@ -805,12 +805,22 @@
                         },
                         fill: 'tozeroy',
                         fillcolor: 'rgba(0, 255, 157, 0.2)',
-                        connectgaps: false  // Don't connect across null values
+                        connectgaps: false,
+                        hoverinfo: 'x+y',
+                        hoverlabel: {
+                            bgcolor: 'rgba(0, 20, 40, 0.9)',
+                            bordercolor: 'rgba(0, 255, 157, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: '#00ff9d'
+                            }
+                        }
                     };
                     
                     const obmTraceNegative = {
                         x: obmData.timestamps,
-                        y: obmData.obmValues.map(val => val <= 0 ? val : null),  // Use null for positive values
+                        y: obmData.obmValues.map(val => val <= 0 ? val : null),
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bearish Pressure',
@@ -821,7 +831,17 @@
                         },
                         fill: 'tozeroy',
                         fillcolor: 'rgba(255, 41, 105, 0.2)',
-                        connectgaps: false  // Don't connect across null values
+                        connectgaps: false,
+                        hoverinfo: 'x+y',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 0, 20, 0.9)',
+                            bordercolor: 'rgba(255, 41, 105, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 150, 170)'
+                            }
+                        }
                     };
                     
                     // Add ghost line trace for cyberpunk effect
@@ -850,14 +870,16 @@
                         if (curr > prev && curr > next && curr > 0.1) {
                             highPoints.push({
                                 x: obmData.timestamps[i],
-                                y: curr
+                                y: curr,
+                                text: `PEAK: ${curr.toFixed(3)}`
                             });
                         }
                         
                         if (curr < prev && curr < next && curr < -0.1) {
                             lowPoints.push({
                                 x: obmData.timestamps[i],
-                                y: curr
+                                y: curr,
+                                text: `TROUGH: ${curr.toFixed(3)}`
                             });
                         }
                     }
@@ -865,6 +887,7 @@
                     const extremeHighsTrace = {
                         x: highPoints.map(p => p.x),
                         y: highPoints.map(p => p.y),
+                        text: highPoints.map(p => p.text),
                         type: 'scatter',
                         mode: 'markers',
                         marker: {
@@ -877,12 +900,22 @@
                             }
                         },
                         name: 'Momentum Peaks',
-                        hoverinfo: 'y'
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 40, 0, 0.9)',
+                            bordercolor: 'rgba(255, 255, 0, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 255, 180)'
+                            }
+                        }
                     };
                     
                     const extremeLowsTrace = {
                         x: lowPoints.map(p => p.x),
                         y: lowPoints.map(p => p.y),
+                        text: lowPoints.map(p => p.text),
                         type: 'scatter',
                         mode: 'markers',
                         marker: {
@@ -895,7 +928,16 @@
                             }
                         },
                         name: 'Momentum Troughs',
-                        hoverinfo: 'y'
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 0, 20, 0.9)',
+                            bordercolor: 'rgba(255, 41, 105, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 150, 170)'
+                            }
+                        }
                     };
                     
                     const obmLayout = {
@@ -921,13 +963,13 @@
                                 family: 'Courier New, monospace',
                                 size: 10
                             },
-                            tickformat: '.2f',
+                            tickformat: '.3f',
                             showticklabels: true,
                             showline: true,
                             linecolor: 'rgba(0, 255, 157, 0.5)',
                             linewidth: 2,
-                            autorange: true,  // Let Plotly determine the appropriate scale
-                            fixedrange: false // Allow zooming on y-axis
+                            autorange: true,
+                            fixedrange: false
                         },
                         xaxis: {
                             showgrid: true,
@@ -967,9 +1009,9 @@
                             {
                                 type: 'rect',
                                 xref: 'paper',
-                                yref: 'paper',  // Use paper coordinates instead of y-axis values
+                                yref: 'paper',
                                 x0: 0,
-                                y0: 0.55,       // Middle to 80% of the way up
+                                y0: 0.55,
                                 x1: 1,
                                 y1: 0.8,
                                 fillcolor: 'rgba(0, 255, 157, 0.05)',
@@ -981,7 +1023,7 @@
                                 xref: 'paper',
                                 yref: 'paper',
                                 x0: 0,
-                                y0: 0.45,       // 45% to 55% for neutral zone
+                                y0: 0.45,
                                 x1: 1,
                                 y1: 0.55,
                                 fillcolor: 'rgba(255, 255, 255, 0.03)',
@@ -993,7 +1035,7 @@
                                 xref: 'paper',
                                 yref: 'paper',
                                 x0: 0,
-                                y0: 0.2,        // 20% to 45% of the way up 
+                                y0: 0.2,
                                 x1: 1,
                                 y1: 0.45,
                                 fillcolor: 'rgba(255, 41, 105, 0.05)',
@@ -1004,9 +1046,9 @@
                         annotations: [
                             {
                                 x: 0.02,
-                                y: 0.7,         // Position in the upper part of the chart
+                                y: 0.7,
                                 xref: 'paper',
-                                yref: 'paper',  // Use paper coordinates
+                                yref: 'paper',
                                 text: 'BULLISH',
                                 showarrow: false,
                                 font: {
@@ -1017,9 +1059,9 @@
                             },
                             {
                                 x: 0.02,
-                                y: 0.3,         // Position in the lower part of the chart
+                                y: 0.3,
                                 xref: 'paper', 
-                                yref: 'paper',  // Use paper coordinates
+                                yref: 'paper',
                                 text: 'BEARISH',
                                 showarrow: false,
                                 font: {
@@ -1030,7 +1072,14 @@
                             }
                         ],
                         hovermode: 'closest',
-                        // Add config for more interaction
+                        hoverdistance: 50,
+                        hoverlabel: {
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13
+                            },
+                            borderwidth: 1
+                        },
                         modebar: {
                             bgcolor: 'rgba(10, 10, 25, 0.7)',
                             color: '#00ff9d'
@@ -1058,7 +1107,6 @@
                     });
                     
                     // Add pulsing highlight when OBM crosses zero
-                    let lastValue = null;
                     for (let i = 1; i < obmData.obmValues.length; i++) {
                         if ((obmData.obmValues[i-1] < 0 && obmData.obmValues[i] > 0) ||
                             (obmData.obmValues[i-1] > 0 && obmData.obmValues[i] < 0)) {
@@ -1066,6 +1114,7 @@
                             Plotly.addTraces('obmChart', {
                                 x: [obmData.timestamps[i]],
                                 y: [obmData.obmValues[i]],
+                                text: [`REVERSAL: ${obmData.obmValues[i].toFixed(3)}`],
                                 type: 'scatter',
                                 mode: 'markers',
                                 marker: {
@@ -1078,8 +1127,16 @@
                                     }
                                 },
                                 showlegend: false,
-                                hoverinfo: 'y+text',
-                                hovertext: 'REVERSAL POINT'
+                                hoverinfo: 'text+x',
+                                hoverlabel: {
+                                    bgcolor: 'rgba(255, 255, 255, 0.2)',
+                                    bordercolor: 'rgba(0, 255, 157, 1)',
+                                    font: {
+                                        family: 'Courier New, monospace',
+                                        size: 13,
+                                        color: 'rgb(255, 255, 255)'
+                                    }
+                                }
                             });
                         }
                     }
