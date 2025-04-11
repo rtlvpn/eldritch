@@ -636,9 +636,8 @@
                         color: 'rgba(255, 100, 100, 1)',
                         width: 3
                     },
-                    // Use the same y-axis as the heatmap
                     yaxis: 'y',
-                    type: 'scatter'
+                    type: 'scattergl'
                 };
                 
                 // Get color density value
@@ -648,7 +647,7 @@
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
-                    type: 'heatmap',
+                    type: 'heatmapgl',
                     colorscale: generateWeightedColorscale(colorDensity),
                     name: 'Order Density',
                     colorbar: {
@@ -712,7 +711,13 @@
                     autosize: true
                 };
                 
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                Plotly.newPlot('chart', [trace2, trace1], layout, {
+                    responsive: true,
+                    useResizeHandler: true,
+                    plotGlPixelRatio: window.devicePixelRatio || 1,
+                    displayModeBar: true,
+                    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines']
+                });
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -730,15 +735,15 @@
                     const cvpTrace = {
                         y: priceLevels,
                         x: volumeByPrice,
-                        type: 'bar',
-                        orientation: 'h',
+                        type: 'scattergl',
+                        mode: 'lines',
                         name: 'Volume Profile',
+                        fill: 'tozerox',
+                        line: {
+                            width: 0
+                        },
                         marker: {
-                            color: 'rgba(0, 255, 157, 0.7)',
-                            line: {
-                                color: 'rgba(0, 255, 157, 1)',
-                                width: 1
-                            }
+                            color: 'rgba(0, 255, 157, 0.7)'
                         }
                     };
                     
@@ -782,7 +787,12 @@
                         autosize: true
                     };
                     
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {
+                        responsive: true,
+                        useResizeHandler: true,
+                        plotGlPixelRatio: window.devicePixelRatio || 1,
+                        displayModeBar: false
+                    });
                 }
                 
                 // Create the OBM chart if enabled
@@ -805,7 +815,7 @@
                         x: obmData.timestamps,
                         y: obmData.obmValues.map(val => val >= 0 ? val : null),
                         text: positiveHoverTexts,
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'lines',
                         name: 'Bullish Pressure',
                         line: {
@@ -832,7 +842,7 @@
                         x: obmData.timestamps,
                         y: obmData.obmValues.map(val => val <= 0 ? val : null),
                         text: negativeHoverTexts,
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'lines',
                         name: 'Bearish Pressure',
                         line: {
@@ -860,7 +870,7 @@
                         x: obmData.timestamps,
                         y: obmData.obmValues,
                         text: obmData.obmValues.map(val => `OBM: ${val.toFixed(4)}`),
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'lines+markers',
                         line: {
                             shape: 'spline',
@@ -891,7 +901,7 @@
                     const ghostTrace = {
                         x: obmData.timestamps,
                         y: obmData.obmValues,
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'lines',
                         line: {
                             shape: 'spline',
@@ -931,7 +941,7 @@
                         x: highPoints.map(p => p.x),
                         y: highPoints.map(p => p.y),
                         text: highPoints.map(p => p.text),
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'markers',
                         marker: {
                             color: 'rgba(255, 255, 0, 0.8)',
@@ -959,7 +969,7 @@
                         x: lowPoints.map(p => p.x),
                         y: lowPoints.map(p => p.y),
                         text: lowPoints.map(p => p.text),
-                        type: 'scatter',
+                        type: 'scattergl',
                         mode: 'markers',
                         marker: {
                             color: 'rgba(255, 41, 105, 0.8)',
@@ -1133,12 +1143,14 @@
                     Plotly.newPlot('obmChart', [
                         obmTracePositive, 
                         obmTraceNegative,
-                        fullLineTrace,  // Add this trace to ensure all points are hoverable
+                        fullLineTrace,  
                         ghostTrace, 
                         extremeHighsTrace, 
                         extremeLowsTrace
                     ], obmLayout, {
                         responsive: true,
+                        useResizeHandler: true,
+                        plotGlPixelRatio: window.devicePixelRatio || 1,
                         displayModeBar: true,
                         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines'],
                         toImageButtonOptions: {
@@ -1159,7 +1171,7 @@
                                 x: [obmData.timestamps[i]],
                                 y: [obmData.obmValues[i]],
                                 text: [`REVERSAL: ${obmData.obmValues[i].toFixed(3)}`],
-                                type: 'scatter',
+                                type: 'scattergl',
                                 mode: 'markers',
                                 marker: {
                                     color: 'rgba(255, 255, 255, 0.9)',
