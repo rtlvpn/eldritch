@@ -794,7 +794,7 @@
                     // Create multiple traces for more visual appeal
                     const obmTracePositive = {
                         x: obmData.timestamps,
-                        y: obmData.obmValues.map(val => val > 0 ? val : 0),
+                        y: obmData.obmValues.map(val => val >= 0 ? val : null),  // Use null for negative values
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bullish Pressure',
@@ -804,12 +804,13 @@
                             width: 3
                         },
                         fill: 'tozeroy',
-                        fillcolor: 'rgba(0, 255, 157, 0.2)'
+                        fillcolor: 'rgba(0, 255, 157, 0.2)',
+                        connectgaps: false  // Don't connect across null values
                     };
                     
                     const obmTraceNegative = {
                         x: obmData.timestamps,
-                        y: obmData.obmValues.map(val => val < 0 ? val : 0),
+                        y: obmData.obmValues.map(val => val <= 0 ? val : null),  // Use null for positive values
                         type: 'scatter',
                         mode: 'lines',
                         name: 'Bearish Pressure',
@@ -819,7 +820,8 @@
                             width: 3
                         },
                         fill: 'tozeroy',
-                        fillcolor: 'rgba(255, 41, 105, 0.2)'
+                        fillcolor: 'rgba(255, 41, 105, 0.2)',
+                        connectgaps: false  // Don't connect across null values
                     };
                     
                     // Add ghost line trace for cyberpunk effect
@@ -923,7 +925,9 @@
                             showticklabels: true,
                             showline: true,
                             linecolor: 'rgba(0, 255, 157, 0.5)',
-                            linewidth: 2
+                            linewidth: 2,
+                            autorange: true,  // Let Plotly determine the appropriate scale
+                            fixedrange: false // Allow zooming on y-axis
                         },
                         xaxis: {
                             showgrid: true,
@@ -959,15 +963,15 @@
                         },
                         autosize: true,
                         shapes: [
-                            // Add horizontal regions for bullish/bearish/neutral
+                            // Add horizontal regions for bullish/bearish/neutral that scale with the data
                             {
                                 type: 'rect',
                                 xref: 'paper',
-                                yref: 'y',
+                                yref: 'paper',  // Use paper coordinates instead of y-axis values
                                 x0: 0,
-                                y0: 0.1,
+                                y0: 0.55,       // Middle to 80% of the way up
                                 x1: 1,
-                                y1: 0.5,
+                                y1: 0.8,
                                 fillcolor: 'rgba(0, 255, 157, 0.05)',
                                 layer: 'below',
                                 line: { width: 0 }
@@ -975,11 +979,11 @@
                             {
                                 type: 'rect',
                                 xref: 'paper',
-                                yref: 'y',
+                                yref: 'paper',
                                 x0: 0,
-                                y0: -0.1,
+                                y0: 0.45,       // 45% to 55% for neutral zone
                                 x1: 1,
-                                y1: 0.1,
+                                y1: 0.55,
                                 fillcolor: 'rgba(255, 255, 255, 0.03)',
                                 layer: 'below',
                                 line: { width: 0 }
@@ -987,11 +991,11 @@
                             {
                                 type: 'rect',
                                 xref: 'paper',
-                                yref: 'y',
+                                yref: 'paper',
                                 x0: 0,
-                                y0: -0.5,
+                                y0: 0.2,        // 20% to 45% of the way up 
                                 x1: 1,
-                                y1: -0.1,
+                                y1: 0.45,
                                 fillcolor: 'rgba(255, 41, 105, 0.05)',
                                 layer: 'below',
                                 line: { width: 0 }
@@ -1000,9 +1004,9 @@
                         annotations: [
                             {
                                 x: 0.02,
-                                y: 0.25,
+                                y: 0.7,         // Position in the upper part of the chart
                                 xref: 'paper',
-                                yref: 'y',
+                                yref: 'paper',  // Use paper coordinates
                                 text: 'BULLISH',
                                 showarrow: false,
                                 font: {
@@ -1013,9 +1017,9 @@
                             },
                             {
                                 x: 0.02,
-                                y: -0.25,
-                                xref: 'paper',
-                                yref: 'y',
+                                y: 0.3,         // Position in the lower part of the chart
+                                xref: 'paper', 
+                                yref: 'paper',  // Use paper coordinates
                                 text: 'BEARISH',
                                 showarrow: false,
                                 font: {
