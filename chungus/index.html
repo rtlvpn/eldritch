@@ -636,8 +636,9 @@
                         color: 'rgba(255, 100, 100, 1)',
                         width: 3
                     },
+                    // Use the same y-axis as the heatmap
                     yaxis: 'y',
-                    type: 'scattergl'
+                    type: 'scatter'
                 };
                 
                 // Get color density value
@@ -647,7 +648,7 @@
                     x: timestamps,
                     y: priceLevels,
                     z: heatmapZ,
-                    type: 'heatmapgl',
+                    type: 'heatmap',
                     colorscale: generateWeightedColorscale(colorDensity),
                     name: 'Order Density',
                     colorbar: {
@@ -711,13 +712,7 @@
                     autosize: true
                 };
                 
-                Plotly.newPlot('chart', [trace2, trace1], layout, {
-                    responsive: true,
-                    useResizeHandler: true,
-                    plotGlPixelRatio: window.devicePixelRatio || 1,
-                    displayModeBar: true,
-                    modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines']
-                });
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -735,15 +730,15 @@
                     const cvpTrace = {
                         y: priceLevels,
                         x: volumeByPrice,
-                        type: 'scattergl',
-                        mode: 'lines',
+                        type: 'bar',
+                        orientation: 'h',
                         name: 'Volume Profile',
-                        fill: 'tozerox',
-                        line: {
-                            width: 0
-                        },
                         marker: {
-                            color: 'rgba(0, 255, 157, 0.7)'
+                            color: 'rgba(0, 255, 157, 0.7)',
+                            line: {
+                                color: 'rgba(0, 255, 157, 1)',
+                                width: 1
+                            }
                         }
                     };
                     
@@ -787,12 +782,7 @@
                         autosize: true
                     };
                     
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {
-                        responsive: true,
-                        useResizeHandler: true,
-                        plotGlPixelRatio: window.devicePixelRatio || 1,
-                        displayModeBar: false
-                    });
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
                 }
                 
                 // Create the OBM chart if enabled
@@ -1143,14 +1133,12 @@
                     Plotly.newPlot('obmChart', [
                         obmTracePositive, 
                         obmTraceNegative,
-                        fullLineTrace,  
+                        fullLineTrace,  // Add this trace to ensure all points are hoverable
                         ghostTrace, 
                         extremeHighsTrace, 
                         extremeLowsTrace
                     ], obmLayout, {
                         responsive: true,
-                        useResizeHandler: true,
-                        plotGlPixelRatio: window.devicePixelRatio || 1,
                         displayModeBar: true,
                         modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines'],
                         toImageButtonOptions: {
