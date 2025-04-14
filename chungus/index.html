@@ -222,6 +222,43 @@
             letter-spacing: 2px;
             text-transform: uppercase;
         }
+        .control-section {
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        
+        .date-picker-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+        
+        input[type="date"], input[type="time"] {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        
+        input[type="date"]:focus, input[type="time"]:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        
+        /* Date picker calendar styling */
+        ::-webkit-calendar-picker-indicator {
+            filter: invert(1) hue-rotate(130deg) brightness(1.5);
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -229,20 +266,44 @@
         <h1>Milk Price and Orderbook Heatmap</h1>
         
         <div class="controls">
-            <label for="timeRange">Time Range:</label>
-            <select id="timeRange">
-                <option value="1h">1 Hour</option>
-                <option value="3h">3 Hours</option>
-                <option value="6h">6 Hours</option>
-                <option value="12h">12 Hours</option>
-                <option value="24h">1 Day</option>
-                <option value="48h">2 Days</option>
-                <option value="72h">3 Days</option>
-                <option value="96h">4 Days</option>
-                <option value="120h">5 Days</option>
-                <option value="144h">6 Days</option>
-                <option value="168h">7 Days</option>
-            </select>
+            <div class="control-section">
+                <label for="dateRangeMode">Date Range Mode:</label>
+                <select id="dateRangeMode">
+                    <option value="fromNow">From Now</option>
+                    <option value="custom">Custom Date Range</option>
+                </select>
+            </div>
+            
+            <div id="fromNowControls">
+                <label for="timeRange">Time Range:</label>
+                <select id="timeRange">
+                    <option value="1h">1 Hour</option>
+                    <option value="3h">3 Hours</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="12h">12 Hours</option>
+                    <option value="24h">1 Day</option>
+                    <option value="48h">2 Days</option>
+                    <option value="72h">3 Days</option>
+                    <option value="96h">4 Days</option>
+                    <option value="120h">5 Days</option>
+                    <option value="144h">6 Days</option>
+                    <option value="168h">7 Days</option>
+                </select>
+            </div>
+            
+            <div id="customRangeControls" style="display: none;">
+                <div class="date-picker-container">
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" id="startDate">
+                    <input type="time" id="startTime" value="00:00">
+                </div>
+                
+                <div class="date-picker-container">
+                    <label for="endDate">End Date:</label>
+                    <input type="date" id="endDate">
+                    <input type="time" id="endTime" value="23:59">
+                </div>
+            </div>
             
             <label for="buckets">Price Buckets:</label>
             <select id="buckets">
@@ -411,6 +472,21 @@
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
             
+            // Set default date values (today and yesterday)
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            document.getElementById('endDate').valueAsDate = today;
+            document.getElementById('startDate').valueAsDate = yesterday;
+            
+            // Add event listener for date range mode toggle
+            document.getElementById('dateRangeMode').addEventListener('change', function() {
+                const isCustomMode = this.value === 'custom';
+                document.getElementById('fromNowControls').style.display = isCustomMode ? 'none' : 'block';
+                document.getElementById('customRangeControls').style.display = isCustomMode ? 'block' : 'none';
+            });
+            
             // Initial load
             loadData(true); // true indicates a full load
             
@@ -418,6 +494,11 @@
             document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
             document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
             document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
+            document.getElementById('startDate').addEventListener('change', () => loadData(true)); // Full refresh on start date change
+            document.getElementById('endDate').addEventListener('change', () => loadData(true)); // Full refresh on end date change
+            document.getElementById('startTime').addEventListener('change', () => loadData(true)); // Full refresh on start time change
+            document.getElementById('endTime').addEventListener('change', () => loadData(true)); // Full refresh on end time change
+            document.getElementById('dateRangeMode').addEventListener('change', () => loadData(true)); // Full refresh on mode change
             document.getElementById('colorDensity').addEventListener('input', function() {
                 document.getElementById('densityValue').textContent = this.value;
                 // Only adjust the colorscale weighting without changing data
@@ -469,92 +550,77 @@
             });
             
             function loadData(fullRefresh = false) {
-                const timeRange = document.getElementById('timeRange').value;
+                const dateRangeMode = document.getElementById('dateRangeMode').value;
                 const buckets = document.getElementById('buckets').value;
                 const marginPercent = document.getElementById('marginPercent').value;
                 
-                // If time range or buckets changed, we need a full refresh
-                if (timeRange !== currentTimeRange || fullRefresh) {
-                    currentTimeRange = timeRange;
+                let startTime, endTime;
+                
+                if (dateRangeMode === 'fromNow') {
+                    // Existing code for calculating time range from now
+                    const timeRange = document.getElementById('timeRange').value;
                     
-                    // Calculate time range in seconds
-                    let duration;
-                    switch(timeRange) {
-                        case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '72h': duration = 3600 * 72; break;
-                        case '96h': duration = 3600 * 96; break;
-                        case '120h': duration = 3600 * 120; break;
-                        case '144h': duration = 3600 * 144; break;
-                        case '168h': duration = 3600 * 168; break;
-                        default: duration = 3600;
+                    // If time range or buckets changed, we need a full refresh
+                    if (timeRange !== currentTimeRange || fullRefresh) {
+                        currentTimeRange = timeRange;
+                        
+                        // Calculate time range in seconds
+                        let duration;
+                        switch(timeRange) {
+                            case '1h': duration = 3600; break;
+                            case '3h': duration = 3600 * 3; break;
+                            case '6h': duration = 3600 * 6; break;
+                            case '12h': duration = 3600 * 12; break;
+                            case '24h': duration = 3600 * 24; break;
+                            case '48h': duration = 3600 * 48; break;
+                            case '72h': duration = 3600 * 72; break;
+                            case '96h': duration = 3600 * 96; break;
+                            case '120h': duration = 3600 * 120; break;
+                            case '144h': duration = 3600 * 144; break;
+                            case '168h': duration = 3600 * 168; break;
+                            default: duration = 3600;
+                        }
+                        
+                        endTime = Math.floor(Date.now() / 1000);
+                        startTime = endTime - duration;
                     }
-                    
-                    const endTime = Math.floor(Date.now() / 1000);
-                    const startTime = endTime - duration;
-                    
-                    // Full refresh - fetch all data with margin percent parameter
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        alert('Failed to load data. Please try again.');
-                    });
                 } else {
-                    // Auto-update case: Get a full refresh but with a shorter interval
-                    // This is simpler and more reliable than trying to merge
-                    const endTime = Math.floor(Date.now() / 1000);
-                    let duration;
-                    switch(timeRange) {
-                        case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '72h': duration = 3600 * 72; break;
-                        case '96h': duration = 3600 * 96; break;
-                        case '120h': duration = 3600 * 120; break;
-                        case '144h': duration = 3600 * 144; break;
-                        case '168h': duration = 3600 * 168; break;
-                        default: duration = 3600;
-                    }
+                    // Custom date range mode
+                    const startDate = document.getElementById('startDate').valueAsDate;
+                    const endDate = document.getElementById('endDate').valueAsDate;
+                    const startTimeStr = document.getElementById('startTime').value;
+                    const endTimeStr = document.getElementById('endTime').value;
                     
-                    // Just get data for the last 5 minutes + the current duration
-                    // This way we ensure we have proper overlap with existing data
-                    const startTime = endTime - duration;
+                    // Parse time strings
+                    const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
+                    const [endHours, endMinutes] = endTimeStr.split(':').map(Number);
                     
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        // Silently fail, will retry on next auto-update
-                    });
+                    // Set the time components
+                    startDate.setHours(startHours, startMinutes, 0, 0);
+                    endDate.setHours(endHours, endMinutes, 59, 999);
+                    
+                    // Convert to Unix timestamps (seconds)
+                    startTime = Math.floor(startDate.getTime() / 1000);
+                    endTime = Math.floor(endDate.getTime() / 1000);
                 }
+                
+                // Full refresh - fetch all data with margin percent parameter
+                Promise.all([
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                ])
+                .then(responses => Promise.all(responses.map(res => res.json())))
+                .then(([candlestickData, heatmapData]) => {
+                    // Just store the complete data
+                    cachedCandlestickData = candlestickData;
+                    cachedHeatmapData = heatmapData;
+                    lastFetchTime = endTime;
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    alert('Failed to load data. Please try again.');
+                });
             }
             
             // Generate a colorscale with weights adjusted by the density value
