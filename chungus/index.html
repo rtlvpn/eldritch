@@ -557,33 +557,34 @@
                 let startTime, endTime;
                 
                 if (dateRangeMode === 'fromNow') {
-                    // Existing code for calculating time range from now
+                    // Get the current time range selection
                     const timeRange = document.getElementById('timeRange').value;
                     
                     // If time range or buckets changed, we need a full refresh
                     if (timeRange !== currentTimeRange || fullRefresh) {
                         currentTimeRange = timeRange;
-                        
-                        // Calculate time range in seconds
-                        let duration;
-                        switch(timeRange) {
-                            case '1h': duration = 3600; break;
-                            case '3h': duration = 3600 * 3; break;
-                            case '6h': duration = 3600 * 6; break;
-                            case '12h': duration = 3600 * 12; break;
-                            case '24h': duration = 3600 * 24; break;
-                            case '48h': duration = 3600 * 48; break;
-                            case '72h': duration = 3600 * 72; break;
-                            case '96h': duration = 3600 * 96; break;
-                            case '120h': duration = 3600 * 120; break;
-                            case '144h': duration = 3600 * 144; break;
-                            case '168h': duration = 3600 * 168; break;
-                            default: duration = 3600;
-                        }
-                        
-                        endTime = Math.floor(Date.now() / 1000);
-                        startTime = endTime - duration;
                     }
+                    
+                    // Always recalculate the time range on every refresh
+                    // Calculate time range in seconds
+                    let duration;
+                    switch(timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '72h': duration = 3600 * 72; break;
+                        case '96h': duration = 3600 * 96; break;
+                        case '120h': duration = 3600 * 120; break;
+                        case '144h': duration = 3600 * 144; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    endTime = Math.floor(Date.now() / 1000);
+                    startTime = endTime - duration;
                 } else {
                     // Custom date range mode
                     const startDate = document.getElementById('startDate').valueAsDate;
