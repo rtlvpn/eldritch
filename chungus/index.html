@@ -280,7 +280,10 @@
                     <option value="1h">1 Hour</option>
                     <option value="3h">3 Hours</option>
                     <option value="6h">6 Hours</option>
+                    <option value="9h">9 Hours</option>
                     <option value="12h">12 Hours</option>
+                    <option value="15h">15 Hours</option>
+                    <option value="18h">18 Hours</option>
                     <option value="24h">1 Day</option>
                     <option value="48h">2 Days</option>
                     <option value="72h">3 Days</option>
@@ -802,11 +805,14 @@
                     // Always recalculate the time range on every refresh
                     // Calculate time range in seconds
                     let duration;
-                    switch(timeRange) {
+                    switch (timeRange) {
                         case '1h': duration = 3600; break;
                         case '3h': duration = 3600 * 3; break;
                         case '6h': duration = 3600 * 6; break;
+                        case '9h': duration = 3600 * 9; break;
                         case '12h': duration = 3600 * 12; break;
+                        case '15h': duration = 3600 * 15; break;
+                        case '18h': duration = 3600 * 18; break;
                         case '24h': duration = 3600 * 24; break;
                         case '48h': duration = 3600 * 48; break;
                         case '72h': duration = 3600 * 72; break;
