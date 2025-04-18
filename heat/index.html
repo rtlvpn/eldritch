@@ -457,8 +457,10 @@
                     rawOBMValues.push(rawObm);
                     
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
-                    result.rawImbalances.push(imbalance);
                 }
+                
+                // Store the raw imbalances in the result object
+                result.rawImbalances = rawImbalances;
                 
                 // Apply time series techniques to the raw OBM values
                 
@@ -974,88 +976,99 @@
                     showscale: true
                 };
                 
-                // Add buy/sell delta circles overlay
-                const buyColor = 'rgba(0, 255, 157, 0.8)';  // Green for buy pressure
-                const sellColor = 'rgba(255, 41, 105, 0.8)';  // Red for sell pressure
+                // Create delta bubbles trace if enabled
+                const showDeltaBubbles = document.getElementById('showDeltaBubbles').checked;
+                const traces = [trace2, trace1];
                 
-                // Delta bubbles trace definition
-                const deltaBubbles = {
-                    x: [],
-                    y: [],
-                    mode: 'markers',
-                    marker: {
-                        size: [],
-                        color: [],
-                        line: {
-                            width: 2,
-                            color: 'rgba(255, 255, 255, 0.8)'
+                if (showDeltaBubbles && obmData.rawImbalances && obmData.rawImbalances.length > 0) {
+                    // Add buy/sell delta circles overlay - following price line
+                    const buyColor = 'rgba(0, 255, 157, 0.8)';  // Green for buy pressure
+                    const sellColor = 'rgba(255, 50, 50, 0.8)';  // Red for sell pressure
+                    
+                    // Create delta bubbles trace
+                    const deltaBubbles = {
+                        x: [],
+                        y: [],
+                        mode: 'markers',
+                        marker: {
+                            size: [],
+                            color: [],
+                            line: {
+                                width: 2,
+                                color: 'rgba(255, 255, 255, 0.8)'
+                            },
+                            opacity: 0.9,
+                            symbol: 'circle'
                         },
-                        opacity: 0.9,
-                        symbol: 'circle'
-                    },
-                    name: 'Buy/Sell Delta',
-                    type: 'scatter',
-                    hoverinfo: 'text',
-                    text: []
-                };
-                
-                // Group data points into 5-minute windows
-                const fiveMinMs = 5 * 60 * 1000; // 5 minutes in milliseconds
-                const groupedImbalances = {};
-                
-                // Group imbalances by 5-minute windows
-                for (let i = 0; i < obmData.timestamps.length; i++) {
-                    const timestamp = obmData.timestamps[i];
-                    // Round to nearest 5-minute window
-                    const windowTime = Math.floor(timestamp.getTime() / fiveMinMs) * fiveMinMs;
+                        name: 'Buy/Sell Delta',
+                        type: 'scatter',
+                        hoverinfo: 'text',
+                        text: []
+                    };
                     
-                    if (!groupedImbalances[windowTime]) {
-                        groupedImbalances[windowTime] = {
-                            count: 0,
-                            sumImbalance: 0,
-                            timestamp: new Date(windowTime)
-                        };
-                    }
+                    // Group data points into 5-minute windows
+                    const fiveMinMs = 5 * 60 * 1000; // 5 minutes in milliseconds
+                    const groupedImbalances = {};
                     
-                    groupedImbalances[windowTime].count++;
-                    groupedImbalances[windowTime].sumImbalance += obmData.rawImbalances[i];
-                }
-                
-                // Process grouped imbalances to create delta markers
-                for (const windowTime in groupedImbalances) {
-                    const group = groupedImbalances[windowTime];
-                    const avgImbalance = group.sumImbalance / group.count;
-                    const absImbalance = Math.abs(avgImbalance);
-                    
-                    // Only show significant imbalances (adjust threshold as needed)
-                    if (absImbalance > 0.1) {
-                        // Find the closest price point to this timestamp
-                        const obmTime = group.timestamp.getTime();
-                        let closestIdx = 0;
-                        let minTimeDiff = Infinity;
+                    // Group imbalances by 5-minute windows
+                    for (let i = 0; i < obmData.timestamps.length; i++) {
+                        const timestamp = obmData.timestamps[i];
+                        // Round to nearest 5-minute window
+                        const windowTime = Math.floor(timestamp.getTime() / fiveMinMs) * fiveMinMs;
                         
-                        for (let j = 0; j < times.length; j++) {
-                            const diff = Math.abs(times[j].getTime() - obmTime);
-                            if (diff < minTimeDiff) {
-                                minTimeDiff = diff;
-                                closestIdx = j;
-                            }
+                        if (!groupedImbalances[windowTime]) {
+                            groupedImbalances[windowTime] = {
+                                count: 0,
+                                sumImbalance: 0,
+                                timestamp: new Date(windowTime)
+                            };
                         }
                         
-                        // Add the timestamp and corresponding price
-                        deltaBubbles.x.push(group.timestamp);
-                        deltaBubbles.y.push(prices[closestIdx]);
+                        groupedImbalances[windowTime].count++;
+                        groupedImbalances[windowTime].sumImbalance += obmData.rawImbalances[i];
+                    }
+                    
+                    // Process grouped imbalances to create delta markers
+                    for (const windowTime in groupedImbalances) {
+                        const group = groupedImbalances[windowTime];
+                        const avgImbalance = group.sumImbalance / group.count;
+                        const absImbalance = Math.abs(avgImbalance);
                         
-                        // Size based on magnitude (scale for visibility)
-                        const bubbleSize = Math.min(45, 20 + (absImbalance * 80));
-                        deltaBubbles.marker.size.push(bubbleSize);
-                        
-                        // Color based on direction
-                        deltaBubbles.marker.color.push(avgImbalance > 0 ? buyColor : sellColor);
-                        
-                        // Add hover text
-                        const percentImbalance = (avgImbalance * 100).toFixed(1);
-                        deltaBubbles.text.push(`${avgImbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
+                        // Only show significant imbalances (adjust threshold as needed)
+                        if (absImbalance > 0.1) {
+                            // Find the closest price point to this timestamp
+                            const obmTime = group.timestamp.getTime();
+                            let closestIdx = 0;
+                            let minTimeDiff = Infinity;
+                            
+                            for (let j = 0; j < times.length; j++) {
+                                const diff = Math.abs(times[j].getTime() - obmTime);
+                                if (diff < minTimeDiff) {
+                                    minTimeDiff = diff;
+                                    closestIdx = j;
+                                }
+                            }
+                            
+                            // Add the timestamp and corresponding price
+                            deltaBubbles.x.push(group.timestamp);
+                            deltaBubbles.y.push(prices[closestIdx]);
+                            
+                            // Size based on magnitude (scale for visibility)
+                            const bubbleSize = Math.min(45, 20 + (absImbalance * 80));
+                            deltaBubbles.marker.size.push(bubbleSize);
+                            
+                            // Color based on direction
+                            deltaBubbles.marker.color.push(avgImbalance > 0 ? buyColor : sellColor);
+                            
+                            // Add hover text
+                            const percentImbalance = (avgImbalance * 100).toFixed(1);
+                            deltaBubbles.text.push(`${avgImbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
+                        }
+                    }
+                    
+                    // Add the delta bubbles trace if it has data points
+                    if (deltaBubbles.x.length > 0) {
+                        traces.push(deltaBubbles);
                     }
                 }
                 
@@ -1109,15 +1122,6 @@
                     },
                     autosize: true
                 };
-                
-                // Modify the plot creation to include delta bubbles
-                const showDeltaBubbles = document.getElementById('showDeltaBubbles').checked;
-                const traces = [trace2, trace1];
-                
-                // Add the delta bubbles trace if enabled and it has data
-                if (showDeltaBubbles && deltaBubbles.x.length > 0) {
-                    traces.push(deltaBubbles);
-                }
                 
                 Plotly.newPlot('chart', traces, layout, {responsive: true});
                 
@@ -1640,15 +1644,12 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
-
+            
             // Add event listener for the Delta Bubbles checkbox
             document.getElementById('showDeltaBubbles').addEventListener('change', function() {
-                // Re-render the chart with the current data to update
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
                     renderChart(cachedCandlestickData, cachedHeatmapData);
                 }
-                // Trigger a window resize event to make Plotly adjust
-                window.dispatchEvent(new Event('resize'));
             });
         });
     </script>
