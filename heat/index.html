@@ -1019,7 +1019,38 @@
                     autosize: true
                 };
                 
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                // 1) compute Fermat prediction
+                const p0 = prices[prices.length - 1];
+                const horizonSteps = 30;
+                const predPrice = predictPriceFermat(heatmapData, p0, horizonSteps);
+
+                // make sure we don't run off the end of your timestamp array
+                const idx = Math.min(horizonSteps, timestamps.length - 1);
+                const predTime = timestamps[idx];
+
+                // 2) build a trace for it
+                const fermatTrace = {
+                    x: [predTime],
+                    y: [predPrice],
+                    mode: 'markers+text',
+                    name: 'Fermat Prediction',
+                    text: [`${predPrice.toFixed(2)}`],
+                    textposition: 'bottom center',
+                    marker: {
+                        color: 'magenta',
+                        size: 12,
+                        symbol: 'diamond'
+                    },
+                    hoverinfo: 'text+xy'
+                };
+
+                // 3) redraw main chart including the new trace
+                Plotly.newPlot(
+                    'chart',
+                    [ trace2, trace1, fermatTrace ],
+                    layout,
+                    { responsive: true }
+                );
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -1528,9 +1559,6 @@
                 } else {
                     document.getElementById('obmChart').style.display = 'none';
                 }
-                
-                // After the main chart is created, add price prediction
-                renderPricePrediction(candlestickData, heatmapData);
             }
             
             // Also add event listener for the OBM checkbox
@@ -1544,111 +1572,58 @@
                 window.dispatchEvent(new Event('resize'));
             });
 
-            // Function to calculate Price Path of Least Resistance (PPLR)
-            function calculatePricePath(heatmapData, currentPrice) {
-                // Extract necessary data
-                const timestamps = heatmapData.timestamps;
+            // ================================================
+            // Fermat-ray-based price predictor
+            // ================================================
+            function predictPriceFermat(heatmapData, currentPrice, horizonSteps) {
                 const priceLevels = heatmapData.priceLevels;
-                const orderVolumes = heatmapData.heatmap.map(point => point.volumes);
-                
-                // Find current price index in price levels
-                const currentPriceIndex = findClosestPriceIndex(priceLevels, currentPrice);
-                
-                // Calculate medium "resistance" index for each price level
-                const resistanceMap = calculateResistanceMap(orderVolumes, priceLevels.length);
-                
-                // Calculate price path using principles similar to Fermat's principle
-                const pricePath = traceOptimalPricePath(resistanceMap, currentPriceIndex, timestamps.length);
-                
-                return pricePath;
-            }
+                const H = heatmapData.heatmap.length;
+                const M = priceLevels.length;
+                const ε = 1e-6;
 
-            // Calculate resistance at each price-time point
-            function calculateResistanceMap(orderVolumes, priceCount) {
-                const timeSteps = orderVolumes.length;
-                const resistanceMap = Array(timeSteps).fill().map(() => Array(priceCount).fill(0));
-                
-                for (let t = 0; t < timeSteps; t++) {
-                    // Current time slice of volumes
-                    const volumes = orderVolumes[t];
-                    
-                    for (let p = 0; p < priceCount; p++) {
-                        // Calculate resistance for price level p at time t
-                        
-                        // 1. Order density as baseline resistance (more orders = more resistance)
-                        const orderDensity = Math.abs(volumes[p]);
-                        
-                        // 2. Calculate vertical gradient (difference between adjacent price levels)
-                        const upperGradient = p < priceCount - 1 ? Math.abs(volumes[p+1] - volumes[p]) : 0;
-                        const lowerGradient = p > 0 ? Math.abs(volumes[p-1] - volumes[p]) : 0;
-                        const verticalGradient = (upperGradient + lowerGradient) / 2;
-                        
-                        // 3. Calculate imbalance in surrounding levels
-                        // Higher imbalance = path of least resistance
-                        let surroundingImbalance = 0;
-                        if (p > 0 && p < priceCount - 1) {
-                            surroundingImbalance = (volumes[p+1] - volumes[p-1]) / (volumes[p+1] + volumes[p-1] + 1);
+                // Find nearest price-bucket index j0
+                let j0 = 0;
+                let minDiff = Infinity;
+                priceLevels.forEach((p, j) => {
+                    const d = Math.abs(p - currentPrice);
+                    if (d < minDiff) { minDiff = d; j0 = j; }
+                });
+
+                // Build cost matrix c[i][j] = Δt / (|vol|+ε)
+                const Δt = (heatmapData.timestamps[1] - heatmapData.timestamps[0]) || 1;
+                const c = Array.from({length: H}, (_, i) =>
+                    Array.from({length: M}, (_, j) => Δt / (Math.abs(heatmapData.heatmap[i].volumes[j]) + ε))
+                );
+
+                // DP table D[i][j]
+                const N = Math.min(horizonSteps, H - 1);
+                const D = Array.from({length: N+1}, () => Array(M).fill(Infinity));
+                D[0][j0] = 0;
+
+                // Fill DP
+                for (let i = 1; i <= N; i++) {
+                    for (let j = 0; j < M; j++) {
+                        for (let k of [j-1, j, j+1]) {
+                            if (k >= 0 && k < M) {
+                                D[i][j] = Math.min(D[i][j], D[i-1][k] + c[i][j]);
+                            }
                         }
-                        
-                        // 4. Combine factors into resistance
-                        // Higher positive value = less resistance upward
-                        // Higher negative value = less resistance downward
-                        // Values near zero = high resistance to movement
-                        resistanceMap[t][p] = surroundingImbalance * 0.6 - (orderDensity * 0.3) - (verticalGradient * 0.1);
                     }
                 }
-                
-                return resistanceMap;
+
+                // Pick cheapest end-bucket
+                let jStar = 0, best = Infinity;
+                for (let j = 0; j < M; j++) {
+                    if (D[N][j] < best) { best = D[N][j]; jStar = j; }
+                }
+
+                return priceLevels[jStar];
             }
 
-            // Trace optimal price path (similar to how light finds path of least time)
-            function traceOptimalPricePath(resistanceMap, startPriceIndex, timeSteps) {
-                const pricePath = [startPriceIndex];
-                let currentPriceIndex = startPriceIndex;
-                
-                // For each future time step, find path of least resistance
-                for (let t = 1; t < timeSteps; t++) {
-                    // Look at current price level and adjacent levels
-                    const upResistance = currentPriceIndex < resistanceMap[t].length - 1 ? 
-                        -resistanceMap[t][currentPriceIndex + 1] : Infinity;
-                        
-                    const stayResistance = -resistanceMap[t][currentPriceIndex];
-                    
-                    const downResistance = currentPriceIndex > 0 ? 
-                        -resistanceMap[t][currentPriceIndex - 1] : Infinity;
-                    
-                    // Find path of least resistance (minimum resistance value)
-                    const minResistance = Math.min(upResistance, stayResistance, downResistance);
-                    
-                    // Move price in direction of least resistance
-                    if (minResistance === upResistance) {
-                        currentPriceIndex += 1;
-                    } else if (minResistance === downResistance) {
-                        currentPriceIndex -= 1;
-                    }
-                    // else stay at same price
-                    
-                    pricePath.push(currentPriceIndex);
-                }
-                
-                return pricePath;
-            }
-
-            // Helper function to find closest price index
-            function findClosestPriceIndex(priceLevels, targetPrice) {
-                let closestIndex = 0;
-                let minDiff = Math.abs(priceLevels[0] - targetPrice);
-                
-                for (let i = 1; i < priceLevels.length; i++) {
-                    const diff = Math.abs(priceLevels[i] - targetPrice);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestIndex = i;
-                    }
-                }
-                
-                return closestIndex;
-            }
+            // Example usage inside renderChart():
+            //   const p0 = prices[prices.length-1];
+            //   const pred = predictPriceFermat(heatmapData, p0, 30);
+            //   console.log('Fermat-predicted price in 30 steps:', pred);
         });
     </script>
 </body>
