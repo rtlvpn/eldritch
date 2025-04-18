@@ -1534,23 +1534,26 @@
 
                 // After creating the main chart, add the physics-based prediction
                 if (predictionData.predictedPath.length > 0) {
-                    // Add prediction trace to the main chart
+                    // Add prediction trace to the main chart with improved styling
                     const predictionTrace = {
                         x: predictionData.predictedPath.map(p => p.time),
                         y: predictionData.predictedPath.map(p => p.price),
                         type: 'scatter',
                         mode: 'lines',
-                        name: 'Optimal Path',
+                        name: 'Optical Path',
                         line: {
                             shape: 'spline',
-                            color: 'rgba(255, 255, 100, 0.8)',
+                            color: 'rgba(255, 215, 0, 0.9)', // Brighter gold color
                             width: 3,
-                            dash: 'dot'
+                            dash: 'solid' // Change from dotted to solid for better visibility
                         },
-                        hoverinfo: 'y+x',
+                        hoverinfo: 'text+x',
+                        text: predictionData.predictedPath.map(p => 
+                            `Price: ${p.price.toFixed(6)}<br>Resistance: ${p.resistance.toFixed(2)}`
+                        ),
                         hoverlabel: {
                             bgcolor: 'rgba(40, 40, 0, 0.9)',
-                            bordercolor: 'rgba(255, 255, 0, 1)',
+                            bordercolor: 'rgba(255, 215, 0, 1)',
                             font: {
                                 family: 'Courier New, monospace',
                                 size: 12,
@@ -1559,28 +1562,31 @@
                         }
                     };
                     
-                    // Add momentum vectors as annotations
+                    // Add momentum vectors as annotations with better scaling
                     const annotations = [];
-                    // Only add vectors for a subset of points to avoid cluttering
-                    const step = Math.max(1, Math.floor(predictionData.momentumVectors.length / 10));
+                    // Only add vectors for key points to avoid cluttering
+                    const step = Math.max(1, Math.floor(predictionData.momentumVectors.length / 7));
                     
-                    for (let i = 0; i < predictionData.momentumVectors.length; i += step) {
+                    for (let i = 1; i < predictionData.momentumVectors.length - 1; i += step) {
                         const vector = predictionData.momentumVectors[i];
                         if (!vector || vector.magnitude === 0) continue;
                         
-                        // Scale the vector for visualization
-                        const scaleFactor = 5000 * vector.magnitude;
-                        const confidence = predictionData.confidenceScores[i] || 0.5;
+                        // Scale the vector dynamically based on the chart size
+                        const scaleFactor = 0.02; // Smaller value for better proportions
+                        const confidence = predictionData.confidenceScores[i-1] || 0.5;
+                        
+                        // Calculate arrow endpoint relative to vector direction
+                        const arrowLength = Math.min(0.02, vector.magnitude * scaleFactor);
                         
                         annotations.push({
                             x: vector.x,
                             y: vector.y,
-                            ax: vector.dx * scaleFactor,
-                            ay: vector.dy * scaleFactor / 10, // Scaled for better visibility
-                            arrowhead: 4,
-                            arrowsize: 1,
-                            arrowwidth: 1 + 2 * confidence,
-                            arrowcolor: `rgba(255, ${Math.floor(255 * confidence)}, 0, ${0.3 + 0.7 * confidence})`,
+                            ax: vector.dx * arrowLength * 500000, // Large scaling for visibility
+                            ay: vector.dy * arrowLength * 1000, // Reduced scaling for y to avoid extreme arrows
+                            arrowhead: 2,
+                            arrowsize: 1.5,
+                            arrowwidth: 1.5 + confidence * 2,
+                            arrowcolor: `rgba(255, ${Math.floor(255 * confidence)}, 0, ${0.5 + 0.5 * confidence})`,
                             showarrow: true,
                             xref: 'x',
                             yref: 'y'
@@ -1594,10 +1600,6 @@
                     Plotly.relayout('chart', {
                         annotations: annotations
                     });
-                    
-                    // Create 3D visualization of the refractive index landscape if needed
-                    // This would require adding a new div element to your HTML
-                    // and implementing a 3D surface plot using Plotly.js
                 }
             }
             
@@ -1649,7 +1651,7 @@
                 return result;
             }
 
-            // Calculate refractive indices for each point in the orderbook
+            // Improve the refractive indices calculation to better represent order density
             function calculateRefractiveIndices(heatmapData) {
                 const priceLevels = heatmapData.priceLevels;
                 const refractiveIndices = [];
@@ -1665,12 +1667,12 @@
                     
                     for (let j = 0; j < priceLevels.length; j++) {
                         // Normalize volume and calculate refractive index
-                        // Formula: n = 1 + k/(normalized_density + ε)
-                        // Where k is a scaling factor (0.5 in this case)
                         const normalizedVolume = maxVolume > 0 ? Math.abs(volumes[j]) / maxVolume : 0;
                         
-                        // Inverse relationship: high density = high resistance = high refractive index
-                        const refractiveIndex = 1 + 0.5 / (1 - Math.min(0.95, normalizedVolume) + epsilon);
+                        // Updated formula: Exponential relationship for better contrast
+                        // Areas with high volume have LOWER refractive index (easier for light to pass)
+                        // This matches our metaphor: price prefers to go through areas with more liquidity
+                        const refractiveIndex = 1 + Math.exp(-5 * normalizedVolume) * 2;
                         timeIndices.push(refractiveIndex);
                     }
                     
@@ -1680,80 +1682,120 @@
                 return refractiveIndices;
             }
 
-            // Find optimal price path using Fermat's principle (path of least optical time)
+            // Completely revamp the optimal path finding algorithm
             function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
                 const priceLevels = heatmapData.priceLevels;
                 const timestamps = heatmapData.timestamps;
                 const path = [];
                 const resistanceMap = [];
                 
+                // Make sure we have enough data
+                if (timestamps.length < 2 || candlestickData.length < 2) {
+                    return { path, resistanceMap };
+                }
+                
                 // Initialize with actual price at first timestamp
                 const startPrice = candlestickData[0].close;
-                const startPriceIndex = findClosestPriceIndex(priceLevels, startPrice);
+                let currentPriceIndex = findClosestPriceIndex(priceLevels, startPrice);
                 
                 path.push({ 
                     time: new Date(timestamps[0] * 1000), 
-                    price: priceLevels[startPriceIndex],
-                    resistance: refractiveIndices[0][startPriceIndex]
+                    price: priceLevels[currentPriceIndex],
+                    resistance: refractiveIndices[0][currentPriceIndex]
                 });
                 
-                // Calculate resistance map - represents the "optical resistance" at each grid point
+                // Calculate gradient of refractive indices (important for Snell's law)
                 for (let i = 0; i < refractiveIndices.length; i++) {
                     const timeResistance = [];
                     for (let j = 0; j < priceLevels.length; j++) {
+                        // Calculate gradient from neighboring points
+                        let gradientUp = 0, gradientDown = 0;
+                        
+                        if (j > 0) {
+                            gradientDown = refractiveIndices[i][j] - refractiveIndices[i][j-1];
+                        }
+                        
+                        if (j < priceLevels.length - 1) {
+                            gradientUp = refractiveIndices[i][j+1] - refractiveIndices[i][j];
+                        }
+                        
+                        // Store resistance and its gradient at this point
                         timeResistance.push({ 
                             price: priceLevels[j],
                             resistance: refractiveIndices[i][j],
-                            gradient: j > 0 ? refractiveIndices[i][j] - refractiveIndices[i][j-1] : 0
+                            gradientUp: gradientUp,
+                            gradientDown: gradientDown
                         });
                     }
                     resistanceMap.push(timeResistance);
                 }
                 
-                // Apply modified Dijkstra's algorithm to find path of least resistance
-                // We'll use a 3-step lookahead for better path continuity
-                const lookAhead = 3;
-                let currentPriceIndex = startPriceIndex;
+                // Apply Fermat's principle of least time
+                // This is analogous to finding path of least resistance through a medium
                 
-                for (let i = 1; i < Math.min(timestamps.length, candlestickData.length); i++) {
-                    // Define search space: can move up/down n price levels
-                    const searchRadius = Math.max(5, Math.floor(priceLevels.length * 0.05));
+                // Variable search radius based on price volatility
+                const priceHistory = candlestickData.map(c => c.close);
+                const volatility = calculateVolatility(priceHistory);
+                const baseSearchRadius = Math.max(2, Math.floor(priceLevels.length * volatility * 0.2));
+                
+                // For each timestamp, find the next point on the path
+                for (let i = 1; i < timestamps.length; i++) {
+                    // Find the actual price at this timestamp if available
+                    const actualPriceIndex = i < candlestickData.length ? 
+                        findClosestPriceIndex(priceLevels, candlestickData[i].close) : -1;
+                    
+                    // Dynamic search radius that adapts to price movement
+                    const searchRadius = baseSearchRadius + 
+                        (actualPriceIndex >= 0 ? Math.abs(actualPriceIndex - currentPriceIndex) : 0);
+                        
+                    // Define the search space bounded by the search radius
                     const lowerBound = Math.max(0, currentPriceIndex - searchRadius);
                     const upperBound = Math.min(priceLevels.length - 1, currentPriceIndex + searchRadius);
                     
-                    // Calculate cumulative resistance for each potential path
+                    // Find path of least optical time (resistance)
                     let minResistance = Infinity;
-                    let optimalPriceIndex = currentPriceIndex;
+                    let optimalNextIndex = currentPriceIndex;
                     
                     for (let j = lowerBound; j <= upperBound; j++) {
-                        // Calculate resistance for this path
-                        // Base resistance is the refractive index at this point
-                        const baseResistance = refractiveIndices[i][j];
-                        
-                        // Add path curvature penalty (higher resistance for sharp turns)
-                        const pathDeflection = Math.abs(j - currentPriceIndex) / searchRadius;
-                        const curvaturePenalty = 0.2 * Math.pow(pathDeflection, 2);
-                        
-                        // Add multi-step lookahead for path smoothness if possible
-                        let lookaheadResistance = 0;
-                        if (i + lookAhead < refractiveIndices.length) {
-                            for (let k = 1; k <= lookAhead; k++) {
-                                const weight = (lookAhead - k + 1) / lookAhead;
-                                lookaheadResistance += weight * refractiveIndices[i + k][j] / lookAhead;
-                            }
+                        // Skip points with very high resistance (extremely low liquidity)
+                        if (refractiveIndices[i][j] > 3) {
+                            continue;
                         }
                         
-                        // Calculate total resistance for this path option
-                        const totalResistance = baseResistance + curvaturePenalty + 0.3 * lookaheadResistance;
+                        // Calculate actual path resistance using the physics of refraction
+                        // 1. Base optical resistance at this point
+                        const opticalResistance = refractiveIndices[i][j];
                         
+                        // 2. Apply Snell's law: light bends toward lower refractive index
+                        // Calculate the "bend penalty" - sharper turns cost more when going against the gradient
+                        const priceDelta = j - currentPriceIndex;
+                        const bendPenalty = Math.abs(priceDelta) * 0.05;
+                        
+                        // 3. Factor in actual price attraction (prices tend to move toward actual market price)
+                        const actualPriceAttraction = actualPriceIndex >= 0 ? 
+                            0.3 * Math.abs(j - actualPriceIndex) / priceLevels.length : 0;
+                        
+                        // 4. Incorporate gradient effects (light prefers paths where resistance decreases)
+                        const gradientEffect = priceDelta > 0 ? 
+                            resistanceMap[i][j].gradientUp * 0.1 : 
+                            resistanceMap[i][j].gradientDown * 0.1;
+                        
+                        // Total resistance for this path option
+                        const totalResistance = 
+                            opticalResistance + 
+                            bendPenalty + 
+                            actualPriceAttraction + 
+                            gradientEffect;
+                        
+                        // Update minimum resistance path
                         if (totalResistance < minResistance) {
                             minResistance = totalResistance;
-                            optimalPriceIndex = j;
+                            optimalNextIndex = j;
                         }
                     }
                     
-                    // Update current position to the optimal one found
-                    currentPriceIndex = optimalPriceIndex;
+                    // Update current position to optimal next point
+                    currentPriceIndex = optimalNextIndex;
                     
                     // Add to final path
                     path.push({
@@ -1766,7 +1808,24 @@
                 return { path, resistanceMap };
             }
 
-            // Calculate optical momentum for price prediction
+            // Helper function to calculate price volatility
+            function calculateVolatility(prices) {
+                if (prices.length < 2) return 0.01; // Default if not enough data
+                
+                // Calculate returns
+                const returns = [];
+                for (let i = 1; i < prices.length; i++) {
+                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+                }
+                
+                // Calculate standard deviation of returns (volatility)
+                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
+                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                
+                return Math.sqrt(variance) || 0.01; // Avoid zero
+            }
+
+            // Improve momentum calculation for better vector visualization
             function calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData) {
                 const momentumVectors = [];
                 const confidenceScores = [];
@@ -1787,7 +1846,7 @@
                     direction: 0
                 });
                 
-                // Calculate momentum vectors along the path
+                // Calculate momentum vectors along the path with improved physics
                 for (let i = 1; i < path.length - 1; i++) {
                     // Time delta in milliseconds converted to hours for scaling
                     const dt1 = (path[i].time - path[i-1].time) / (1000 * 3600);
@@ -1797,24 +1856,22 @@
                     const dp1 = path[i].price - path[i-1].price;
                     const dp2 = path[i+1].price - path[i].price;
                     
-                    // Calculate velocity vectors
-                    const v1 = dp1 / (dt1 || 0.001); // Prevent division by zero
-                    const v2 = dp2 / (dt2 || 0.001);
+                    // Calculate velocity vectors (speed of light varies with refractive index)
+                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance);
+                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance);
                     
-                    // Acceleration = change in velocity
-                    const acceleration = v2 - v1;
+                    // Acceleration = change in velocity over time
+                    const acceleration = (v2 - v1) / (dt1 + dt2);
                     
-                    // Get resistance at current point (represents "mass" in the system)
-                    const mass = path[i].resistance;
+                    // Force = mass * acceleration (mass proportional to resistance)
+                    const force = acceleration * path[i].resistance;
                     
-                    // F = ma -> a = F/m -> higher resistance means lower acceleration for same force
-                    const normalizedAcceleration = acceleration / mass;
+                    // Calculate momentum components with improved scaling
+                    // Use a normalized time component for consistent visualization
+                    const dx = 1;
                     
-                    // Calculate momentum:
-                    // - dx is "temporal momentum" (normalized to 1 time unit)
-                    // - dy is "price momentum" including resistance effects
-                    const dx = 1; // Normalized time component
-                    const dy = v2 + normalizedAcceleration;
+                    // Scale dy for better visibility - this is the important directional component
+                    const dy = v2 * 20; // Amplify for visibility
                     
                     // Calculate magnitude and direction
                     const magnitude = Math.sqrt(dx * dx + dy * dy);
@@ -1826,38 +1883,46 @@
                         dx,
                         dy,
                         magnitude,
-                        direction
+                        direction,
+                        force // Store force for confidence calculation
                     });
                     
-                    // Calculate prediction confidence based on:
-                    // 1. Path stability (consistent direction)
-                    // 2. Resistance gradient (approaching high/low resistance areas)
-                    const directionConsistency = i > 1 ? 
+                    // Calculate prediction confidence based on physical principles
+                    // 1. Consistency of force direction (stable forces = higher confidence)
+                    const forceConsistency = i > 1 ? 
                         Math.abs(Math.cos(momentumVectors[i-1].direction - direction)) : 0.5;
                     
-                    // Higher confidence when: 
-                    // - Direction is consistent AND
-                    // - Either moving away from high resistance OR moving toward low resistance
-                    const resistanceGradient = path[i+1].resistance - path[i].resistance;
-                    const resistanceFactor = dy > 0 ? 
-                        (resistanceGradient < 0 ? 1 : 0.7) : // Rising price: better if resistance decreasing
-                        (resistanceGradient > 0 ? 1 : 0.7);  // Falling price: better if resistance increasing
+                    // 2. Light speeds up in areas of low refractive index (low resistance)
+                    const speedFactor = 1 / path[i].resistance;
                     
-                    const confidence = 0.3 + 0.7 * directionConsistency * resistanceFactor;
+                    // 3. Path predictability based on density gradients
+                    const gradientStability = Math.exp(-Math.abs(force) * 2);
+                    
+                    // Combined confidence score
+                    const confidence = 0.3 + 0.7 * (
+                        forceConsistency * 0.4 + 
+                        speedFactor * 0.3 + 
+                        gradientStability * 0.3
+                    );
+                    
                     confidenceScores.push(confidence);
                 }
                 
-                // Add placeholder for the last point
-                momentumVectors.push({
-                    x: path[path.length-1].time,
-                    y: path[path.length-1].price,
-                    dx: momentumVectors[momentumVectors.length-1].dx,
-                    dy: momentumVectors[momentumVectors.length-1].dy,
-                    magnitude: momentumVectors[momentumVectors.length-1].magnitude,
-                    direction: momentumVectors[momentumVectors.length-1].direction
-                });
-                
-                confidenceScores.push(confidenceScores[confidenceScores.length-1] || 0.5);
+                // Add final point with forward projection
+                if (momentumVectors.length > 1) {
+                    const lastVector = momentumVectors[momentumVectors.length-1];
+                    
+                    momentumVectors.push({
+                        x: path[path.length-1].time,
+                        y: path[path.length-1].price,
+                        dx: lastVector.dx,
+                        dy: lastVector.dy,
+                        magnitude: lastVector.magnitude,
+                        direction: lastVector.direction
+                    });
+                    
+                    confidenceScores.push(confidenceScores[confidenceScores.length-1] || 0.5);
+                }
                 
                 return { momentumVectors, confidenceScores };
             }
