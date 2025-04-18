@@ -337,8 +337,8 @@
                 <label for="showOBM">Show Order Book Momentum</label>
             </div>
             <div class="checkbox-container">
-                <input type="checkbox" id="showDeltaBubbles" checked>
-                <label for="showDeltaBubbles">Show Delta Bubbles</label>
+                <input type="checkbox" id="showPrediction" checked>
+                <label for="showPrediction">Show Light-Path Prediction</label>
             </div>
         </div>
         
@@ -394,8 +394,7 @@
                     trendStrength: [],
                     forecastValues: [],
                     signals: [],
-                    signalStrengths: [],
-                    rawImbalances: []
+                    signalStrengths: []
                 };
                 
                 if (heatmapData.heatmap.length < 10) return result; // Need enough data for time series analysis
@@ -458,9 +457,6 @@
                     
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                 }
-                
-                // Store the raw imbalances in the result object
-                result.rawImbalances = rawImbalances;
                 
                 // Apply time series techniques to the raw OBM values
                 
@@ -976,102 +972,6 @@
                     showscale: true
                 };
                 
-                // Create delta bubbles trace if enabled
-                const showDeltaBubbles = document.getElementById('showDeltaBubbles').checked;
-                const traces = [trace2, trace1];
-                
-                if (showDeltaBubbles && obmData.rawImbalances && obmData.rawImbalances.length > 0) {
-                    // Add buy/sell delta circles overlay - following price line
-                    const buyColor = 'rgba(0, 255, 157, 0.8)';  // Green for buy pressure
-                    const sellColor = 'rgba(255, 50, 50, 0.8)';  // Red for sell pressure
-                    
-                    // Create delta bubbles trace
-                    const deltaBubbles = {
-                        x: [],
-                        y: [],
-                        mode: 'markers',
-                        marker: {
-                            size: [],
-                            color: [],
-                            line: {
-                                width: 2,
-                                color: 'rgba(255, 255, 255, 0.8)'
-                            },
-                            opacity: 0.9,
-                            symbol: 'circle'
-                        },
-                        name: 'Buy/Sell Delta',
-                        type: 'scatter',
-                        hoverinfo: 'text',
-                        text: []
-                    };
-                    
-                    // Group data points into 5-minute windows
-                    const fiveMinMs = 5 * 60 * 1000; // 5 minutes in milliseconds
-                    const groupedImbalances = {};
-                    
-                    // Group imbalances by 5-minute windows
-                    for (let i = 0; i < obmData.timestamps.length; i++) {
-                        const timestamp = obmData.timestamps[i];
-                        // Round to nearest 5-minute window
-                        const windowTime = Math.floor(timestamp.getTime() / fiveMinMs) * fiveMinMs;
-                        
-                        if (!groupedImbalances[windowTime]) {
-                            groupedImbalances[windowTime] = {
-                                count: 0,
-                                sumImbalance: 0,
-                                timestamp: new Date(windowTime)
-                            };
-                        }
-                        
-                        groupedImbalances[windowTime].count++;
-                        groupedImbalances[windowTime].sumImbalance += obmData.rawImbalances[i];
-                    }
-                    
-                    // Process grouped imbalances to create delta markers
-                    for (const windowTime in groupedImbalances) {
-                        const group = groupedImbalances[windowTime];
-                        const avgImbalance = group.sumImbalance / group.count;
-                        const absImbalance = Math.abs(avgImbalance);
-                        
-                        // Only show significant imbalances (adjust threshold as needed)
-                        if (absImbalance > 0.1) {
-                            // Find the closest price point to this timestamp
-                            const obmTime = group.timestamp.getTime();
-                            let closestIdx = 0;
-                            let minTimeDiff = Infinity;
-                            
-                            for (let j = 0; j < times.length; j++) {
-                                const diff = Math.abs(times[j].getTime() - obmTime);
-                                if (diff < minTimeDiff) {
-                                    minTimeDiff = diff;
-                                    closestIdx = j;
-                                }
-                            }
-                            
-                            // Add the timestamp and corresponding price
-                            deltaBubbles.x.push(group.timestamp);
-                            deltaBubbles.y.push(prices[closestIdx]);
-                            
-                            // Size based on magnitude (scale for visibility)
-                            const bubbleSize = Math.min(45, 20 + (absImbalance * 80));
-                            deltaBubbles.marker.size.push(bubbleSize);
-                            
-                            // Color based on direction
-                            deltaBubbles.marker.color.push(avgImbalance > 0 ? buyColor : sellColor);
-                            
-                            // Add hover text
-                            const percentImbalance = (avgImbalance * 100).toFixed(1);
-                            deltaBubbles.text.push(`${avgImbalance > 0 ? 'Buy' : 'Sell'} Pressure: ${percentImbalance}%`);
-                        }
-                    }
-                    
-                    // Add the delta bubbles trace if it has data points
-                    if (deltaBubbles.x.length > 0) {
-                        traces.push(deltaBubbles);
-                    }
-                }
-                
                 const layout = {
                     title: {
                         text: 'Milk Price and Orderbook Heatmap',
@@ -1123,7 +1023,146 @@
                     autosize: true
                 };
                 
-                Plotly.newPlot('chart', traces, layout, {responsive: true});
+                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
+                
+                // Calculate price path prediction
+                const lastPrice = prices[prices.length - 1];
+                const pathPrediction = calculatePricePath(heatmapData, lastPrice);
+                
+                // Create trace for predicted price path
+                if (pathPrediction.timestamps.length > 0) {
+                    // Create gradient color based on confidence
+                    const confidenceColors = pathPrediction.confidenceLevel.map(conf => {
+                        // Green to yellow to red based on confidence (high to low)
+                        const r = Math.round(255 * (1 - conf));
+                        const g = Math.round(255 * (conf < 0.5 ? conf * 2 : 1));
+                        const b = Math.round(100 * conf);
+                        return `rgba(${r}, ${g}, ${b}, 0.9)`;
+                    });
+                    
+                    // Line gets thinner with decreasing confidence
+                    const lineWidths = pathPrediction.confidenceLevel.map(conf => 
+                        Math.max(1, Math.round(conf * 5))
+                    );
+                    
+                    // Combined timestamps for x-axis
+                    const allTimestamps = [...times, ...pathPrediction.timestamps];
+                    
+                    // Add the prediction trace
+                    const tracePrediction = {
+                        x: pathPrediction.timestamps,
+                        y: pathPrediction.predictedPrices,
+                        mode: 'lines',
+                        name: 'Price Prediction',
+                        line: {
+                            shape: 'spline',
+                            width: 3,
+                            color: 'rgba(255, 215, 0, 0.8)',
+                            dash: 'dash'
+                        },
+                        hoverinfo: 'x+y+text',
+                        text: pathPrediction.confidenceLevel.map(conf => 
+                            `Confidence: ${Math.round(conf * 100)}%`
+                        ),
+                        yaxis: 'y',
+                        type: 'scatter'
+                    };
+                    
+                    // Add area for prediction confidence interval
+                    const upperBound = pathPrediction.predictedPrices.map((price, i) => 
+                        price * (1 + 0.01 * (1 - pathPrediction.confidenceLevel[i]))
+                    );
+                    
+                    const lowerBound = pathPrediction.predictedPrices.map((price, i) => 
+                        price * (1 - 0.01 * (1 - pathPrediction.confidenceLevel[i]))
+                    );
+                    
+                    const traceUpperBound = {
+                        x: pathPrediction.timestamps,
+                        y: upperBound,
+                        mode: 'lines',
+                        line: {
+                            width: 0,
+                            color: 'rgba(255, 215, 0, 0)'
+                        },
+                        showlegend: false,
+                        hoverinfo: 'skip'
+                    };
+                    
+                    const traceLowerBound = {
+                        x: pathPrediction.timestamps,
+                        y: lowerBound,
+                        mode: 'lines',
+                        fill: 'tonexty',
+                        fillcolor: 'rgba(255, 215, 0, 0.2)',
+                        line: {
+                            width: 0,
+                            color: 'rgba(255, 215, 0, 0)'
+                        },
+                        showlegend: false,
+                        hoverinfo: 'skip'
+                    };
+                    
+                    // Add path of least resistance visualization
+                    const pathPoints = pathPrediction.resistanceFactor.map((rf, i) => {
+                        return {
+                            x: pathPrediction.timestamps[i],
+                            y: pathPrediction.predictedPrices[i],
+                            r: rf
+                        };
+                    });
+                    
+                    // Add annotations for points of extremely low resistance
+                    const annotations = pathPoints
+                        .filter(point => point.r > 0.8)  // Only highlight very clear paths
+                        .map(point => {
+                            return {
+                                x: point.x,
+                                y: point.y,
+                                xref: 'x',
+                                yref: 'y',
+                                text: 'PATH',
+                                showarrow: true,
+                                arrowhead: 7,
+                                arrowwidth: 2,
+                                arrowsize: 1,
+                                arrowcolor: 'rgba(255, 215, 0, 0.8)',
+                                ax: 20,
+                                ay: -40,
+                                font: {
+                                    color: 'rgba(255, 215, 0, 1)',
+                                    size: 12
+                                },
+                                bgcolor: 'rgba(0, 0, 0, 0.7)',
+                                bordercolor: 'rgba(255, 215, 0, 0.8)',
+                                borderwidth: 1,
+                                borderpad: 4
+                            };
+                        });
+                    
+                    // Add all the new traces to the chart
+                    Plotly.addTraces('chart', [traceUpperBound, traceLowerBound, tracePrediction]);
+                    
+                    // Add the annotations for low resistance points
+                    if (annotations.length > 0) {
+                        Plotly.relayout('chart', {
+                            annotations: layout.annotations ? [...layout.annotations, ...annotations] : annotations
+                        });
+                    }
+                    
+                    // Add explanation of physics model to chart title
+                    const updatedLayout = {
+                        title: {
+                            text: 'Milk Price with Light-Path Prediction',
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace'
+                            }
+                        }
+                    };
+                    
+                    Plotly.relayout('chart', updatedLayout);
+                }
                 
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
@@ -1644,13 +1683,241 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
-            
-            // Add event listener for the Delta Bubbles checkbox
-            document.getElementById('showDeltaBubbles').addEventListener('change', function() {
+
+            // Function to calculate price path of least resistance
+            function calculatePricePath(heatmapData, currentPrice) {
+                // Return structure for price path prediction
+                const prediction = {
+                    timestamps: [],     // Future timestamps
+                    predictedPrices: [], // Predicted price values
+                    resistanceFactor: [], // How much resistance at each point
+                    confidenceLevel: []  // Confidence of prediction (0-1)
+                };
+                
+                if (!heatmapData || !heatmapData.heatmap || heatmapData.heatmap.length < 5) {
+                    return prediction; // Not enough data
+                }
+                
+                const priceLevels = heatmapData.priceLevels;
+                const timestamps = heatmapData.timestamps;
+                
+                // Time step for prediction (extend 20% beyond the current data)
+                const timeRange = timestamps[timestamps.length-1] - timestamps[0];
+                const timeStep = timeRange / timestamps.length;
+                const numPredictionPoints = Math.min(20, Math.floor(timestamps.length * 0.2));
+                
+                // Initialize with current data for reference
+                const lastTimestamp = timestamps[timestamps.length-1];
+                
+                // Find the current price index in priceLevels
+                let currentPriceIndex = 0;
+                for (let i = 0; i < priceLevels.length - 1; i++) {
+                    if (priceLevels[i] <= currentPrice && priceLevels[i+1] >= currentPrice) {
+                        currentPriceIndex = i;
+                        break;
+                    }
+                }
+                
+                // Get the order density matrix from the latest snapshot
+                const latestVolumeSnapshot = heatmapData.heatmap[heatmapData.heatmap.length-1].volumes;
+                
+                // Convert order volumes to "resistance factors" (inverse to create "resistance")
+                // Higher volumes = higher resistance = light travels slower
+                const resistanceFactors = [];
+                let maxResistance = 0;
+                
+                for (let i = 0; i < latestVolumeSnapshot.length; i++) {
+                    // Volume is resistance, small epsilon to avoid division by zero
+                    const resistance = Math.abs(latestVolumeSnapshot[i]) + 1e-6;
+                    maxResistance = Math.max(maxResistance, resistance);
+                    resistanceFactors.push(resistance);
+                }
+                
+                // Normalize resistance to 0-1 range and invert (1 = low resistance, 0 = high resistance)
+                const normalizedResistance = resistanceFactors.map(r => 1 - (r / maxResistance));
+                
+                // Price dynamics parameters
+                const gravitationalPull = 0.02;  // Tendency to return to the mean
+                const momentumFactor = 0.5;      // How much momentum affects movement
+                const resistanceImpact = 0.7;    // How much resistance affects path
+                const volatilityFactor = 0.3;    // Random market noise
+                
+                // Find global VWAP as equilibrium price
+                let vwapPrice = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceLevels.length; i++) {
+                    const volume = Math.abs(latestVolumeSnapshot[i]);
+                    vwapPrice += priceLevels[i] * volume;
+                    totalVolume += volume;
+                }
+                vwapPrice = totalVolume > 0 ? vwapPrice / totalVolume : currentPrice;
+                
+                // Track price movement using physics-inspired model
+                let currentPosition = currentPriceIndex;
+                let momentum = 0; // Initial momentum is zero
+                let prevDirection = 0;
+                
+                // Calculate OBM to get current market direction
+                const obmData = calculateOBM(heatmapData);
+                const currentObm = obmData.obmValues.length > 0 ? 
+                                   obmData.obmValues[obmData.obmValues.length-1] : 0;
+                
+                // Initial momentum based on current OBM
+                momentum = currentObm * 2;
+                
+                // Start prediction
+                for (let i = 0; i < numPredictionPoints; i++) {
+                    const newTimestamp = lastTimestamp + (i + 1) * timeStep;
+                    prediction.timestamps.push(new Date(newTimestamp * 1000));
+                    
+                    // Calculate forces acting on price
+                    
+                    // 1. Path of least resistance - check surrounding price levels
+                    const rangeLookup = 5; // How many price levels to check in each direction
+                    let leastResistanceDirection = 0;
+                    let minResistance = 1;
+                    
+                    for (let j = -rangeLookup; j <= rangeLookup; j++) {
+                        const lookupIndex = Math.min(Math.max(0, Math.floor(currentPosition) + j), normalizedResistance.length - 1);
+                        const resistance = normalizedResistance[lookupIndex];
+                        
+                        // If this path has less resistance and we've found a new minimum
+                        if (resistance < minResistance) {
+                            minResistance = resistance;
+                            leastResistanceDirection = j / rangeLookup; // Normalize to -1 to 1
+                        }
+                    }
+                    
+                    // 2. Gravitational pull toward VWAP
+                    const vwapIndex = priceLevels.findIndex(p => p >= vwapPrice);
+                    const gravityDirection = (vwapIndex - currentPosition) / priceLevels.length;
+                    
+                    // 3. Apply momentum (tendency to continue in previous direction)
+                    
+                    // 4. Random market noise
+                    const noise = (Math.random() * 2 - 1) * volatilityFactor;
+                    
+                    // Combine all forces
+                    const resistanceForce = leastResistanceDirection * resistanceImpact;
+                    const gravityForce = gravityDirection * gravitationalPull;
+                    const momentumForce = momentum * momentumFactor;
+                    
+                    // Update momentum with new forces (physics!)
+                    momentum = momentum * 0.9 + resistanceForce + gravityForce + noise;
+                    
+                    // Calculate the new position based on forces
+                    currentPosition += momentum;
+                    
+                    // Ensure we stay within price bounds
+                    currentPosition = Math.max(0, Math.min(priceLevels.length - 1, currentPosition));
+                    
+                    // Get the price at the new position
+                    const predictedPriceIndex = Math.floor(currentPosition);
+                    const fractionalPart = currentPosition - predictedPriceIndex;
+                    
+                    // Interpolate between price levels
+                    let predictedPrice;
+                    if (predictedPriceIndex >= priceLevels.length - 1) {
+                        predictedPrice = priceLevels[priceLevels.length - 1];
+                    } else {
+                        predictedPrice = priceLevels[predictedPriceIndex] + 
+                                        fractionalPart * (priceLevels[predictedPriceIndex + 1] - priceLevels[predictedPriceIndex]);
+                    }
+                    
+                    // Calculate confidence - higher when resistance is very low or very high (clear path)
+                    const resistanceCertainty = Math.abs(minResistance - 0.5) * 2; // 0 to 1 where 1 = certain
+                    // Less confidence over time
+                    const timeDecay = Math.max(0, 1 - (i / numPredictionPoints));
+                    const confidence = resistanceCertainty * timeDecay;
+                    
+                    prediction.predictedPrices.push(predictedPrice);
+                    prediction.resistanceFactor.push(minResistance);
+                    prediction.confidenceLevel.push(confidence);
+                }
+                
+                return prediction;
+            }
+
+            // Add helper function to find smoothed path through a field
+            function findPathOfLeastResistance(resistanceField, startPoint, endTime, steps) {
+                // Dynamic programming approach to find optimal path
+                const rows = resistanceField.length; // price levels
+                const cols = steps; // time steps
+                
+                // Initialize the cost matrix
+                const cost = Array(rows).fill().map(() => Array(cols).fill(Infinity));
+                const path = Array(rows).fill().map(() => Array(cols).fill(null));
+                
+                // Set starting position
+                cost[startPoint][0] = 0;
+                
+                // Fill the cost matrix
+                for (let t = 1; t < cols; t++) {
+                    for (let p = 0; p < rows; p++) {
+                        // Check paths from different previous positions
+                        for (let prev = 0; prev < rows; prev++) {
+                            // Cost to move from prev to p
+                            const moveCost = Math.abs(prev - p) * 0.1;
+                            // Resistance at this price level
+                            const fieldResistance = resistanceField[p];
+                            // Total cost
+                            const totalCost = cost[prev][t-1] + moveCost + fieldResistance;
+                            
+                            if (totalCost < cost[p][t]) {
+                                cost[p][t] = totalCost;
+                                path[p][t] = prev;
+                            }
+                        }
+                    }
+                }
+                
+                // Find endpoint with minimum cost
+                let minCost = Infinity;
+                let endPoint = 0;
+                
+                for (let p = 0; p < rows; p++) {
+                    if (cost[p][cols-1] < minCost) {
+                        minCost = cost[p][cols-1];
+                        endPoint = p;
+                    }
+                }
+                
+                // Reconstruct the path
+                const optimalPath = [];
+                let current = endPoint;
+                
+                for (let t = cols - 1; t > 0; t--) {
+                    optimalPath.unshift(current);
+                    current = path[current][t];
+                }
+                optimalPath.unshift(startPoint);
+                
+                return optimalPath;
+            }
+
+            // Add event listener for the prediction checkbox
+            document.getElementById('showPrediction').addEventListener('change', function() {
+                // Re-render the chart with the current data to update the prediction display
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
                     renderChart(cachedCandlestickData, cachedHeatmapData);
                 }
             });
+            
+            // Modify the renderChart function to check if prediction should be shown
+            function renderChart(candlestickData, heatmapData) {
+                // Add near the beginning of the function
+                const showPrediction = document.getElementById('showPrediction').checked;
+                
+                // Then later in the function, where we calculate the prediction:
+                if (showPrediction) {
+                    // Calculate price path prediction
+                    const lastPrice = prices[prices.length - 1];
+                    const pathPrediction = calculatePricePath(heatmapData, lastPrice);
+                    
+                    // Rest of the prediction visualization code...
+                }
+            }
         });
     </script>
 </body>
