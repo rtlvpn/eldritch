@@ -915,6 +915,9 @@
                 const times = candlestickData.map(item => new Date(item.timestamp));
                 const prices = candlestickData.map(item => item.close);
                 
+                // Get the prediction display setting
+                const showPrediction = document.getElementById('showPrediction').checked;
+                
                 // Prepare heatmap data
                 const heatmapZ = [];
                 const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
@@ -1025,143 +1028,145 @@
                 
                 Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
                 
-                // Calculate price path prediction
-                const lastPrice = prices[prices.length - 1];
-                const pathPrediction = calculatePricePath(heatmapData, lastPrice);
-                
-                // Create trace for predicted price path
-                if (pathPrediction.timestamps.length > 0) {
-                    // Create gradient color based on confidence
-                    const confidenceColors = pathPrediction.confidenceLevel.map(conf => {
-                        // Green to yellow to red based on confidence (high to low)
-                        const r = Math.round(255 * (1 - conf));
-                        const g = Math.round(255 * (conf < 0.5 ? conf * 2 : 1));
-                        const b = Math.round(100 * conf);
-                        return `rgba(${r}, ${g}, ${b}, 0.9)`;
-                    });
+                // Calculate price path prediction if enabled
+                if (showPrediction && prices.length > 0) {
+                    const lastPrice = prices[prices.length - 1];
+                    const pathPrediction = calculatePricePath(heatmapData, lastPrice);
                     
-                    // Line gets thinner with decreasing confidence
-                    const lineWidths = pathPrediction.confidenceLevel.map(conf => 
-                        Math.max(1, Math.round(conf * 5))
-                    );
-                    
-                    // Combined timestamps for x-axis
-                    const allTimestamps = [...times, ...pathPrediction.timestamps];
-                    
-                    // Add the prediction trace
-                    const tracePrediction = {
-                        x: pathPrediction.timestamps,
-                        y: pathPrediction.predictedPrices,
-                        mode: 'lines',
-                        name: 'Price Prediction',
-                        line: {
-                            shape: 'spline',
-                            width: 3,
-                            color: 'rgba(255, 215, 0, 0.8)',
-                            dash: 'dash'
-                        },
-                        hoverinfo: 'x+y+text',
-                        text: pathPrediction.confidenceLevel.map(conf => 
-                            `Confidence: ${Math.round(conf * 100)}%`
-                        ),
-                        yaxis: 'y',
-                        type: 'scatter'
-                    };
-                    
-                    // Add area for prediction confidence interval
-                    const upperBound = pathPrediction.predictedPrices.map((price, i) => 
-                        price * (1 + 0.01 * (1 - pathPrediction.confidenceLevel[i]))
-                    );
-                    
-                    const lowerBound = pathPrediction.predictedPrices.map((price, i) => 
-                        price * (1 - 0.01 * (1 - pathPrediction.confidenceLevel[i]))
-                    );
-                    
-                    const traceUpperBound = {
-                        x: pathPrediction.timestamps,
-                        y: upperBound,
-                        mode: 'lines',
-                        line: {
-                            width: 0,
-                            color: 'rgba(255, 215, 0, 0)'
-                        },
-                        showlegend: false,
-                        hoverinfo: 'skip'
-                    };
-                    
-                    const traceLowerBound = {
-                        x: pathPrediction.timestamps,
-                        y: lowerBound,
-                        mode: 'lines',
-                        fill: 'tonexty',
-                        fillcolor: 'rgba(255, 215, 0, 0.2)',
-                        line: {
-                            width: 0,
-                            color: 'rgba(255, 215, 0, 0)'
-                        },
-                        showlegend: false,
-                        hoverinfo: 'skip'
-                    };
-                    
-                    // Add path of least resistance visualization
-                    const pathPoints = pathPrediction.resistanceFactor.map((rf, i) => {
-                        return {
-                            x: pathPrediction.timestamps[i],
-                            y: pathPrediction.predictedPrices[i],
-                            r: rf
+                    // Create trace for predicted price path if we have prediction data
+                    if (pathPrediction.timestamps.length > 0) {
+                        // Create gradient color based on confidence
+                        const confidenceColors = pathPrediction.confidenceLevel.map(conf => {
+                            // Green to yellow to red based on confidence (high to low)
+                            const r = Math.round(255 * (1 - conf));
+                            const g = Math.round(255 * (conf < 0.5 ? conf * 2 : 1));
+                            const b = Math.round(100 * conf);
+                            return `rgba(${r}, ${g}, ${b}, 0.9)`;
+                        });
+                        
+                        // Line gets thinner with decreasing confidence
+                        const lineWidths = pathPrediction.confidenceLevel.map(conf => 
+                            Math.max(1, Math.round(conf * 5))
+                        );
+                        
+                        // Combined timestamps for x-axis
+                        const allTimestamps = [...times, ...pathPrediction.timestamps];
+                        
+                        // Add the prediction trace
+                        const tracePrediction = {
+                            x: pathPrediction.timestamps,
+                            y: pathPrediction.predictedPrices,
+                            mode: 'lines',
+                            name: 'Price Prediction',
+                            line: {
+                                shape: 'spline',
+                                width: 3,
+                                color: 'rgba(255, 215, 0, 0.8)',
+                                dash: 'dash'
+                            },
+                            hoverinfo: 'x+y+text',
+                            text: pathPrediction.confidenceLevel.map(conf => 
+                                `Confidence: ${Math.round(conf * 100)}%`
+                            ),
+                            yaxis: 'y',
+                            type: 'scatter'
                         };
-                    });
-                    
-                    // Add annotations for points of extremely low resistance
-                    const annotations = pathPoints
-                        .filter(point => point.r > 0.8)  // Only highlight very clear paths
-                        .map(point => {
+                        
+                        // Add area for prediction confidence interval
+                        const upperBound = pathPrediction.predictedPrices.map((price, i) => 
+                            price * (1 + 0.01 * (1 - pathPrediction.confidenceLevel[i]))
+                        );
+                        
+                        const lowerBound = pathPrediction.predictedPrices.map((price, i) => 
+                            price * (1 - 0.01 * (1 - pathPrediction.confidenceLevel[i]))
+                        );
+                        
+                        const traceUpperBound = {
+                            x: pathPrediction.timestamps,
+                            y: upperBound,
+                            mode: 'lines',
+                            line: {
+                                width: 0,
+                                color: 'rgba(255, 215, 0, 0)'
+                            },
+                            showlegend: false,
+                            hoverinfo: 'skip'
+                        };
+                        
+                        const traceLowerBound = {
+                            x: pathPrediction.timestamps,
+                            y: lowerBound,
+                            mode: 'lines',
+                            fill: 'tonexty',
+                            fillcolor: 'rgba(255, 215, 0, 0.2)',
+                            line: {
+                                width: 0,
+                                color: 'rgba(255, 215, 0, 0)'
+                            },
+                            showlegend: false,
+                            hoverinfo: 'skip'
+                        };
+                        
+                        // Add path of least resistance visualization
+                        const pathPoints = pathPrediction.resistanceFactor.map((rf, i) => {
                             return {
-                                x: point.x,
-                                y: point.y,
-                                xref: 'x',
-                                yref: 'y',
-                                text: 'PATH',
-                                showarrow: true,
-                                arrowhead: 7,
-                                arrowwidth: 2,
-                                arrowsize: 1,
-                                arrowcolor: 'rgba(255, 215, 0, 0.8)',
-                                ax: 20,
-                                ay: -40,
-                                font: {
-                                    color: 'rgba(255, 215, 0, 1)',
-                                    size: 12
-                                },
-                                bgcolor: 'rgba(0, 0, 0, 0.7)',
-                                bordercolor: 'rgba(255, 215, 0, 0.8)',
-                                borderwidth: 1,
-                                borderpad: 4
+                                x: pathPrediction.timestamps[i],
+                                y: pathPrediction.predictedPrices[i],
+                                r: rf
                             };
                         });
-                    
-                    // Add all the new traces to the chart
-                    Plotly.addTraces('chart', [traceUpperBound, traceLowerBound, tracePrediction]);
-                    
-                    // Add the annotations for low resistance points
-                    if (annotations.length > 0) {
-                        Plotly.relayout('chart', {
-                            annotations: layout.annotations ? [...layout.annotations, ...annotations] : annotations
-                        });
-                    }
-                    
-                    // Add explanation of physics model to chart title
-                    const updatedLayout = {
-                        title: {
-                            text: 'Milk Price with Light-Path Prediction',
-                            font: {
-                                color: '#00ff9d',
-                                family: 'Courier New, monospace'
-                            }
+                        
+                        // Add annotations for points of extremely low resistance
+                        const annotations = pathPoints
+                            .filter(point => point.r > 0.8)  // Only highlight very clear paths
+                            .map(point => {
+                                return {
+                                    x: point.x,
+                                    y: point.y,
+                                    xref: 'x',
+                                    yref: 'y',
+                                    text: 'PATH',
+                                    showarrow: true,
+                                    arrowhead: 7,
+                                    arrowwidth: 2,
+                                    arrowsize: 1,
+                                    arrowcolor: 'rgba(255, 215, 0, 0.8)',
+                                    ax: 20,
+                                    ay: -40,
+                                    font: {
+                                        color: 'rgba(255, 215, 0, 1)',
+                                        size: 12
+                                    },
+                                    bgcolor: 'rgba(0, 0, 0, 0.7)',
+                                    bordercolor: 'rgba(255, 215, 0, 0.8)',
+                                    borderwidth: 1,
+                                    borderpad: 4
+                                };
+                            });
+                        
+                        // Add all the new traces to the chart
+                        Plotly.addTraces('chart', [traceUpperBound, traceLowerBound, tracePrediction]);
+                        
+                        // Add the annotations for low resistance points
+                        if (annotations.length > 0) {
+                            Plotly.relayout('chart', {
+                                annotations: layout.annotations ? [...layout.annotations, ...annotations] : annotations
+                            });
                         }
-                    };
-                    
-                    Plotly.relayout('chart', updatedLayout);
+                        
+                        // Add explanation of physics model to chart title
+                        const updatedLayout = {
+                            title: {
+                                text: 'Milk Price with Light-Path Prediction',
+                                font: {
+                                    color: '#00ff9d',
+                                    family: 'Courier New, monospace'
+                                }
+                            }
+                        };
+                        
+                        Plotly.relayout('chart', updatedLayout);
+                    }
                 }
                 
                 // Create the volume profile chart if enabled
@@ -1903,21 +1908,6 @@
                     renderChart(cachedCandlestickData, cachedHeatmapData);
                 }
             });
-            
-            // Modify the renderChart function to check if prediction should be shown
-            function renderChart(candlestickData, heatmapData) {
-                // Add near the beginning of the function
-                const showPrediction = document.getElementById('showPrediction').checked;
-                
-                // Then later in the function, where we calculate the prediction:
-                if (showPrediction) {
-                    // Calculate price path prediction
-                    const lastPrice = prices[prices.length - 1];
-                    const pathPrediction = calculatePricePath(heatmapData, lastPrice);
-                    
-                    // Rest of the prediction visualization code...
-                }
-            }
         });
     </script>
 </body>
