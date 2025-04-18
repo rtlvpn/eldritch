@@ -2186,6 +2186,331 @@
                 
                 return smoothedConfidence;
             }
+
+            // Add this helper function before calculatePriceLightPath is called
+            // Helper function to find the closest price level
+            function findClosestPriceLevel(priceLevels, targetPrice) {
+                let closestIndex = 0;
+                let minDiff = Math.abs(priceLevels[0] - targetPrice);
+                
+                for (let i = 1; i < priceLevels.length; i++) {
+                    const diff = Math.abs(priceLevels[i] - targetPrice);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestIndex = i;
+                    }
+                }
+                
+                return closestIndex;
+            }
+
+            // Helper function to find the last known price from the data
+            function findLastKnownPrice(heatmapData) {
+                // Simple strategy: use the middle price level or highest volume point
+                if (!heatmapData || !heatmapData.priceLevels || heatmapData.priceLevels.length === 0) {
+                    return 0;
+                }
+                
+                // If we have recent heatmap data, find price with highest volume
+                if (heatmapData.heatmap && heatmapData.heatmap.length > 0) {
+                    const lastTimepoint = heatmapData.heatmap[heatmapData.heatmap.length - 1];
+                    
+                    let maxVolume = 0;
+                    let priceWithMaxVolume = heatmapData.priceLevels[Math.floor(heatmapData.priceLevels.length / 2)];
+                    
+                    for (let i = 0; i < lastTimepoint.volumes.length; i++) {
+                        const volume = Math.abs(lastTimepoint.volumes[i]);
+                        if (volume > maxVolume) {
+                            maxVolume = volume;
+                            priceWithMaxVolume = heatmapData.priceLevels[i];
+                        }
+                    }
+                    
+                    return priceWithMaxVolume;
+                }
+                
+                // Default to middle price level
+                return heatmapData.priceLevels[Math.floor(heatmapData.priceLevels.length / 2)];
+            }
+
+            // Helper function for calculateLocalVolatility (was referenced but not defined)
+            function calculateLocalVolatility(heatmapData, timeIndex, priceIndex) {
+                // Default volatility based on position in the price range
+                const volatility = 0.2; // Base volatility
+                
+                // If we have enough data, calculate actual price volatility
+                if (timeIndex >= 3 && heatmapData.heatmap.length > 3) {
+                    const recentPrices = [];
+                    const startIdx = Math.max(0, timeIndex - 5);
+                    for (let t = startIdx; t <= timeIndex; t++) {
+                        // Estimate the price by finding the highest volume point
+                        let maxVolume = 0;
+                        let maxVolumePrice = 0;
+                        
+                        for (let p = 0; p < heatmapData.priceLevels.length; p++) {
+                            const volume = Math.abs(heatmapData.heatmap[t].volumes[p]);
+                            if (volume > maxVolume) {
+                                maxVolume = volume;
+                                maxVolumePrice = heatmapData.priceLevels[p];
+                            }
+                        }
+                        
+                        recentPrices.push(maxVolumePrice);
+                    }
+                    
+                    // Calculate standard deviation of recent prices
+                    if (recentPrices.length > 1) {
+                        const avg = recentPrices.reduce((sum, val) => sum + val, 0) / recentPrices.length;
+                        const variance = recentPrices.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / recentPrices.length;
+                        return Math.sqrt(variance) / avg; // Normalized volatility
+                    }
+                }
+                
+                return volatility;
+            }
+
+            // Helper function for price velocity (was referenced but not defined)
+            function calculatePriceVelocity(heatmapData) {
+                const velocities = [];
+                
+                // Find the price estimate at each time point
+                const estimatedPrices = [];
+                
+                for (let t = 0; t < heatmapData.heatmap.length; t++) {
+                    // Use weighted average as price estimate
+                    let weightedSum = 0;
+                    let totalWeight = 0;
+                    
+                    for (let p = 0; p < heatmapData.priceLevels.length; p++) {
+                        const price = heatmapData.priceLevels[p];
+                        const volume = Math.abs(heatmapData.heatmap[t].volumes[p]);
+                        
+                        weightedSum += price * volume;
+                        totalWeight += volume;
+                    }
+                    
+                    const estimatedPrice = totalWeight > 0 ? weightedSum / totalWeight : 
+                        heatmapData.priceLevels[Math.floor(heatmapData.priceLevels.length / 2)];
+                    
+                    estimatedPrices.push(estimatedPrice);
+                }
+                
+                // Calculate velocity as price change rate
+                for (let t = 0; t < estimatedPrices.length; t++) {
+                    if (t === 0) {
+                        velocities.push(0);
+                    } else {
+                        // Calculate time difference in seconds
+                        const dt = heatmapData.timestamps[t] - heatmapData.timestamps[t-1];
+                        
+                        // Calculate normalized velocity (% change per second)
+                        const velocity = dt > 0 ? 
+                            (estimatedPrices[t] - estimatedPrices[t-1]) / estimatedPrices[t-1] / dt * 100 : 0;
+                        
+                        velocities.push(velocity);
+                    }
+                }
+                
+                return velocities;
+            }
+
+            // Helper function to analyze recent price action (was referenced but not defined)
+            function analyzeRecentPriceAction(heatmapData, priceLevels, currentPriceIndex) {
+                const result = {
+                    momentum: 0,
+                    trend: 0,
+                    volatility: 0
+                };
+                
+                // We need at least a few data points
+                if (heatmapData.heatmap.length < 3) return result;
+                
+                // Look at last few time points to establish momentum
+                const lookbackPeriod = Math.min(5, heatmapData.heatmap.length - 1);
+                const priceChanges = [];
+                
+                for (let t = heatmapData.heatmap.length - lookbackPeriod; t < heatmapData.heatmap.length; t++) {
+                    // Find the price level with maximum volume (likely price)
+                    let maxVolume = 0;
+                    let maxVolumeIndex = 0;
+                    
+                    for (let p = 0; p < priceLevels.length; p++) {
+                        const volume = Math.abs(heatmapData.heatmap[t].volumes[p]);
+                        if (volume > maxVolume) {
+                            maxVolume = volume;
+                            maxVolumeIndex = p;
+                        }
+                    }
+                    
+                    if (t > heatmapData.heatmap.length - lookbackPeriod) {
+                        priceChanges.push(maxVolumeIndex - priceChanges[priceChanges.length - 1]);
+                    } else {
+                        priceChanges.push(maxVolumeIndex);
+                    }
+                }
+                
+                // Calculate average recent momentum (in price levels)
+                if (priceChanges.length > 1) {
+                    // Convert index changes to actual price changes
+                    const actualPriceChanges = priceChanges.slice(1).map(change => {
+                        return change * (priceLevels[1] - priceLevels[0]); // Approximate price change
+                    });
+                    
+                    // Calculate weighted average with more weight to recent changes
+                    let totalWeight = 0;
+                    let weightedSum = 0;
+                    
+                    for (let i = 0; i < actualPriceChanges.length; i++) {
+                        const weight = i + 1; // More recent = higher weight
+                        weightedSum += actualPriceChanges[i] * weight;
+                        totalWeight += weight;
+                    }
+                    
+                    result.momentum = totalWeight > 0 ? weightedSum / totalWeight : 0;
+                    
+                    // Calculate volatility as standard deviation of price changes
+                    const mean = actualPriceChanges.reduce((sum, val) => sum + val, 0) / actualPriceChanges.length;
+                    const variance = actualPriceChanges.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / actualPriceChanges.length;
+                    result.volatility = Math.sqrt(variance);
+                    
+                    // Determine trend direction
+                    result.trend = Math.sign(result.momentum);
+                }
+                
+                return result;
+            }
+
+            // Helper function to process alternative paths (was referenced but not defined)
+            function processAlternativePaths(alternativePaths, mainPath, priceLevels, timestamps) {
+                const result = [];
+                
+                // Handle case with no alternative paths
+                if (!alternativePaths || alternativePaths.length === 0) {
+                    return result;
+                }
+                
+                for (const branchPoint of alternativePaths) {
+                    for (const altPath of branchPoint) {
+                        // Create a complete path from this alternative
+                        const completePath = [];
+                        
+                        // Find the point in the main path that corresponds to this branch
+                        const branchTimeIndex = altPath.timeIndex;
+                        
+                        // Copy the main path up to the branch point
+                        for (let i = 0; i <= branchTimeIndex; i++) {
+                            completePath.push({
+                                timeIndex: mainPath[i].timeIndex,
+                                timestamp: mainPath[i].timestamp,
+                                price: mainPath[i].price,
+                                probability: 1.0
+                            });
+                        }
+                        
+                        // Add the alternative branch point
+                        completePath.push({
+                            timeIndex: altPath.timeIndex,
+                            timestamp: timestamps[altPath.timeIndex],
+                            price: altPath.price,
+                            probability: altPath.probability
+                        });
+                        
+                        // Continue the path with a simple extrapolation
+                        for (let i = branchTimeIndex + 1; i < mainPath.length; i++) {
+                            // Calculate slope based on the difference between mainPath and altPath
+                            const mainPrice = mainPath[i].price;
+                            const priceDiff = altPath.price - mainPath[branchTimeIndex].price;
+                            const timeRatio = (i - branchTimeIndex) / (mainPath.length - branchTimeIndex);
+                            
+                            // Apply continued deviation with some regression toward mean
+                            const projectedPrice = mainPrice + priceDiff * (1 - 0.5 * timeRatio);
+                            
+                            completePath.push({
+                                timeIndex: i,
+                                timestamp: timestamps[i],
+                                price: projectedPrice,
+                                probability: altPath.probability * (1 - 0.1 * (i - branchTimeIndex))
+                            });
+                        }
+                        
+                        result.push(completePath);
+                    }
+                }
+                
+                return result;
+            }
+
+            // Helper function for confidence metrics (was referenced but not defined)
+            function calculateImprovedConfidenceMetrics(pathPoints, volatilityMatrix) {
+                const confidenceValues = [];
+                
+                for (let i = 0; i < pathPoints.length; i++) {
+                    // Base confidence starts at 100% and diminishes with various factors
+                    
+                    // 1. Time decay - confidence decreases over time
+                    const timeDecay = 1 - (i / pathPoints.length) * 0.8; // Max 80% reduction
+                    
+                    // 2. Resistance factor - higher resistance = lower confidence
+                    const resistanceFactor = pathPoints[i].resistance ? 
+                        1 / (1 + pathPoints[i].resistance * 0.7) : 1;
+                    
+                    // 3. Market imbalance - stronger imbalance = higher confidence if moving with imbalance
+                    const imbalance = pathPoints[i].marketImbalance || 0;
+                    const momentum = pathPoints[i].momentum || 0;
+                    // Higher confidence when momentum aligns with market imbalance
+                    const imbalanceFactor = 1 + (Math.sign(imbalance) === Math.sign(momentum) ? 
+                               Math.abs(imbalance) * 0.2 : -Math.abs(imbalance) * 0.1);
+                    
+                    // 4. Volatility penalty - higher volatility = lower confidence
+                    let volatilityPenalty = 0.9;
+                    if (volatilityMatrix && 
+                        i < volatilityMatrix.length && 
+                        pathPoints[i].priceIndex !== undefined && 
+                        pathPoints[i].priceIndex < volatilityMatrix[i].length) {
+                        volatilityPenalty = 1 - volatilityMatrix[i][pathPoints[i].priceIndex] * 0.5;
+                    }
+                    
+                    // 5. Path stability - rapid changes in direction = lower confidence
+                    let stabilityFactor = 1.0;
+                    if (i >= 2) {
+                        const prevChange = pathPoints[i-1].price - pathPoints[i-2].price;
+                        const currChange = pathPoints[i].price - pathPoints[i-1].price;
+                        // If direction changed, reduce confidence
+                        if (Math.sign(prevChange) !== Math.sign(currChange) && Math.abs(currChange) > 0.0001) {
+                            stabilityFactor = 0.9;
+                        }
+                    }
+                    
+                    // Combined confidence calculation
+                    const confidence = Math.min(100, Math.max(5, Math.round(
+                        100 * timeDecay * resistanceFactor * imbalanceFactor * volatilityPenalty * stabilityFactor
+                    )));
+                    
+                    confidenceValues.push(confidence);
+                }
+                
+                // Apply smoothing to avoid jarring changes in confidence
+                const smoothedConfidence = [];
+                const smoothingWindow = 3;
+                
+                for (let i = 0; i < confidenceValues.length; i++) {
+                    let windowSum = 0;
+                    let windowCount = 0;
+                    
+                    for (let j = Math.max(0, i - smoothingWindow); j <= Math.min(confidenceValues.length - 1, i + smoothingWindow); j++) {
+                        // Apply weighted smoothing (closer points have more weight)
+                        const weight = 1 / (1 + Math.abs(i - j));
+                        windowSum += confidenceValues[j] * weight;
+                        windowCount += weight;
+                    }
+                    
+                    smoothedConfidence.push(Math.round(windowSum / windowCount));
+                }
+                
+                return smoothedConfidence;
+            }
+
+            // Make sure these functions are defined BEFORE calculatePriceLightPath is used
         });
     </script>
 </body>
