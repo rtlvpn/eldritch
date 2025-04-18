@@ -1019,35 +1019,29 @@
                     autosize: true
                 };
                 
-                // 1) compute Fermat prediction
-                const p0 = prices[prices.length - 1];
+                // compute Fermat prediction + path
+                const p0 = prices[prices.length-1];
                 const horizonSteps = 30;
-                const predPrice = predictPriceFermat(heatmapData, p0, horizonSteps);
+                const { path } = predictPriceFermat(heatmapData, p0, horizonSteps);
 
-                // make sure we don't run off the end of your timestamp array
-                const idx = Math.min(horizonSteps, timestamps.length - 1);
-                const predTime = timestamps[idx];
+                // extract arrays
+                const pathTimes  = path.map(pt=>pt.time);
+                const pathPrices = path.map(pt=>pt.price);
 
-                // 2) build a trace for it
-                const fermatTrace = {
-                    x: [predTime],
-                    y: [predPrice],
-                    mode: 'markers+text',
-                    name: 'Fermat Prediction',
-                    text: [`${predPrice.toFixed(2)}`],
-                    textposition: 'bottom center',
-                    marker: {
-                        color: 'magenta',
-                        size: 12,
-                        symbol: 'diamond'
-                    },
-                    hoverinfo: 'text+xy'
+                // build a "ray" trace
+                const fermatPathTrace = {
+                    x: pathTimes,
+                    y: pathPrices,
+                    mode: 'lines+markers',
+                    name: 'Fermat Path',
+                    line: { color: 'magenta', width: 2 },
+                    marker: { symbol: 'diamond', size: 6, color: 'magenta' },
+                    hoverinfo: 'x+y'
                 };
 
-                // 3) redraw main chart including the new trace
-                Plotly.newPlot(
-                    'chart',
-                    [ trace2, trace1, fermatTrace ],
+                // redraw main chart with the path overlay
+                Plotly.newPlot('chart',
+                    [ trace2, trace1, fermatPathTrace ],
                     layout,
                     { responsive: true }
                 );
@@ -1581,43 +1575,56 @@
                 const M = priceLevels.length;
                 const ε = 1e-6;
 
-                // Find nearest price-bucket index j0
-                let j0 = 0;
-                let minDiff = Infinity;
-                priceLevels.forEach((p, j) => {
-                    const d = Math.abs(p - currentPrice);
-                    if (d < minDiff) { minDiff = d; j0 = j; }
+                // 1. find start bucket
+                let j0 = 0, minDiff = Infinity;
+                priceLevels.forEach((p,j)=>{ 
+                    const d = Math.abs(p-currentPrice);
+                    if(d<minDiff){ minDiff=d; j0=j; }
                 });
 
-                // Build cost matrix c[i][j] = Δt / (|vol|+ε)
-                const Δt = (heatmapData.timestamps[1] - heatmapData.timestamps[0]) || 1;
-                const c = Array.from({length: H}, (_, i) =>
-                    Array.from({length: M}, (_, j) => Δt / (Math.abs(heatmapData.heatmap[i].volumes[j]) + ε))
+                // 2. build cost matrix c[i][j]
+                const Δt = (heatmapData.timestamps[1] - heatmapData.timestamps[0])||1;
+                const c = Array.from({length:H},(_,i)=>
+                    Array.from({length:M},(_,j)=> Δt/(Math.abs(heatmapData.heatmap[i].volumes[j])+ε))
                 );
 
-                // DP table D[i][j]
-                const N = Math.min(horizonSteps, H - 1);
-                const D = Array.from({length: N+1}, () => Array(M).fill(Infinity));
-                D[0][j0] = 0;
+                // 3. DP + backpointers
+                const N = Math.min(horizonSteps, H-1);
+                const D = Array.from({length:N+1},()=>Array(M).fill(Infinity));
+                const prev = Array.from({length:N+1},()=>Array(M).fill(-1));
+                D[0][j0]=0;
 
-                // Fill DP
-                for (let i = 1; i <= N; i++) {
-                    for (let j = 0; j < M; j++) {
-                        for (let k of [j-1, j, j+1]) {
-                            if (k >= 0 && k < M) {
-                                D[i][j] = Math.min(D[i][j], D[i-1][k] + c[i][j]);
+                for(let i=1;i<=N;i++){
+                    for(let j=0;j<M;j++){
+                        for(const k of [j-1,j,j+1]){
+                            if(k>=0&&k<M){
+                                const cost = D[i-1][k] + c[i][j];
+                                if(cost < D[i][j]){
+                                    D[i][j] = cost;
+                                    prev[i][j] = k;
+                                }
                             }
                         }
                     }
                 }
 
-                // Pick cheapest end-bucket
-                let jStar = 0, best = Infinity;
-                for (let j = 0; j < M; j++) {
-                    if (D[N][j] < best) { best = D[N][j]; jStar = j; }
+                // 4. pick cheapest end bucket
+                let jStar=0, best=Infinity;
+                for(let j=0;j<M;j++){
+                    if(D[N][j]<best){ best=D[N][j]; jStar=j; }
                 }
 
-                return priceLevels[jStar];
+                // 5. back-track full path
+                const path = [];
+                let j = jStar;
+                for(let i=N; i>=0; i--){
+                    const ts = new Date(heatmapData.timestamps[i]*1000);
+                    path.unshift({ time: ts, price: priceLevels[j] });
+                    j = prev[i][j];
+                    if(j<0) break;
+                }
+
+                return { predPrice: priceLevels[jStar], path };
             }
 
             // Example usage inside renderChart():
