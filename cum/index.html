@@ -1540,16 +1540,17 @@
                         y: predictionData.predictedPath.map(p => p.price),
                         type: 'scatter',
                         mode: 'lines',
-                        name: 'Optical Path',
+                        name: 'Fluid Flow Path',  // Updated name to reflect fluid model
                         line: {
                             shape: 'spline',
-                            color: 'rgba(255, 215, 0, 0.9)', // Brighter gold color
+                            color: 'rgba(255, 215, 0, 0.9)', 
                             width: 3,
-                            dash: 'solid' // Change from dotted to solid for better visibility
+                            dash: 'solid'
                         },
                         hoverinfo: 'text+x',
                         text: predictionData.predictedPath.map(p => 
-                            `Price: ${p.price.toFixed(6)}<br>Resistance: ${p.resistance.toFixed(2)}`
+                            // Fix: Change resistance to pressure
+                            `Price: ${p.price.toFixed(6)}<br>Pressure: ${(p.pressure || 0).toFixed(2)}`
                         ),
                         hoverlabel: {
                             bgcolor: 'rgba(40, 40, 0, 0.9)',
