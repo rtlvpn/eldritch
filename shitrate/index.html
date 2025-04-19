@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -150,10 +150,114 @@
         /* Add style for the OBM chart */
         .obm-chart-container {
             width: 100%;
-            height: 200px;
-            border: 1px solid rgba(0, 255, 157, 0.3);
+            height: 250px; /* Increase height for more impact */
+            border: 1px solid rgba(0, 255, 157, 0.6);
             margin-top: 20px;
-            background-color: rgba(10, 10, 20, 0.5);
+            background-color: rgba(10, 10, 20, 0.8);
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        /* Add scan lines effect */
+        .obm-chart-container::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom,
+                rgba(10, 10, 20, 0) 50%,
+                rgba(0, 255, 157, 0.03) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+            animation: scanlines 8s linear infinite;
+        }
+        /* Add CRT edge effect */
+        .obm-chart-container::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(
+                ellipse at center,
+                rgba(10, 10, 20, 0) 60%,
+                rgba(0, 0, 30, 0.6) 100%
+            );
+            pointer-events: none;
+            z-index: 11;
+        }
+        /* Pulse animation */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+            50% { box-shadow: 0 0 30px rgba(0, 255, 157, 0.6), inset 0 0 40px rgba(0, 0, 20, 0.7); }
+            100% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+        }
+        /* Scan lines animation */
+        @keyframes scanlines {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+        /* Glow and pulse on hover */
+        .obm-chart-container:hover {
+            animation: pulse 3s infinite;
+            border-color: rgba(0, 255, 200, 0.8);
+        }
+        /* Custom title for OBM chart */
+        .obm-title {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Courier New', monospace;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 12;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .control-section {
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        
+        .date-picker-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+        
+        input[type="date"], input[type="time"] {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        
+        input[type="date"]:focus, input[type="time"]:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        
+        /* Date picker calendar styling */
+        ::-webkit-calendar-picker-indicator {
+            filter: invert(1) hue-rotate(130deg) brightness(1.5);
+            cursor: pointer;
         }
     </style>
 </head>
@@ -162,16 +266,47 @@
         <h1>Milk Price and Orderbook Heatmap</h1>
         
         <div class="controls">
-            <label for="timeRange">Time Range:</label>
-            <select id="timeRange">
-                <option value="1h">1 Hour</option>
-                <option value="3h">3 Hours</option>
-                <option value="6h">6 Hours</option>
-                <option value="12h">12 Hours</option>
-                <option value="24h">1 Day</option>
-                <option value="48h">2 Days</option>
-                <option value="168h">7 Days</option>
-            </select>
+            <div class="control-section">
+                <label for="dateRangeMode">Date Range Mode:</label>
+                <select id="dateRangeMode">
+                    <option value="fromNow">From Now</option>
+                    <option value="custom">Custom Date Range</option>
+                </select>
+            </div>
+            
+            <div id="fromNowControls">
+                <label for="timeRange">Time Range:</label>
+                <select id="timeRange">
+                    <option value="1h">1 Hour</option>
+                    <option value="3h">3 Hours</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="9h">9 Hours</option>
+                    <option value="12h">12 Hours</option>
+                    <option value="15h">15 Hours</option>
+                    <option value="18h">18 Hours</option>
+                    <option value="24h">1 Day</option>
+                    <option value="48h">2 Days</option>
+                    <option value="72h">3 Days</option>
+                    <option value="96h">4 Days</option>
+                    <option value="120h">5 Days</option>
+                    <option value="144h">6 Days</option>
+                    <option value="168h">7 Days</option>
+                </select>
+            </div>
+            
+            <div id="customRangeControls" style="display: none;">
+                <div class="date-picker-container">
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" id="startDate">
+                    <input type="time" id="startTime" value="00:00">
+                </div>
+                
+                <div class="date-picker-container">
+                    <label for="endDate">End Date:</label>
+                    <input type="date" id="endDate">
+                    <input type="time" id="endTime" value="23:59">
+                </div>
+            </div>
             
             <label for="buckets">Price Buckets:</label>
             <select id="buckets">
@@ -188,7 +323,7 @@
             
             <div class="slider-container">
                 <label for="marginPercent">Margin %:</label>
-                <input type="range" id="marginPercent" min="5" max="200" step="5" value="45">
+                <input type="range" id="marginPercent" min="5" max="400" step="5" value="70">
                 <span id="marginValue">45</span>
             </div>
             
@@ -247,29 +382,24 @@
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
             
-            // Add these libraries for advanced math operations
-            const scriptMathjs = document.createElement('script');
-            scriptMathjs.src = 'https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.min.js';
-            document.head.appendChild(scriptMathjs);
-            
-            // Advanced OBM calculation with signal processing and entry point detection
-            function calculateAdvancedOBM(heatmapData) {
+            // Calculate Order Book Momentum with time series techniques
+            function calculateOBM(heatmapData) {
                 const result = {
                     timestamps: [],
                     obmValues: [],
-                    entrySignals: [] // New array to store entry signals
+                    trendStrength: [],
+                    forecastValues: [],
+                    signals: [],
+                    signalStrengths: []
                 };
                 
-                if (heatmapData.heatmap.length < 10) return result; // Need more data points for analysis
+                if (heatmapData.heatmap.length < 10) return result; // Need enough data for time series analysis
                 
-                // Arrays to store calculations for technical analysis
+                // Calculate raw OBM values first (similar to current approach but storing intermediates)
+                const rawImbalances = [];
+                const imbalanceChanges = [];
                 const rawOBMValues = [];
-                const smoothedOBM = [];
-                const obmRateOfChange = [];
-                const obmAcceleration = [];
-                const momentumScores = [];
                 
-                // First calculate raw OBM values using existing logic with enhancements
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
                     const currentPriceVolumes = {
                         prices: heatmapData.priceLevels, 
@@ -279,114 +409,298 @@
                     // Find the middle price index to separate buy/sell sides
                     const middleIndex = Math.floor(currentPriceVolumes.prices.length / 2);
                     
-                    // Calculate exponentially weighted buy and sell pressure
+                    // Calculate buy pressure (volume below middle) and sell pressure (volume above middle)
                     let buyPressure = 0;
                     let sellPressure = 0;
-                    let buyDepth = 0;
-                    let sellDepth = 0;
                     
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
                         
-                        // Use exponential weighting based on distance from middle
-                        const distanceFromMiddle = Math.abs(j - middleIndex);
-                        const exponentialFactor = 1.5; // Controls how quickly influence falls off
-                        const weightFactor = Math.exp(-distanceFromMiddle / middleIndex * exponentialFactor); // Added negative sign for proper weighting
-                        const weightedVolume = volume * weightFactor;
+                        // Weight by distance from middle (further away has more impact)
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                        const weightedVolume = volume * (1 + distanceFactor);
                         
                         if (j < middleIndex) {
                             buyPressure += weightedVolume;
-                            buyDepth += volume;
                         } else {
                             sellPressure += weightedVolume;
-                            sellDepth += volume;
                         }
                     }
                     
-                    // Calculate multi-factor OBM value
+                    // Calculate order book imbalance ratio
                     const totalPressure = buyPressure + sellPressure;
-                    const totalDepth = buyDepth + sellDepth;
+                    const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                    rawImbalances.push(imbalance);
                     
-                    // Combine pressure imbalance with depth ratio for more comprehensive analysis
-                    const pressureImbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
-                    const depthImbalance = totalDepth > 0 ? (buyDepth - sellDepth) / totalDepth : 0;
+                    // Calculate rate of change of imbalance (if we have previous data)
+                    let imbalanceChange = 0;
+                    if (i > 1) {
+                        const prevImbalance = rawImbalances[rawImbalances.length - 2];
+                        
+                        // Calculate delta time between measurements for more accurate rate
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-1];
+                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // In minutes
+                        
+                        // Rate of change of imbalance
+                        imbalanceChange = (imbalance - prevImbalance) / deltaTime;
+                    }
+                    imbalanceChanges.push(imbalanceChange);
                     
-                    // Weight the pressure more than depth as it's more predictive
-                    const rawOBM = pressureImbalance * 0.7 + depthImbalance * 0.3;
-                    rawOBMValues.push(rawOBM);
+                    // Raw OBM value (will be processed with time series techniques)
+                    const rawObm = imbalance * 0.3 + imbalanceChange * 0.7;
+                    rawOBMValues.push(rawObm);
                     
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                 }
                 
-                // Apply exponential moving average for smoothing
+                // Apply time series techniques to the raw OBM values
+                
+                // 1. Exponential Moving Average (EMA) to reduce noise
                 const emaAlpha = 0.2; // Smoothing factor
-                let ema = rawOBMValues[0];
+                const emaValues = [];
                 
                 for (let i = 0; i < rawOBMValues.length; i++) {
-                    ema = emaAlpha * rawOBMValues[i] + (1 - emaAlpha) * ema;
-                    smoothedOBM.push(ema);
-                    
-                    // Calculate rate of change (velocity)
-                    if (i > 0) {
-                        obmRateOfChange.push(smoothedOBM[i] - smoothedOBM[i-1]);
+                    if (i === 0) {
+                        emaValues.push(rawOBMValues[i]);
                     } else {
-                        obmRateOfChange.push(0);
-                    }
-                    
-                    // Calculate acceleration (2nd derivative)
-                    if (i > 1) {
-                        obmAcceleration.push(obmRateOfChange[i] - obmRateOfChange[i-1]);
-                    } else {
-                        obmAcceleration.push(0);
+                        // EMA = currentValue * alpha + previousEMA * (1 - alpha)
+                        const ema = rawOBMValues[i] * emaAlpha + emaValues[i-1] * (1 - emaAlpha);
+                        emaValues.push(ema);
                     }
                 }
                 
-                // Calculate momentum and detect potential entry points
-                for (let i = 2; i < smoothedOBM.length; i++) { // Start from index 2 instead of 5
-                    // Multi-dimensional score combining value, velocity and acceleration
-                    const valueScore = smoothedOBM[i] * 0.5; // Current OBM value
-                    const velocityScore = obmRateOfChange[i] * 3.0; // Rate of change (direction and speed)
-                    const accelerationScore = obmAcceleration[i] * 5.0; // Acceleration (increasing or decreasing speed)
-                    
-                    // Combined score gives more weight to acceleration for early entry detection
-                    const momentumScore = valueScore + velocityScore + accelerationScore;
-                    momentumScores.push(momentumScore);
-                    
-                    // Entry signal detection logic - Less strict thresholds
-                    let signal = 0; // 0 = no signal, 1 = long, -1 = short
-                    
-                    // For long entry: Look for momentum turning positive or strong positive acceleration
-                    if ((i >= 2 && momentumScore > 0.01 && momentumScores[i-1] < 0) || 
-                        (obmAcceleration[i] > 0.01 && obmRateOfChange[i] > 0)) {
-                        signal = 1; // Long signal
+                // 2. Calculate trend strength using linear regression
+                const trendStrengthValues = [];
+                const windowSize = Math.min(10, Math.floor(rawOBMValues.length / 3));
+                
+                for (let i = 0; i < rawOBMValues.length; i++) {
+                    if (i < windowSize) {
+                        // Not enough data for trend calculation
+                        trendStrengthValues.push(0);
+                    } else {
+                        // Use linear regression on the window to calculate trend
+                        const window = rawOBMValues.slice(i - windowSize, i);
+                        const trend = calculateLinearRegressionSlope(window);
+                        trendStrengthValues.push(trend);
                     }
-                    
-                    // For short entry: Look for momentum turning negative or strong negative acceleration
-                    if ((i >= 2 && momentumScore < -0.01 && momentumScores[i-1] > 0) || 
-                        (obmAcceleration[i] < -0.01 && obmRateOfChange[i] < 0)) {
-                        signal = -1; // Short signal
-                    }
-                    
-                    // Simplified confirmation - less restrictive
-                    if (signal !== 0) {
-                        // Only check for divergence that would invalidate signal
-                        const shortTerm = i >= 3 ? Math.sign(smoothedOBM[i] - smoothedOBM[i-3]) : 0;
+                }
+                
+                // 3. Forecast future values using simple autoregression
+                const forecastValues = [];
+                const forecastLag = 3; // How many past values to use
+                
+                for (let i = 0; i < rawOBMValues.length; i++) {
+                    if (i < forecastLag) {
+                        // Not enough data for forecasting
+                        forecastValues.push(null);
+                    } else {
+                        // Simple autoregression model with exponentially weighted past values
+                        let forecast = 0;
+                        let weightSum = 0;
                         
-                        // Major divergence check only - allow more signals
-                        if (signal > 0 && shortTerm < 0 && Math.abs(shortTerm) > 0.1) {
-                            signal = 0; // Cancel long signal if strong negative trend
+                        for (let j = 1; j <= forecastLag; j++) {
+                            const weight = Math.exp(-0.5 * j); // Exponential weighting
+                            forecast += emaValues[i-j] * weight;
+                            weightSum += weight;
                         }
-                        if (signal < 0 && shortTerm > 0 && Math.abs(shortTerm) > 0.1) {
-                            signal = 0; // Cancel short signal if strong positive trend
-                        }
+                        
+                        // Add trend component to forecast
+                        forecast = forecast / weightSum + trendStrengthValues[i] * 0.5;
+                        forecastValues.push(forecast);
                     }
+                }
+                
+                // 4. Final OBM values combine EMA, trend strength, and momentum
+                for (let i = 0; i < emaValues.length; i++) {
+                    // Enhanced OBM value with trend momentum
+                    const enhancedObm = emaValues[i] + trendStrengthValues[i] * 0.3;
+                    result.obmValues.push(enhancedObm);
+                    result.trendStrength.push(trendStrengthValues[i]);
+                    result.forecastValues.push(forecastValues[i]);
+                }
+                
+                // Add explicit trading signals
+                result.signals = [];
+                result.signalStrengths = [];
+                
+                // For signal generation - need at least 5 data points
+                if (result.obmValues.length >= 5) {
+                    // Variables to track signal state
+                    let inLongPosition = false;
+                    let inShortPosition = false;
+                    let lastSignalIndex = -10; // Prevent rapid signal switching
+                    const signalCooldown = 5; // Minimum points between signals
                     
-                    // Store the final smoothed OBM value and signal
-                    result.obmValues.push(smoothedOBM[i]);
-                    result.entrySignals.push(signal);
+                    // Calculate smoothed momentum for better signal quality
+                    const smoothedOBM = exponentialMovingAverage(result.obmValues, 0.15);
+                    const secondSmoothing = exponentialMovingAverage(smoothedOBM, 0.25);
+                    
+                    // Add signal momentum divergence tracking
+                    const divergences = findDivergences(smoothedOBM, secondSmoothing);
+                    
+                    for (let i = 3; i < result.obmValues.length; i++) {
+                        // Default - no signal
+                        let signal = "NONE";
+                        let signalStrength = 0;
+                        
+                        // Get current momentum values and trends
+                        const obm = smoothedOBM[i];
+                        const obmPrev = smoothedOBM[i-1];
+                        const obmPrev2 = smoothedOBM[i-2];
+                        const trend = result.trendStrength[i] || 0;
+                        
+                        // Check for strong zero-line crossover (more reliable signals)
+                        const crossedAboveZero = obmPrev <= 0 && obm > 0 && trend > 0;
+                        const crossedBelowZero = obmPrev >= 0 && obm < 0 && trend < 0;
+                        
+                        // Momentum reversal after exhaustion (strong signals)
+                        const bullishReversal = obm > 0 && obmPrev < obmPrev2 && obm > obmPrev && trend > 0;
+                        const bearishReversal = obm < 0 && obmPrev > obmPrev2 && obm < obmPrev && trend < 0;
+                        
+                        // Check for divergences (strongest signals)
+                        const hasBullishDivergence = divergences.bullish.includes(i);
+                        const hasBearishDivergence = divergences.bearish.includes(i);
+                        
+                        // Calculate signal strength factors
+                        const zeroCrossFactor = 0.6;
+                        const reversalFactor = 0.8;
+                        const divergenceFactor = 1.0;
+                        const trendFactor = Math.min(1.0, Math.abs(trend) * 10);
+                        const momentumFactor = Math.min(1.0, Math.abs(obm) * 2);
+                        
+                        // LONG ENTRY conditions (BUY signal)
+                        if ((crossedAboveZero || bullishReversal || hasBullishDivergence) && 
+                            !inLongPosition && i - lastSignalIndex > signalCooldown) {
+                            
+                            signal = "BUY";
+                            inLongPosition = true;
+                            inShortPosition = false;
+                            lastSignalIndex = i;
+                            
+                            // Calculate signal strength (0-100%)
+                            if (hasBullishDivergence) {
+                                signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
+                            } else if (bullishReversal) {
+                                signalStrength = Math.min(100, Math.round((reversalFactor + trendFactor + momentumFactor) * 25));
+                            } else {
+                                signalStrength = Math.min(100, Math.round((zeroCrossFactor + trendFactor + momentumFactor) * 20));
+                            }
+                        }
+                        // LONG EXIT or SHORT ENTRY conditions (SELL signal)
+                        else if ((crossedBelowZero || bearishReversal || hasBearishDivergence) && 
+                                 !inShortPosition && i - lastSignalIndex > signalCooldown) {
+                            
+                            signal = "SELL";
+                            inLongPosition = false;
+                            inShortPosition = true;
+                            lastSignalIndex = i;
+                            
+                            // Calculate signal strength (0-100%)
+                            if (hasBearishDivergence) {
+                                signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
+                            } else if (bearishReversal) {
+                                signalStrength = Math.min(100, Math.round((reversalFactor + trendFactor + momentumFactor) * 25));
+                            } else {
+                                signalStrength = Math.min(100, Math.round((zeroCrossFactor + trendFactor + momentumFactor) * 20));
+                            }
+                        }
+                        
+                        result.signals.push(signal);
+                        result.signalStrengths.push(signalStrength);
+                    }
                 }
                 
                 return result;
+            }
+            
+            // Helper function to calculate linear regression slope (trend)
+            function calculateLinearRegressionSlope(values) {
+                const n = values.length;
+                
+                if (n <= 1) return 0;
+                
+                let sumX = 0;
+                let sumY = 0;
+                let sumXY = 0;
+                let sumXX = 0;
+                
+                for (let i = 0; i < n; i++) {
+                    sumX += i;
+                    sumY += values[i];
+                    sumXY += i * values[i];
+                    sumXX += i * i;
+                }
+                
+                // Calculate slope of the best fit line
+                const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+                return slope;
+            }
+            
+            // Helper function for EMA calculation
+            function exponentialMovingAverage(data, alpha) {
+                const results = [];
+                if (data.length === 0) return results;
+                
+                results.push(data[0]);
+                for (let i = 1; i < data.length; i++) {
+                    const ema = data[i] * alpha + results[i-1] * (1 - alpha);
+                    results.push(ema);
+                }
+                return results;
+            }
+            
+            // Helper function to find momentum divergences
+            function findDivergences(momentum, price) {
+                const bullishDivergenceIndices = [];
+                const bearishDivergenceIndices = [];
+                const lookbackWindow = 10;
+                
+                // Find local minimums and maximums within lookback window
+                for (let i = lookbackWindow; i < momentum.length - 1; i++) {
+                    // Check for price making lower lows while momentum makes higher lows (bullish)
+                    const isPriceLowerLow = findLowestInRange(price, i - lookbackWindow, i) === i;
+                    const isMomentumHigherLow = momentum[i] > momentum[findLowestInRange(momentum, i - lookbackWindow, i)];
+                    
+                    if (momentum[i] < 0 && isPriceLowerLow && isMomentumHigherLow) {
+                        bullishDivergenceIndices.push(i);
+                    }
+                    
+                    // Check for price making higher highs while momentum makes lower highs (bearish)
+                    const isPriceHigherHigh = findHighestInRange(price, i - lookbackWindow, i) === i;
+                    const isMomentumLowerHigh = momentum[i] < momentum[findHighestInRange(momentum, i - lookbackWindow, i)];
+                    
+                    if (momentum[i] > 0 && isPriceHigherHigh && isMomentumLowerHigh) {
+                        bearishDivergenceIndices.push(i);
+                    }
+                }
+                
+                return {
+                    bullish: bullishDivergenceIndices,
+                    bearish: bearishDivergenceIndices
+                };
+            }
+            
+            // Find index of lowest value in range
+            function findLowestInRange(data, start, end) {
+                let lowestIndex = start;
+                for (let i = start + 1; i <= end; i++) {
+                    if (data[i] < data[lowestIndex]) {
+                        lowestIndex = i;
+                    }
+                }
+                return lowestIndex;
+            }
+            
+            // Find index of highest value in range
+            function findHighestInRange(data, start, end) {
+                let highestIndex = start;
+                for (let i = start + 1; i <= end; i++) {
+                    if (data[i] > data[highestIndex]) {
+                        highestIndex = i;
+                    }
+                }
+                return highestIndex;
             }
             
             // Keep track of the last timestamp we've fetched
@@ -395,6 +709,21 @@
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
             
+            // Set default date values (today and yesterday)
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            document.getElementById('endDate').valueAsDate = today;
+            document.getElementById('startDate').valueAsDate = yesterday;
+            
+            // Add event listener for date range mode toggle
+            document.getElementById('dateRangeMode').addEventListener('change', function() {
+                const isCustomMode = this.value === 'custom';
+                document.getElementById('fromNowControls').style.display = isCustomMode ? 'none' : 'block';
+                document.getElementById('customRangeControls').style.display = isCustomMode ? 'block' : 'none';
+            });
+            
             // Initial load
             loadData(true); // true indicates a full load
             
@@ -402,6 +731,11 @@
             document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
             document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
             document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
+            document.getElementById('startDate').addEventListener('change', () => loadData(true)); // Full refresh on start date change
+            document.getElementById('endDate').addEventListener('change', () => loadData(true)); // Full refresh on end date change
+            document.getElementById('startTime').addEventListener('change', () => loadData(true)); // Full refresh on start time change
+            document.getElementById('endTime').addEventListener('change', () => loadData(true)); // Full refresh on end time change
+            document.getElementById('dateRangeMode').addEventListener('change', () => loadData(true)); // Full refresh on mode change
             document.getElementById('colorDensity').addEventListener('input', function() {
                 document.getElementById('densityValue').textContent = this.value;
                 // Only adjust the colorscale weighting without changing data
@@ -445,7 +779,7 @@
             toggleCVPDisplay();
             
             // Auto refresh every minute - use incremental update
-            setInterval(() => loadData(false), 60000);
+            setInterval(() => loadData(false), 12000000);
             
             // Add event listener for margin percent slider
             document.getElementById('marginPercent').addEventListener('input', function() {
@@ -453,84 +787,81 @@
             });
             
             function loadData(fullRefresh = false) {
-                const timeRange = document.getElementById('timeRange').value;
+                const dateRangeMode = document.getElementById('dateRangeMode').value;
                 const buckets = document.getElementById('buckets').value;
                 const marginPercent = document.getElementById('marginPercent').value;
                 
-                // If time range or buckets changed, we need a full refresh
-                if (timeRange !== currentTimeRange || fullRefresh) {
-                    currentTimeRange = timeRange;
+                let startTime, endTime;
+                
+                if (dateRangeMode === 'fromNow') {
+                    // Get the current time range selection
+                    const timeRange = document.getElementById('timeRange').value;
                     
+                    // If time range or buckets changed, we need a full refresh
+                    if (timeRange !== currentTimeRange || fullRefresh) {
+                        currentTimeRange = timeRange;
+                    }
+                    
+                    // Always recalculate the time range on every refresh
                     // Calculate time range in seconds
                     let duration;
-                    switch(timeRange) {
+                    switch (timeRange) {
                         case '1h': duration = 3600; break;
                         case '3h': duration = 3600 * 3; break;
                         case '6h': duration = 3600 * 6; break;
+                        case '9h': duration = 3600 * 9; break;
                         case '12h': duration = 3600 * 12; break;
+                        case '15h': duration = 3600 * 15; break;
+                        case '18h': duration = 3600 * 18; break;
                         case '24h': duration = 3600 * 24; break;
                         case '48h': duration = 3600 * 48; break;
+                        case '72h': duration = 3600 * 72; break;
+                        case '96h': duration = 3600 * 96; break;
+                        case '120h': duration = 3600 * 120; break;
+                        case '144h': duration = 3600 * 144; break;
                         case '168h': duration = 3600 * 168; break;
                         default: duration = 3600;
                     }
                     
-                    const endTime = Math.floor(Date.now() / 1000);
-                    const startTime = endTime - duration;
-                    
-                    // Full refresh - fetch all data with margin percent parameter
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        alert('Failed to load data. Please try again.');
-                    });
+                    endTime = Math.floor(Date.now() / 1000);
+                    startTime = endTime - duration;
                 } else {
-                    // Auto-update case: Get a full refresh but with a shorter interval
-                    // This is simpler and more reliable than trying to merge
-                    const endTime = Math.floor(Date.now() / 1000);
-                    let duration;
-                    switch(timeRange) {
-                        case '1h': duration = 3600; break;
-                        case '3h': duration = 3600 * 3; break;
-                        case '6h': duration = 3600 * 6; break;
-                        case '12h': duration = 3600 * 12; break;
-                        case '24h': duration = 3600 * 24; break;
-                        case '48h': duration = 3600 * 48; break;
-                        case '168h': duration = 3600 * 168; break;
-                        default: duration = 3600;
-                    }
+                    // Custom date range mode
+                    const startDate = document.getElementById('startDate').valueAsDate;
+                    const endDate = document.getElementById('endDate').valueAsDate;
+                    const startTimeStr = document.getElementById('startTime').value;
+                    const endTimeStr = document.getElementById('endTime').value;
                     
-                    // Just get data for the last 5 minutes + the current duration
-                    // This way we ensure we have proper overlap with existing data
-                    const startTime = endTime - duration;
+                    // Parse time strings
+                    const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
+                    const [endHours, endMinutes] = endTimeStr.split(':').map(Number);
                     
-                    Promise.all([
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                        fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
-                    ])
-                    .then(responses => Promise.all(responses.map(res => res.json())))
-                    .then(([candlestickData, heatmapData]) => {
-                        // Just store the complete data
-                        cachedCandlestickData = candlestickData;
-                        cachedHeatmapData = heatmapData;
-                        lastFetchTime = endTime;
-                        renderChart(cachedCandlestickData, cachedHeatmapData);
-                    })
-                    .catch(error => {
-                        console.error('Error fetching data:', error);
-                        // Silently fail, will retry on next auto-update
-                    });
+                    // Set the time components
+                    startDate.setHours(startHours, startMinutes, 0, 0);
+                    endDate.setHours(endHours, endMinutes, 59, 999);
+                    
+                    // Convert to Unix timestamps (seconds)
+                    startTime = Math.floor(startDate.getTime() / 1000);
+                    endTime = Math.floor(endDate.getTime() / 1000);
                 }
+                
+                // Full refresh - fetch all data with margin percent parameter
+                Promise.all([
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                ])
+                .then(responses => Promise.all(responses.map(res => res.json())))
+                .then(([candlestickData, heatmapData]) => {
+                    // Just store the complete data
+                    cachedCandlestickData = candlestickData;
+                    cachedHeatmapData = heatmapData;
+                    lastFetchTime = endTime;
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    alert('Failed to load data. Please try again.');
+                });
             }
             
             // Generate a colorscale with weights adjusted by the density value
@@ -573,8 +904,11 @@
                     return;
                 }
                 
-                // Calculate Advanced Order Book Momentum
-                const obmData = calculateAdvancedOBM(heatmapData);
+                // Calculate Order Book Momentum
+                const obmData = calculateOBM(heatmapData);
+                
+                // Calculate physics-based price prediction
+                const predictionData = calculatePricePrediction(heatmapData, candlestickData);
                 
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
@@ -609,7 +943,7 @@
                     name: 'Price',
                     line: {
                         shape: 'spline',
-                        color: 'rgba(255, 214, 137, 1)',
+                        color: 'rgba(255, 100, 100, 1)',
                         width: 3
                     },
                     // Use the same y-axis as the heatmap
@@ -764,136 +1098,508 @@
                 // Create the OBM chart if enabled
                 const showOBM = document.getElementById('showOBM').checked;
                 if (showOBM && obmData.timestamps.length > 0) {
-                    // Main OBM line trace
-                    const obmTrace = {
-                        x: obmData.timestamps.slice(2), // Start from index 2 instead of 5
-                        y: obmData.obmValues,
-                        type: 'scatter',
+                    // Add custom title div element
+                    document.getElementById('obmChart').innerHTML = '<div class="obm-title">ORDER BOOK MOMENTUM ANALYZER</div>';
+                    
+                    // Create detailed hover text for each data point
+                    const positiveHoverTexts = obmData.obmValues.map((val, i) => {
+                        if (val < 0) return null;
+                        let trend = obmData.trendStrength[i] || 0;
+                        let trendText = trend > 0.01 ? "ACCELERATING" : 
+                                       (trend < -0.01 ? "DECELERATING" : "STABLE");
+                        return `OBM: ${val.toFixed(4)}\nTrend: ${trendText}\nBULLISH SIGNAL`;
+                    });
+                    
+                    const negativeHoverTexts = obmData.obmValues.map((val, i) => {
+                        if (val > 0) return null;
+                        let trend = obmData.trendStrength[i] || 0;
+                        let trendText = trend < -0.01 ? "ACCELERATING" : 
+                                       (trend > 0.01 ? "DECELERATING" : "STABLE");
+                        return `OBM: ${val.toFixed(4)}\nTrend: ${trendText}\nBEARISH SIGNAL`;
+                    });
+                    
+                    // Create multiple traces for more visual appeal
+                    const obmTracePositive = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues.map(val => val >= 0 ? val : null),
+                        text: positiveHoverTexts,
+                        type: 'scattergl',
                         mode: 'lines',
-                        name: 'Advanced OBM',
+                        name: 'Bullish Pressure',
                         line: {
-                            color: 'rgba(255, 100, 100, 1)',
-                            width: 2
+                            shape: 'spline',
+                            color: 'rgba(0, 255, 157, 1)',
+                            width: 3
                         },
                         fill: 'tozeroy',
-                        fillcolor: 'rgba(255, 100, 100, 0.3)'
-                    };
-                    
-                    // Long entry signals
-                    const longSignals = {
-                        x: [],
-                        y: [],
-                        mode: 'markers',
-                        type: 'scatter',
-                        name: 'Long Entry',
-                        marker: {
-                            symbol: 'triangle-up',
-                            size: 14,
-                            color: '#00ff00',
-                            line: {
-                                color: '#ffffff',
-                                width: 1
+                        fillcolor: 'rgba(0, 255, 157, 0.2)',
+                        connectgaps: false,
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(0, 20, 40, 0.9)',
+                            bordercolor: 'rgba(0, 255, 157, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: '#00ff9d'
                             }
                         }
                     };
                     
-                    // Short entry signals
-                    const shortSignals = {
-                        x: [],
-                        y: [],
-                        mode: 'markers',
-                        type: 'scatter',
-                        name: 'Short Entry',
-                        marker: {
-                            symbol: 'triangle-down',
-                            size: 14,
-                            color: '#ff0000',
-                            line: {
-                                color: '#ffffff',
-                                width: 1
+                    const obmTraceNegative = {
+                        x: obmData.timestamps,
+                        y: obmData.obmValues.map(val => val <= 0 ? val : null),
+                        text: negativeHoverTexts,
+                        type: 'scattergl',
+                        mode: 'lines',
+                        name: 'Bearish Pressure',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 41, 105, 1)',
+                            width: 3
+                        },
+                        fill: 'tozeroy',
+                        fillcolor: 'rgba(255, 41, 105, 0.2)',
+                        connectgaps: false,
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 0, 20, 0.9)',
+                            bordercolor: 'rgba(255, 41, 105, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 150, 170)'
                             }
                         }
                     };
                     
-                    // Fill the signal arrays - ensure we check for valid signals
-                    console.log("Signals found:", obmData.entrySignals.filter(s => s !== 0).length);
+                    // Add forecast trace with dotted line
+                    const forecastTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.forecastValues,
+                        type: 'scattergl',
+                        mode: 'lines',
+                        name: 'Forecast',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 255, 255, 0.6)',
+                            width: 2,
+                            dash: 'dot'
+                        },
+                        hoverinfo: 'y+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(30, 30, 60, 0.9)',
+                            bordercolor: 'rgba(255, 255, 255, 0.8)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 255, 255)'
+                            }
+                        }
+                    };
                     
-                    for (let i = 0; i < obmData.entrySignals.length; i++) {
-                        if (obmData.entrySignals[i] === 1) {
-                            longSignals.x.push(obmData.timestamps.slice(2)[i]);
-                            longSignals.y.push(obmData.obmValues[i]);
-                        } else if (obmData.entrySignals[i] === -1) {
-                            shortSignals.x.push(obmData.timestamps.slice(2)[i]);
-                            shortSignals.y.push(obmData.obmValues[i]);
+                    // Add trend strength visualization
+                    const trendStrengthTrace = {
+                        x: obmData.timestamps,
+                        y: obmData.trendStrength,
+                        type: 'scattergl',
+                        mode: 'lines',
+                        name: 'Trend Strength',
+                        yaxis: 'y2',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(180, 180, 255, 0.8)',
+                            width: 1.5
+                        },
+                        hoverinfo: 'y+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(30, 30, 60, 0.9)',
+                            bordercolor: 'rgba(180, 180, 255, 0.8)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 12,
+                                color: 'rgb(200, 200, 255)'
+                            }
+                        }
+                    };
+                    
+                    // Add extreme points markers
+                    const highPoints = [], lowPoints = [];
+                    for (let i = 1; i < obmData.obmValues.length-1; i++) {
+                        const prev = obmData.obmValues[i-1];
+                        const curr = obmData.obmValues[i];
+                        const next = obmData.obmValues[i+1];
+                        
+                        if (curr > prev && curr > next && curr > 0.1) {
+                            highPoints.push({
+                                x: obmData.timestamps[i],
+                                y: curr,
+                                text: `PEAK: ${curr.toFixed(3)}`
+                            });
+                        }
+                        
+                        if (curr < prev && curr < next && curr < -0.1) {
+                            lowPoints.push({
+                                x: obmData.timestamps[i],
+                                y: curr,
+                                text: `TROUGH: ${curr.toFixed(3)}`
+                            });
                         }
                     }
                     
-                    // Debug output
-                    console.log("Long signals:", longSignals.x.length);
-                    console.log("Short signals:", shortSignals.x.length);
-                    
-                    const obmLayout = {
-                        title: {
-                            text: 'Advanced Order Book Momentum (OBM)',
-                            font: {
-                                color: '#00ff9d',
-                                family: 'Courier New, monospace'
+                    const extremeHighsTrace = {
+                        x: highPoints.map(p => p.x),
+                        y: highPoints.map(p => p.y),
+                        text: highPoints.map(p => p.text),
+                        type: 'scattergl',
+                        mode: 'markers',
+                        marker: {
+                            color: 'rgba(255, 255, 0, 0.8)',
+                            size: 8,
+                            symbol: 'diamond',
+                            line: {
+                                color: 'rgba(255, 255, 255, 1)',
+                                width: 1
                             }
                         },
-                        plot_bgcolor: '#0a0a12',
-                        paper_bgcolor: '#0f0f1f',
-                        height: 200,
+                        name: 'Momentum Peaks',
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 40, 0, 0.9)',
+                            bordercolor: 'rgba(255, 255, 0, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 255, 180)'
+                            }
+                        }
+                    };
+                    
+                    const extremeLowsTrace = {
+                        x: lowPoints.map(p => p.x),
+                        y: lowPoints.map(p => p.y),
+                        text: lowPoints.map(p => p.text),
+                        type: 'scattergl',
+                        mode: 'markers',
+                        marker: {
+                            color: 'rgba(255, 41, 105, 0.8)',
+                            size: 8,
+                            symbol: 'x',
+                            line: {
+                                color: 'rgba(255, 255, 255, 1)',
+                                width: 1
+                            }
+                        },
+                        name: 'Momentum Troughs',
+                        hoverinfo: 'text+x',
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 0, 20, 0.9)',
+                            bordercolor: 'rgba(255, 41, 105, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13,
+                                color: 'rgb(255, 150, 170)'
+                            }
+                        }
+                    };
+                    
+                    const obmLayout = {
+                        plot_bgcolor: 'rgba(15, 15, 35, 0.9)',
+                        paper_bgcolor: 'rgba(10, 10, 25, 0)',
+                        height: 250,
                         yaxis: {
                             title: {
-                                text: 'OBM Value',
-                                font: { color: '#00ff9d' }
+                                text: 'MOMENTUM SIGNAL',
+                                font: { 
+                                    color: '#00ff9d',
+                                    size: 12,
+                                    family: 'Courier New, monospace'
+                                }
                             },
                             zeroline: true,
-                            zerolinecolor: 'rgba(0, 255, 157, 0.5)',
+                            zerolinecolor: 'rgba(0, 255, 157, 0.7)',
+                            zerolinewidth: 2,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' }
+                            gridwidth: 1,
+                            tickfont: { 
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
+                            tickformat: '.3f',
+                            showticklabels: true,
+                            showline: true,
+                            linecolor: 'rgba(0, 255, 157, 0.5)',
+                            linewidth: 2,
+                            autorange: true,
+                            fixedrange: false
                         },
                         xaxis: {
-                            title: {
-                                text: 'Time',
-                                font: { color: '#00ff9d' }
-                            },
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { color: '#00ff9d' },
+                            tickfont: { 
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
                             range: [times[0], times[times.length - 1]] // Match time range with main chart
+                        },
+                        legend: {
+                            orientation: 'h',
+                            xanchor: 'center',
+                            yanchor: 'bottom',
+                            x: 0.5,
+                            y: 1,
+                            font: {
+                                color: '#00ff9d',
+                                family: 'Courier New, monospace',
+                                size: 10
+                            },
+                            bgcolor: 'rgba(10, 10, 25, 0.7)',
+                            bordercolor: 'rgba(0, 255, 157, 0.5)',
+                            borderwidth: 1
                         },
                         margin: {
                             l: 50,
                             r: 50,
                             b: 50,
-                            t: 50,
+                            t: 60,
                             pad: 4
                         },
                         autosize: true,
-                        annotations: [
+                        shapes: [
+                            // Add horizontal regions for bullish/bearish/neutral that scale with the data
                             {
-                                x: 0.01,
-                                y: 0.99,
+                                type: 'rect',
                                 xref: 'paper',
                                 yref: 'paper',
-                                text: '▲ Long Entry | ▼ Short Entry',
+                                x0: 0,
+                                y0: 0.55,
+                                x1: 1,
+                                y1: 0.8,
+                                fillcolor: 'rgba(0, 255, 157, 0.05)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            },
+                            {
+                                type: 'rect',
+                                xref: 'paper',
+                                yref: 'paper',
+                                x0: 0,
+                                y0: 0.45,
+                                x1: 1,
+                                y1: 0.55,
+                                fillcolor: 'rgba(255, 255, 255, 0.03)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            },
+                            {
+                                type: 'rect',
+                                xref: 'paper',
+                                yref: 'paper',
+                                x0: 0,
+                                y0: 0.2,
+                                x1: 1,
+                                y1: 0.45,
+                                fillcolor: 'rgba(255, 41, 105, 0.05)',
+                                layer: 'below',
+                                line: { width: 0 }
+                            }
+                        ],
+                        annotations: [
+                            {
+                                x: 0.02,
+                                y: 0.7,
+                                xref: 'paper',
+                                yref: 'paper',
+                                text: 'BULLISH',
                                 showarrow: false,
                                 font: {
-                                    color: '#00ff9d',
-                                    size: 12
-                                },
-                                bgcolor: 'rgba(10, 10, 18, 0.8)',
-                                bordercolor: '#00ff9d',
-                                borderwidth: 1,
-                                borderpad: 4
+                                    color: 'rgba(0, 255, 157, 0.5)',
+                                    size: 10,
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            {
+                                x: 0.02,
+                                y: 0.3,
+                                xref: 'paper', 
+                                yref: 'paper',
+                                text: 'BEARISH',
+                                showarrow: false,
+                                font: {
+                                    color: 'rgba(255, 41, 105, 0.5)',
+                                    size: 10,
+                                    family: 'Courier New, monospace'
+                                }
                             }
-                        ]
+                        ],
+                        hovermode: 'closest',
+                        hoverdistance: 50,
+                        hoverlabel: {
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 13
+                            },
+                            borderwidth: 1
+                        },
+                        modebar: {
+                            bgcolor: 'rgba(10, 10, 25, 0.7)',
+                            color: '#00ff9d'
+                        },
+                        yaxis2: {
+                            title: {
+                                text: 'TREND',
+                                font: { 
+                                    color: 'rgba(180, 180, 255, 0.8)',
+                                    size: 10,
+                                    family: 'Courier New, monospace'
+                                }
+                            },
+                            side: 'right',
+                            overlaying: 'y',
+                            showgrid: false,
+                            zeroline: true,
+                            zerolinecolor: 'rgba(180, 180, 255, 0.3)',
+                            zerolinewidth: 1,
+                            tickfont: { 
+                                color: 'rgba(180, 180, 255, 0.8)',
+                                family: 'Courier New, monospace',
+                                size: 8
+                            },
+                            tickformat: '.3f',
+                            showticklabels: true,
+                            range: [-0.05, 0.05]
+                        }
                     };
                     
-                    Plotly.newPlot('obmChart', [obmTrace, longSignals, shortSignals], obmLayout, {responsive: true});
+                    // Change the plot order to ensure all points are hoverable
+                    Plotly.newPlot('obmChart', [
+                        obmTracePositive, 
+                        obmTraceNegative,
+                        forecastTrace,
+                        trendStrengthTrace,
+                        extremeHighsTrace, 
+                        extremeLowsTrace
+                    ], obmLayout, {
+                        responsive: true,
+                        displayModeBar: true,
+                        modeBarButtonsToRemove: ['select2d', 'lasso2d', 'toggleSpikelines'],
+                        toImageButtonOptions: {
+                            format: 'png',
+                            filename: 'orderbook_momentum_analyzer',
+                            height: 500,
+                            width: 1200,
+                            scale: 2
+                        }
+                    });
+                    
+                    // Add pulsing highlight when OBM crosses zero
+                    for (let i = 1; i < obmData.obmValues.length; i++) {
+                        if ((obmData.obmValues[i-1] < 0 && obmData.obmValues[i] > 0) ||
+                            (obmData.obmValues[i-1] > 0 && obmData.obmValues[i] < 0)) {
+                            
+                            Plotly.addTraces('obmChart', {
+                                x: [obmData.timestamps[i]],
+                                y: [obmData.obmValues[i]],
+                                text: [`REVERSAL: ${obmData.obmValues[i].toFixed(3)}`],
+                                type: 'scattergl',
+                                mode: 'markers',
+                                marker: {
+                                    color: 'rgba(255, 255, 255, 0.9)',
+                                    size: 10,
+                                    symbol: 'circle',
+                                    line: {
+                                        color: 'rgba(0, 255, 157, 1)',
+                                        width: 2
+                                    }
+                                },
+                                showlegend: false,
+                                hoverinfo: 'text+x',
+                                hoverlabel: {
+                                    bgcolor: 'rgba(255, 255, 255, 0.2)',
+                                    bordercolor: 'rgba(0, 255, 157, 1)',
+                                    font: {
+                                        family: 'Courier New, monospace',
+                                        size: 13,
+                                        color: 'rgb(255, 255, 255)'
+                                    }
+                                }
+                            });
+                        }
+                    }
                 } else {
                     document.getElementById('obmChart').style.display = 'none';
+                }
+
+                // After creating the main chart, add the physics-based prediction
+                if (predictionData.predictedPath.length > 0) {
+                    // Add prediction trace to the main chart with improved styling
+                    const predictionTrace = {
+                        x: predictionData.predictedPath.map(p => p.time),
+                        y: predictionData.predictedPath.map(p => p.price),
+                        type: 'scatter',
+                        mode: 'lines',
+                        name: 'Optical Path',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 215, 0, 0.9)', // Brighter gold color
+                            width: 3,
+                            dash: 'solid' // Change from dotted to solid for better visibility
+                        },
+                        hoverinfo: 'text+x',
+                        text: predictionData.predictedPath.map(p => 
+                            `Price: ${p.price.toFixed(6)}<br>Resistance: ${p.resistance.toFixed(2)}`
+                        ),
+                        hoverlabel: {
+                            bgcolor: 'rgba(40, 40, 0, 0.9)',
+                            bordercolor: 'rgba(255, 215, 0, 1)',
+                            font: {
+                                family: 'Courier New, monospace',
+                                size: 12,
+                                color: 'rgb(255, 255, 200)'
+                            }
+                        }
+                    };
+                    
+                    // Add momentum vectors as annotations with better scaling
+                    const annotations = [];
+                    // Only add vectors for key points to avoid cluttering
+                    const step = Math.max(1, Math.floor(predictionData.momentumVectors.length / 7));
+                    
+                    for (let i = 1; i < predictionData.momentumVectors.length - 1; i += step) {
+                        const vector = predictionData.momentumVectors[i];
+                        if (!vector || vector.magnitude === 0) continue;
+                        
+                        // Scale the vector dynamically based on the chart size
+                        const scaleFactor = 0.02; // Smaller value for better proportions
+                        const confidence = predictionData.confidenceScores[i-1] || 0.5;
+                        
+                        // Calculate arrow endpoint relative to vector direction
+                        const arrowLength = Math.min(0.02, vector.magnitude * scaleFactor);
+                        
+                        annotations.push({
+                            x: vector.x,
+                            y: vector.y,
+                            ax: vector.dx * arrowLength * 500000, // Large scaling for visibility
+                            ay: vector.dy * arrowLength * 1000, // Reduced scaling for y to avoid extreme arrows
+                            arrowhead: 2,
+                            arrowsize: 1.5,
+                            arrowwidth: 1.5 + confidence * 2,
+                            arrowcolor: `rgba(255, ${Math.floor(255 * confidence)}, 0, ${0.5 + 0.5 * confidence})`,
+                            showarrow: true,
+                            xref: 'x',
+                            yref: 'y'
+                        });
+                    }
+                    
+                    // Add the prediction trace to the chart
+                    Plotly.addTraces('chart', predictionTrace);
+                    
+                    // Update the layout to include momentum vector annotations
+                    Plotly.relayout('chart', {
+                        annotations: annotations
+                    });
                 }
             }
             
@@ -907,6 +1613,423 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
+
+            // Physics-inspired prediction model functions
+            function calculatePricePrediction(heatmapData, candlestickData) {
+                // Return object with prediction results
+                const result = {
+                    timestamps: [],
+                    actualPrice: [],
+                    predictedPath: [],
+                    refractiveIndices: [],
+                    resistanceMap: [],
+                    momentumVectors: [],
+                    confidenceScores: []
+                };
+                
+                if (!heatmapData.heatmap.length || !candlestickData.length) return result;
+                
+                // 1. Calculate refractive indices based on order density
+                // Higher density = higher refractive index = slower light passage (more resistance)
+                const refractiveIndices = calculateRefractiveIndices(heatmapData);
+                
+                // 2. Find price path of least resistance
+                const optimalPath = findOptimalPricePath(heatmapData, refractiveIndices, candlestickData);
+                
+                // 3. Calculate optical momentum and predict future movement
+                const prediction = calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData);
+                
+                // 4. Populate result with prediction data
+                result.timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
+                result.actualPrice = candlestickData.map(c => c.close);
+                result.predictedPath = optimalPath.path;
+                result.refractiveIndices = refractiveIndices;
+                result.resistanceMap = optimalPath.resistanceMap;
+                result.momentumVectors = prediction.momentumVectors;
+                result.confidenceScores = prediction.confidenceScores;
+                
+                return result;
+            }
+
+            // Update the refractive indices calculation to account for buy/sell wall reflective effects
+            function calculateRefractiveIndices(heatmapData) {
+                const priceLevels = heatmapData.priceLevels;
+                const refractiveIndices = [];
+                
+                // Find the middle index (reference price) - better to use actual price if available
+                const middleIndex = Math.floor(priceLevels.length / 2);
+                
+                for (let i = 0; i < heatmapData.heatmap.length; i++) {
+                    const timeIndices = [];
+                    const volumes = heatmapData.heatmap[i].volumes;
+                    
+                    // Find maximum volume for normalization
+                    const maxVolume = Math.max(...volumes.map(v => Math.abs(v)));
+                    const epsilon = 0.0001; // Prevent division by zero
+                    
+                    // First pass: Calculate distance-weighted volumes with directional effects
+                    const weightedVolumes = [];
+                    
+                    for (let j = 0; j < priceLevels.length; j++) {
+                        // Basic distance factor as before
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                        const rawVolume = Math.abs(volumes[j]);
+                        
+                        // Apply directional weighting to create reflective barriers
+                        // Orders below current price (buy walls) have upward reflection
+                        // Orders above current price (sell walls) have downward reflection
+                        let reflectionFactor = 1.0;
+                        if (j < middleIndex) {
+                            // Buy wall below price - creates upward reflection (barrier effect)
+                            reflectionFactor = 1.5 + distanceFactor;
+                        } else if (j > middleIndex) {
+                            // Sell wall above price - creates downward reflection (barrier effect)
+                            reflectionFactor = 1.5 + distanceFactor;
+                        }
+                        
+                        // Weight by distance and reflection factor
+                        const weightedVolume = rawVolume * reflectionFactor * (1 + distanceFactor * 0.75);
+                        weightedVolumes.push(weightedVolume);
+                    }
+                    
+                    // Find max weighted volume for normalization
+                    const maxWeightedVolume = Math.max(...weightedVolumes);
+                    
+                    // Second pass: Calculate refractive indices with one-sided reflection
+                    for (let j = 0; j < priceLevels.length; j++) {
+                        // Normalize weighted volume
+                        const normalizedVolume = maxWeightedVolume > 0 ? 
+                            weightedVolumes[j] / maxWeightedVolume : 0;
+                        
+                        // IMPORTANT CONCEPTUAL CHANGE:
+                        // For high-volume areas, set different refractive indices based on location
+                        // This creates barriers/reflection rather than attraction
+                        let refractiveIndex;
+                        
+                        if (j < middleIndex && normalizedVolume > 0.6) {
+                            // Strong buy wall below price - high refractive index creates upward reflection
+                            refractiveIndex = 3.0 + normalizedVolume * 2.0;
+                        } else if (j > middleIndex && normalizedVolume > 0.6) {
+                            // Strong sell wall above price - high refractive index creates downward reflection
+                            refractiveIndex = 3.0 + normalizedVolume * 2.0;
+                        } else {
+                            // Normal case - exponential relationship for regular liquidity
+                            refractiveIndex = 1 + Math.exp(-5 * normalizedVolume) * 2;
+                        }
+                        
+                        timeIndices.push(refractiveIndex);
+                    }
+                    
+                    refractiveIndices.push(timeIndices);
+                }
+                
+                return refractiveIndices;
+            }
+
+            // Add this function before it's used in findOptimalPricePath
+            // Helper function to calculate price volatility
+            function calculateVolatility(prices) {
+                if (prices.length < 2) return 0.01; // Default if not enough data
+                
+                // Calculate returns
+                const returns = [];
+                for (let i = 1; i < prices.length; i++) {
+                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+                }
+                
+                // Calculate standard deviation of returns (volatility)
+                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
+                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                
+                return Math.sqrt(variance) || 0.01; // Avoid zero
+            }
+
+            // Modify the findOptimalPricePath function to properly handle reflective barriers
+            function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
+                const priceLevels = heatmapData.priceLevels;
+                const timestamps = heatmapData.timestamps;
+                const path = [];
+                const resistanceMap = [];
+                
+                // Make sure we have enough data
+                if (timestamps.length < 2 || candlestickData.length < 2) {
+                    return { path, resistanceMap };
+                }
+                
+                // Initialize with actual price at first timestamp
+                const startPrice = candlestickData[0].close;
+                let currentPriceIndex = findClosestPriceIndex(priceLevels, startPrice);
+                
+                // Find the middle index for distance calculations
+                const middleIndex = Math.floor(priceLevels.length / 2);
+                
+                path.push({ 
+                    time: new Date(timestamps[0] * 1000), 
+                    price: priceLevels[currentPriceIndex],
+                    resistance: refractiveIndices[0][currentPriceIndex]
+                });
+                
+                // Calculate gradient of refractive indices with distance considerations
+                for (let i = 0; i < refractiveIndices.length; i++) {
+                    const timeResistance = [];
+                    for (let j = 0; j < priceLevels.length; j++) {
+                        // Calculate gradient from neighboring points
+                        let gradientUp = 0, gradientDown = 0;
+                        
+                        if (j > 0) {
+                            gradientDown = refractiveIndices[i][j] - refractiveIndices[i][j-1];
+                        }
+                        
+                        if (j < priceLevels.length - 1) {
+                            gradientUp = refractiveIndices[i][j+1] - refractiveIndices[i][j];
+                        }
+                        
+                        // Distance from the middle (percentage of full range)
+                        const distanceFromMiddle = Math.abs(j - middleIndex) / middleIndex;
+                        
+                        // Store resistance and its gradient at this point
+                        timeResistance.push({ 
+                            price: priceLevels[j],
+                            resistance: refractiveIndices[i][j],
+                            gradientUp: gradientUp,
+                            gradientDown: gradientDown,
+                            distanceFactor: distanceFromMiddle
+                        });
+                    }
+                    resistanceMap.push(timeResistance);
+                }
+                
+                // Variable search radius based on price volatility
+                const priceHistory = candlestickData.map(c => c.close);
+                const volatility = calculateVolatility(priceHistory);
+                const baseSearchRadius = Math.max(3, Math.floor(priceLevels.length * volatility * 0.25));
+                
+                // For each timestamp, find the next point on the path
+                for (let i = 1; i < timestamps.length; i++) {
+                    // Find the actual price at this timestamp if available
+                    const actualPriceIndex = i < candlestickData.length ? 
+                        findClosestPriceIndex(priceLevels, candlestickData[i].close) : -1;
+                    
+                    // Dynamic search radius that adapts to price movement and volatility
+                    const searchRadius = baseSearchRadius + 
+                        (actualPriceIndex >= 0 ? Math.floor(Math.abs(actualPriceIndex - currentPriceIndex) * 0.5) : 0);
+                        
+                    // Define the search space bounded by the search radius
+                    const lowerBound = Math.max(0, currentPriceIndex - searchRadius);
+                    const upperBound = Math.min(priceLevels.length - 1, currentPriceIndex + searchRadius);
+                    
+                    // Find path of least optical time (resistance) with distance weighting
+                    let minResistance = Infinity;
+                    let optimalNextIndex = currentPriceIndex;
+                    
+                    for (let j = lowerBound; j <= upperBound; j++) {
+                        // Skip points with extremely high resistance (very low liquidity)
+                        if (refractiveIndices[i][j] > 2.8) {
+                            continue;
+                        }
+                        
+                        // Calculate actual path resistance using the physics of refraction
+                        
+                        // 1. Base optical resistance at this point
+                        const opticalResistance = refractiveIndices[i][j];
+                        
+                        // 2. Apply Snell's law: light bends toward lower refractive index
+                        // Calculate the "bend penalty" - sharper turns cost more when going against the gradient
+                        const priceDelta = j - currentPriceIndex;
+                        const bendPenalty = Math.abs(priceDelta) * 0.05;
+                        
+                        // 3. Factor in actual price attraction 
+                        // Stronger attraction for points closer to the actual price (inverse distance weighting)
+                        const actualPriceAttraction = actualPriceIndex >= 0 ? 
+                            0.3 * Math.abs(j - actualPriceIndex) / priceLevels.length : 0;
+                        
+                        // 4. Incorporate gradient effects (light prefers paths where resistance decreases)
+                        // Gradient effect is stronger for points farther from the middle (distance weighted)
+                        const distanceFactor = resistanceMap[i][j].distanceFactor;
+                        const gradientEffect = priceDelta > 0 ? 
+                            resistanceMap[i][j].gradientUp * (0.1 + distanceFactor * 0.15) : 
+                            resistanceMap[i][j].gradientDown * (0.1 + distanceFactor * 0.15);
+                        
+                        // 5. Add distance weighting: consider the absolute distance from middle
+                        // Path through distant strong liquidity points has more significance
+                        const distanceWeight = 0.1 * distanceFactor;
+                        
+                        // Detect reflective barriers and apply proper physics
+                        const isReflectiveBarrier = refractiveIndices[i][j] > 4.0;
+                        
+                        // If it's a reflective barrier below current price, add upward force
+                        // If it's a reflective barrier above current price, add downward force
+                        let reflectionEffect = 0;
+                        
+                        if (isReflectiveBarrier) {
+                            if (j < currentPriceIndex) {
+                                // Upward reflection from buy wall below price
+                                reflectionEffect = -20 * (refractiveIndices[i][j] - 4.0) * (currentPriceIndex - j) / priceLevels.length;
+                            } else if (j > currentPriceIndex) {
+                                // Downward reflection from sell wall above price
+                                reflectionEffect = 20 * (refractiveIndices[i][j] - 4.0) * (j - currentPriceIndex) / priceLevels.length;
+                            }
+                        }
+                        
+                        // Total resistance for this path option with all factors
+                        const totalResistance = 
+                            opticalResistance * (1.0 - distanceWeight) + 
+                            bendPenalty + 
+                            actualPriceAttraction + 
+                            gradientEffect +
+                            reflectionEffect; // Add the reflection effect
+                        
+                        // Update minimum resistance path
+                        if (totalResistance < minResistance) {
+                            minResistance = totalResistance;
+                            optimalNextIndex = j;
+                        }
+                    }
+                    
+                    // Update current position to optimal next point
+                    currentPriceIndex = optimalNextIndex;
+                    
+                    // Add to final path
+                    path.push({
+                        time: new Date(timestamps[i] * 1000),
+                        price: priceLevels[currentPriceIndex],
+                        resistance: refractiveIndices[i][currentPriceIndex]
+                    });
+                }
+                
+                return { path, resistanceMap };
+            }
+
+            // Update the momentum calculation to incorporate distance weighting
+            function calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData) {
+                const momentumVectors = [];
+                const confidenceScores = [];
+                const path = optimalPath.path;
+                
+                // Need at least 3 points for momentum calculation
+                if (path.length < 3) {
+                    return { momentumVectors, confidenceScores };
+                }
+                
+                // Find middle index for distance calculations
+                const middleIndex = Math.floor(heatmapData.priceLevels.length / 2);
+                
+                // Initialize with zero momentum
+                momentumVectors.push({ 
+                    x: path[0].time, 
+                    y: path[0].price, 
+                    dx: 0, 
+                    dy: 0,
+                    magnitude: 0,
+                    direction: 0
+                });
+                
+                // Calculate momentum vectors with distance weighting
+                for (let i = 1; i < path.length - 1; i++) {
+                    // Time delta in milliseconds converted to hours for scaling
+                    const dt1 = (path[i].time - path[i-1].time) / (1000 * 3600);
+                    const dt2 = (path[i+1].time - path[i].time) / (1000 * 3600);
+                    
+                    // Price deltas
+                    const dp1 = path[i].price - path[i-1].price;
+                    const dp2 = path[i+1].price - path[i].price;
+                    
+                    // Find the price index for current point to calculate distance factor
+                    const priceIndex = findClosestPriceIndex(heatmapData.priceLevels, path[i].price);
+                    const distanceFactor = Math.abs(priceIndex - middleIndex) / middleIndex;
+                    
+                    // Calculate velocity vectors with distance-weighted resistance
+                    // Further from middle = stronger impact on velocity (reduces resistance effect)
+                    const resistanceWeight = 1 / (1 + 0.5 * distanceFactor);
+                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance * resistanceWeight);
+                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance * resistanceWeight);
+                    
+                    // Acceleration = change in velocity over time
+                    const acceleration = (v2 - v1) / (dt1 + dt2);
+                    
+                    // Force = mass * acceleration (mass proportional to resistance, modified by distance)
+                    // Orders far from center have higher impact (lower effective mass)
+                    const effectiveMass = path[i].resistance * (1 - 0.3 * distanceFactor);
+                    const force = acceleration * effectiveMass;
+                    
+                    // Calculate momentum components with improved scaling and distance effects
+                    const dx = 1;
+                    
+                    // Scale dy for better visibility, increased impact for distant points
+                    const dy = v2 * 20 * (1 + 0.5 * distanceFactor); 
+                    
+                    // Calculate magnitude and direction
+                    const magnitude = Math.sqrt(dx * dx + dy * dy);
+                    const direction = Math.atan2(dy, dx);
+                    
+                    momentumVectors.push({
+                        x: path[i].time,
+                        y: path[i].price,
+                        dx,
+                        dy,
+                        magnitude,
+                        direction,
+                        force,
+                        distanceFactor // Store for reference
+                    });
+                    
+                    // Calculate prediction confidence with distance factors
+                    // 1. Consistency of force direction (stable forces = higher confidence)
+                    const forceConsistency = i > 1 ? 
+                        Math.abs(Math.cos(momentumVectors[i-1].direction - direction)) : 0.5;
+                    
+                    // 2. Light speeds up in areas of low refractive index (low resistance)
+                    // More weight to speed factor for distant points (stronger signal)
+                    const speedFactor = (1 / path[i].resistance) * (1 + 0.2 * distanceFactor);
+                    
+                    // 3. Path predictability based on density gradients
+                    // Distant significant points are more reliable signals
+                    const gradientStability = Math.exp(-Math.abs(force) * 2) * (1 + 0.2 * distanceFactor);
+                    
+                    // Combined confidence score with distance weighting
+                    const confidence = 0.3 + 0.7 * (
+                        forceConsistency * 0.4 + 
+                        speedFactor * 0.3 + 
+                        gradientStability * 0.3
+                    );
+                    
+                    confidenceScores.push(confidence);
+                }
+                
+                // Add final point with forward projection
+                if (momentumVectors.length > 1) {
+                    const lastVector = momentumVectors[momentumVectors.length-1];
+                    
+                    momentumVectors.push({
+                        x: path[path.length-1].time,
+                        y: path[path.length-1].price,
+                        dx: lastVector.dx,
+                        dy: lastVector.dy,
+                        magnitude: lastVector.magnitude,
+                        direction: lastVector.direction
+                    });
+                    
+                    confidenceScores.push(confidenceScores[confidenceScores.length-1] || 0.5);
+                }
+                
+                return { momentumVectors, confidenceScores };
+            }
+
+            // Helper function to find index of closest price in priceLevels array
+            function findClosestPriceIndex(priceLevels, targetPrice) {
+                let closestIndex = 0;
+                let minDifference = Math.abs(priceLevels[0] - targetPrice);
+                
+                for (let i = 1; i < priceLevels.length; i++) {
+                    const difference = Math.abs(priceLevels[i] - targetPrice);
+                    if (difference < minDifference) {
+                        minDifference = difference;
+                        closestIndex = i;
+                    }
+                }
+                
+                return closestIndex;
+            }
         });
     </script>
 </body>
