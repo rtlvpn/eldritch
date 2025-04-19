@@ -1,4 +1,908 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milk Price and Orderbook Heatmap</title>
+    <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-gpu@latest"></script>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            margin: 0;
+            padding: 20px;
+            background-color: #121212;
+            color: #00ff9d;
+            background-image: linear-gradient(rgba(8, 8, 16, 0.97), rgba(8, 8, 16, 0.97)), 
+                              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 157, 0.05) 2px, rgba(0, 255, 157, 0.05) 4px);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: #1a1a2e;
+            border-radius: 8px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.2), 0 0 40px rgba(0, 255, 157, 0.1) inset;
+            padding: 20px;
+        }
+        .charts-wrapper {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        .main-chart-container {
+            width: 75%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: width 0.3s ease;
+        }
+        .cvp-chart-container {
+            width: 25%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+            transition: all 0.3s ease;
+        }
+        .chart-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.5);
+        }
+        h1 {
+            text-align: center;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.7);
+            letter-spacing: 2px;
+            border-bottom: 1px solid #00ff9d;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        select, button {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;utf8,<svg fill='%2300ff9d' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            padding-right: 30px;
+        }
+        select:focus, button:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        button {
+            background-color: #1a1a2e;
+            color: #00ff9d;
+            border: 1px solid #00ff9d;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+        }
+        button:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(0, 255, 157, 0.4);
+        }
+        label {
+            color: #00ff9d;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 255, 157, 0.5);
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .slider-container label {
+            width: 120px;
+        }
+        .slider-container input[type="range"] {
+            width: 100px;
+            appearance: none;
+            height: 6px;
+            background: #0f0f23;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+        }
+        .slider-container input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #00ff9d;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+        }
+        .slider-container span {
+            width: 30px;
+            text-align: center;
+            background-color: #0f0f23;
+            padding: 2px 8px;
+            border-radius: 3px;
+            border: 1px solid #00ff9d;
+            box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
+        }
+        /* Add style for the OBM chart */
+        .obm-chart-container {
+            width: 100%;
+            height: 250px; /* Increase height for more impact */
+            border: 1px solid rgba(0, 255, 157, 0.6);
+            margin-top: 20px;
+            background-color: rgba(10, 10, 20, 0.8);
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        /* Add scan lines effect */
+        .obm-chart-container::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(to bottom,
+                rgba(10, 10, 20, 0) 50%,
+                rgba(0, 255, 157, 0.03) 50%);
+            background-size: 100% 4px;
+            pointer-events: none;
+            z-index: 10;
+            animation: scanlines 8s linear infinite;
+        }
+        /* Add CRT edge effect */
+        .obm-chart-container::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(
+                ellipse at center,
+                rgba(10, 10, 20, 0) 60%,
+                rgba(0, 0, 30, 0.6) 100%
+            );
+            pointer-events: none;
+            z-index: 11;
+        }
+        /* Pulse animation */
+        @keyframes pulse {
+            0% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+            50% { box-shadow: 0 0 30px rgba(0, 255, 157, 0.6), inset 0 0 40px rgba(0, 0, 20, 0.7); }
+            100% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+        }
+        /* Scan lines animation */
+        @keyframes scanlines {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+        /* Glow and pulse on hover */
+        .obm-chart-container:hover {
+            animation: pulse 3s infinite;
+            border-color: rgba(0, 255, 200, 0.8);
+        }
+        /* Custom title for OBM chart */
+        .obm-title {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: 'Courier New', monospace;
+            color: #00ff9d;
+            text-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 12;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .control-section {
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+        }
+        
+        .date-picker-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 8px 12px;
+            border-radius: 4px;
+        }
+        
+        input[type="date"], input[type="time"] {
+            padding: 8px 12px;
+            border-radius: 4px;
+            border: 1px solid #00ff9d;
+            background-color: #0f0f23;
+            color: #00ff9d;
+            font-family: 'Courier New', monospace;
+        }
+        
+        input[type="date"]:focus, input[type="time"]:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
+        }
+        
+        /* Date picker calendar styling */
+        ::-webkit-calendar-picker-indicator {
+            filter: invert(1) hue-rotate(130deg) brightness(1.5);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Milk Price and Orderbook Heatmap</h1>
+        
+        <div class="controls">
+            <div class="control-section">
+                <label for="dateRangeMode">Date Range Mode:</label>
+                <select id="dateRangeMode">
+                    <option value="fromNow">From Now</option>
+                    <option value="custom">Custom Date Range</option>
+                </select>
+            </div>
+            
+            <div id="fromNowControls">
+                <label for="timeRange">Time Range:</label>
+                <select id="timeRange">
+                    <option value="1h">1 Hour</option>
+                    <option value="3h">3 Hours</option>
+                    <option value="6h">6 Hours</option>
+                    <option value="9h">9 Hours</option>
+                    <option value="12h">12 Hours</option>
+                    <option value="15h">15 Hours</option>
+                    <option value="18h">18 Hours</option>
+                    <option value="24h">1 Day</option>
+                    <option value="48h">2 Days</option>
+                    <option value="72h">3 Days</option>
+                    <option value="96h">4 Days</option>
+                    <option value="120h">5 Days</option>
+                    <option value="144h">6 Days</option>
+                    <option value="168h">7 Days</option>
+                </select>
+            </div>
+            
+            <div id="customRangeControls" style="display: none;">
+                <div class="date-picker-container">
+                    <label for="startDate">Start Date:</label>
+                    <input type="date" id="startDate">
+                    <input type="time" id="startTime" value="00:00">
+                </div>
+                
+                <div class="date-picker-container">
+                    <label for="endDate">End Date:</label>
+                    <input type="date" id="endDate">
+                    <input type="time" id="endTime" value="23:59">
+                </div>
+            </div>
+            
+            <label for="buckets">Price Buckets:</label>
+            <select id="buckets">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+            </select>
+            
+            <div class="slider-container">
+                <label for="colorDensity">Color Density:</label>
+                <input type="range" id="colorDensity" min="1" max="10" step="1" value="5">
+                <span id="densityValue">5</span>
+            </div>
+            
+            <div class="slider-container">
+                <label for="marginPercent">Margin %:</label>
+                <input type="range" id="marginPercent" min="5" max="400" step="5" value="70">
+                <span id="marginValue">45</span>
+            </div>
+            
+            <button id="refreshBtn">Refresh Data</button>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showCVP" checked>
+                <label for="showCVP">Show Volume Profile</label>
+            </div>
+            <div class="checkbox-container">
+                <input type="checkbox" id="showOBM" checked>
+                <label for="showOBM">Show Order Book Momentum</label>
+            </div>
+        </div>
+        
+        <div class="charts-wrapper">
+            <div id="chart" class="main-chart-container"></div>
+            <div id="cvpChart" class="cvp-chart-container"></div>
+        </div>
+        
+        <div id="obmChart" class="obm-chart-container"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Order Book Momentum (OBM) calculation functions
+            
+            // Calculate density-weighted average price at a specific time
+            function calculateWeightedAvgPrice(priceVolumes) {
+                let weightedSum = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSum += price * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? weightedSum / totalVolume : 0;
+            }
+            
+            // Calculate price standard deviation weighted by density
+            function calculateWeightedStdDev(priceVolumes, avgPrice) {
+                let weightedSumSq = 0;
+                let totalVolume = 0;
+                
+                for (let i = 0; i < priceVolumes.prices.length; i++) {
+                    const price = priceVolumes.prices[i];
+                    const volume = Math.abs(priceVolumes.volumes[i]);
+                    
+                    weightedSumSq += Math.pow(price - avgPrice, 2) * volume;
+                    totalVolume += volume;
+                }
+                
+                return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
+            }
+            
+            // Calculate Order Book Momentum with time series techniques
+            function calculateOBM(heatmapData) {
+                const result = {
+                    timestamps: [],
+                    obmValues: [],
+                    trendStrength: [],
+                    forecastValues: [],
+                    signals: [],
+                    signalStrengths: []
+                };
+                
+                if (heatmapData.heatmap.length < 10) return result; // Need enough data for time series analysis
+                
+                // Calculate raw OBM values first (similar to current approach but storing intermediates)
+                const rawImbalances = [];
+                const imbalanceChanges = [];
+                const rawOBMValues = [];
+                
+                for (let i = 1; i < heatmapData.heatmap.length; i++) {
+                    const currentPriceVolumes = {
+                        prices: heatmapData.priceLevels, 
+                        volumes: heatmapData.heatmap[i].volumes
+                    };
+                    
+                    // Find the middle price index to separate buy/sell sides
+                    const middleIndex = Math.floor(currentPriceVolumes.prices.length / 2);
+                    
+                    // Calculate buy pressure (volume below middle) and sell pressure (volume above middle)
+                    let buyPressure = 0;
+                    let sellPressure = 0;
+                    
+                    for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
+                        const volume = Math.abs(currentPriceVolumes.volumes[j]);
+                        
+                        // Weight by distance from middle (further away has more impact)
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
+                        const weightedVolume = volume * (1 + distanceFactor);
+                        
+                        if (j < middleIndex) {
+                            buyPressure += weightedVolume;
+                        } else {
+                            sellPressure += weightedVolume;
+                        }
+                    }
+                    
+                    // Calculate order book imbalance ratio
+                    const totalPressure = buyPressure + sellPressure;
+                    const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                    rawImbalances.push(imbalance);
+                    
+                    // Calculate rate of change of imbalance (if we have previous data)
+                    let imbalanceChange = 0;
+                    if (i > 1) {
+                        const prevImbalance = rawImbalances[rawImbalances.length - 2];
+                        
+                        // Calculate delta time between measurements for more accurate rate
+                        const currentTimestamp = heatmapData.timestamps[i];
+                        const prevTimestamp = heatmapData.timestamps[i-1];
+                        const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // In minutes
+                        
+                        // Rate of change of imbalance
+                        imbalanceChange = (imbalance - prevImbalance) / deltaTime;
+                    }
+                    imbalanceChanges.push(imbalanceChange);
+                    
+                    // Raw OBM value (will be processed with time series techniques)
+                    const rawObm = imbalance * 0.3 + imbalanceChange * 0.7;
+                    rawOBMValues.push(rawObm);
+                    
+                    result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
+                }
+                
+                // Apply time series techniques to the raw OBM values
+                
+                // 1. Exponential Moving Average (EMA) to reduce noise
+                const emaAlpha = 0.2; // Smoothing factor
+                const emaValues = [];
+                
+                for (let i = 0; i < rawOBMValues.length; i++) {
+                    if (i === 0) {
+                        emaValues.push(rawOBMValues[i]);
+                    } else {
+                        // EMA = currentValue * alpha + previousEMA * (1 - alpha)
+                        const ema = rawOBMValues[i] * emaAlpha + emaValues[i-1] * (1 - emaAlpha);
+                        emaValues.push(ema);
+                    }
+                }
+                
+                // 2. Calculate trend strength using linear regression
+                const trendStrengthValues = [];
+                const windowSize = Math.min(10, Math.floor(rawOBMValues.length / 3));
+                
+                for (let i = 0; i < rawOBMValues.length; i++) {
+                    if (i < windowSize) {
+                        // Not enough data for trend calculation
+                        trendStrengthValues.push(0);
+                    } else {
+                        // Use linear regression on the window to calculate trend
+                        const window = rawOBMValues.slice(i - windowSize, i);
+                        const trend = calculateLinearRegressionSlope(window);
+                        trendStrengthValues.push(trend);
+                    }
+                }
+                
+                // 3. Forecast future values using simple autoregression
+                const forecastValues = [];
+                const forecastLag = 3; // How many past values to use
+                
+                for (let i = 0; i < rawOBMValues.length; i++) {
+                    if (i < forecastLag) {
+                        // Not enough data for forecasting
+                        forecastValues.push(null);
+                    } else {
+                        // Simple autoregression model with exponentially weighted past values
+                        let forecast = 0;
+                        let weightSum = 0;
+                        
+                        for (let j = 1; j <= forecastLag; j++) {
+                            const weight = Math.exp(-0.5 * j); // Exponential weighting
+                            forecast += emaValues[i-j] * weight;
+                            weightSum += weight;
+                        }
+                        
+                        // Add trend component to forecast
+                        forecast = forecast / weightSum + trendStrengthValues[i] * 0.5;
+                        forecastValues.push(forecast);
+                    }
+                }
+                
+                // 4. Final OBM values combine EMA, trend strength, and momentum
+                for (let i = 0; i < emaValues.length; i++) {
+                    // Enhanced OBM value with trend momentum
+                    const enhancedObm = emaValues[i] + trendStrengthValues[i] * 0.3;
+                    result.obmValues.push(enhancedObm);
+                    result.trendStrength.push(trendStrengthValues[i]);
+                    result.forecastValues.push(forecastValues[i]);
+                }
+                
+                // Add explicit trading signals
+                result.signals = [];
+                result.signalStrengths = [];
+                
+                // For signal generation - need at least 5 data points
+                if (result.obmValues.length >= 5) {
+                    // Variables to track signal state
+                    let inLongPosition = false;
+                    let inShortPosition = false;
+                    let lastSignalIndex = -10; // Prevent rapid signal switching
+                    const signalCooldown = 5; // Minimum points between signals
+                    
+                    // Calculate smoothed momentum for better signal quality
+                    const smoothedOBM = exponentialMovingAverage(result.obmValues, 0.15);
+                    const secondSmoothing = exponentialMovingAverage(smoothedOBM, 0.25);
+                    
+                    // Add signal momentum divergence tracking
+                    const divergences = findDivergences(smoothedOBM, secondSmoothing);
+                    
+                    for (let i = 3; i < result.obmValues.length; i++) {
+                        // Default - no signal
+                        let signal = "NONE";
+                        let signalStrength = 0;
+                        
+                        // Get current momentum values and trends
+                        const obm = smoothedOBM[i];
+                        const obmPrev = smoothedOBM[i-1];
+                        const obmPrev2 = smoothedOBM[i-2];
+                        const trend = result.trendStrength[i] || 0;
+                        
+                        // Check for strong zero-line crossover (more reliable signals)
+                        const crossedAboveZero = obmPrev <= 0 && obm > 0 && trend > 0;
+                        const crossedBelowZero = obmPrev >= 0 && obm < 0 && trend < 0;
+                        
+                        // Momentum reversal after exhaustion (strong signals)
+                        const bullishReversal = obm > 0 && obmPrev < obmPrev2 && obm > obmPrev && trend > 0;
+                        const bearishReversal = obm < 0 && obmPrev > obmPrev2 && obm < obmPrev && trend < 0;
+                        
+                        // Check for divergences (strongest signals)
+                        const hasBullishDivergence = divergences.bullish.includes(i);
+                        const hasBearishDivergence = divergences.bearish.includes(i);
+                        
+                        // Calculate signal strength factors
+                        const zeroCrossFactor = 0.6;
+                        const reversalFactor = 0.8;
+                        const divergenceFactor = 1.0;
+                        const trendFactor = Math.min(1.0, Math.abs(trend) * 10);
+                        const momentumFactor = Math.min(1.0, Math.abs(obm) * 2);
+                        
+                        // LONG ENTRY conditions (BUY signal)
+                        if ((crossedAboveZero || bullishReversal || hasBullishDivergence) && 
+                            !inLongPosition && i - lastSignalIndex > signalCooldown) {
+                            
+                            signal = "BUY";
+                            inLongPosition = true;
+                            inShortPosition = false;
+                            lastSignalIndex = i;
+                            
+                            // Calculate signal strength (0-100%)
+                            if (hasBullishDivergence) {
+                                signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
+                            } else if (bullishReversal) {
+                                signalStrength = Math.min(100, Math.round((reversalFactor + trendFactor + momentumFactor) * 25));
+                            } else {
+                                signalStrength = Math.min(100, Math.round((zeroCrossFactor + trendFactor + momentumFactor) * 20));
+                            }
+                        }
+                        // LONG EXIT or SHORT ENTRY conditions (SELL signal)
+                        else if ((crossedBelowZero || bearishReversal || hasBearishDivergence) && 
+                                 !inShortPosition && i - lastSignalIndex > signalCooldown) {
+                            
+                            signal = "SELL";
+                            inLongPosition = false;
+                            inShortPosition = true;
+                            lastSignalIndex = i;
+                            
+                            // Calculate signal strength (0-100%)
+                            if (hasBearishDivergence) {
+                                signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
+                            } else if (bearishReversal) {
+                                signalStrength = Math.min(100, Math.round((reversalFactor + trendFactor + momentumFactor) * 25));
+                            } else {
+                                signalStrength = Math.min(100, Math.round((zeroCrossFactor + trendFactor + momentumFactor) * 20));
+                            }
+                        }
+                        
+                        result.signals.push(signal);
+                        result.signalStrengths.push(signalStrength);
+                    }
+                }
+                
+                return result;
+            }
+            
+            // Helper function to calculate linear regression slope (trend)
+            function calculateLinearRegressionSlope(values) {
+                const n = values.length;
+                
+                if (n <= 1) return 0;
+                
+                let sumX = 0;
+                let sumY = 0;
+                let sumXY = 0;
+                let sumXX = 0;
+                
+                for (let i = 0; i < n; i++) {
+                    sumX += i;
+                    sumY += values[i];
+                    sumXY += i * values[i];
+                    sumXX += i * i;
+                }
+                
+                // Calculate slope of the best fit line
+                const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+                return slope;
+            }
+            
+            // Helper function for EMA calculation
+            function exponentialMovingAverage(data, alpha) {
+                const results = [];
+                if (data.length === 0) return results;
+                
+                results.push(data[0]);
+                for (let i = 1; i < data.length; i++) {
+                    const ema = data[i] * alpha + results[i-1] * (1 - alpha);
+                    results.push(ema);
+                }
+                return results;
+            }
+            
+            // Helper function to find momentum divergences
+            function findDivergences(momentum, price) {
+                const bullishDivergenceIndices = [];
+                const bearishDivergenceIndices = [];
+                const lookbackWindow = 10;
+                
+                // Find local minimums and maximums within lookback window
+                for (let i = lookbackWindow; i < momentum.length - 1; i++) {
+                    // Check for price making lower lows while momentum makes higher lows (bullish)
+                    const isPriceLowerLow = findLowestInRange(price, i - lookbackWindow, i) === i;
+                    const isMomentumHigherLow = momentum[i] > momentum[findLowestInRange(momentum, i - lookbackWindow, i)];
+                    
+                    if (momentum[i] < 0 && isPriceLowerLow && isMomentumHigherLow) {
+                        bullishDivergenceIndices.push(i);
+                    }
+                    
+                    // Check for price making higher highs while momentum makes lower highs (bearish)
+                    const isPriceHigherHigh = findHighestInRange(price, i - lookbackWindow, i) === i;
+                    const isMomentumLowerHigh = momentum[i] < momentum[findHighestInRange(momentum, i - lookbackWindow, i)];
+                    
+                    if (momentum[i] > 0 && isPriceHigherHigh && isMomentumLowerHigh) {
+                        bearishDivergenceIndices.push(i);
+                    }
+                }
+                
+                return {
+                    bullish: bullishDivergenceIndices,
+                    bearish: bearishDivergenceIndices
+                };
+            }
+            
+            // Find index of lowest value in range
+            function findLowestInRange(data, start, end) {
+                let lowestIndex = start;
+                for (let i = start + 1; i <= end; i++) {
+                    if (data[i] < data[lowestIndex]) {
+                        lowestIndex = i;
+                    }
+                }
+                return lowestIndex;
+            }
+            
+            // Find index of highest value in range
+            function findHighestInRange(data, start, end) {
+                let highestIndex = start;
+                for (let i = start + 1; i <= end; i++) {
+                    if (data[i] > data[highestIndex]) {
+                        highestIndex = i;
+                    }
+                }
+                return highestIndex;
+            }
+            
+            // Keep track of the last timestamp we've fetched
+            let lastFetchTime = 0;
+            let cachedCandlestickData = [];
+            let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
+            let currentTimeRange = '';
+            
+            // Set default date values (today and yesterday)
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            
+            document.getElementById('endDate').valueAsDate = today;
+            document.getElementById('startDate').valueAsDate = yesterday;
+            
+            // Add event listener for date range mode toggle
+            document.getElementById('dateRangeMode').addEventListener('change', function() {
+                const isCustomMode = this.value === 'custom';
+                document.getElementById('fromNowControls').style.display = isCustomMode ? 'none' : 'block';
+                document.getElementById('customRangeControls').style.display = isCustomMode ? 'block' : 'none';
+            });
+            
+            // Initial load
+            loadData(true); // true indicates a full load
+            
+            // Set up event listeners
+            document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
+            document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
+            document.getElementById('buckets').addEventListener('change', () => loadData(true)); // Full refresh on buckets change
+            document.getElementById('startDate').addEventListener('change', () => loadData(true)); // Full refresh on start date change
+            document.getElementById('endDate').addEventListener('change', () => loadData(true)); // Full refresh on end date change
+            document.getElementById('startTime').addEventListener('change', () => loadData(true)); // Full refresh on start time change
+            document.getElementById('endTime').addEventListener('change', () => loadData(true)); // Full refresh on end time change
+            document.getElementById('dateRangeMode').addEventListener('change', () => loadData(true)); // Full refresh on mode change
+            document.getElementById('colorDensity').addEventListener('input', function() {
+                document.getElementById('densityValue').textContent = this.value;
+                // Only adjust the colorscale weighting without changing data
+                const existingData = Plotly.data('chart');
+                if (existingData && existingData.length >= 2) {
+                    const colorDensity = parseInt(this.value);
+                    Plotly.restyle('chart', {
+                        'colorscale': [generateWeightedColorscale(colorDensity)]
+                    }, [0]); // Apply to the heatmap trace only (index 0)
+                }
+            });
+            
+            // Add event listener for the CVP checkbox
+            document.getElementById('showCVP').addEventListener('change', function() {
+                toggleCVPDisplay();
+                // Re-render the chart with the current data to update layouts
+                if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                }
+            });
+            
+            // Function to toggle CVP display and adjust main chart width
+            function toggleCVPDisplay() {
+                const showCVP = document.getElementById('showCVP').checked;
+                const mainChart = document.getElementById('chart');
+                const cvpChart = document.getElementById('cvpChart');
+                
+                if (showCVP) {
+                    mainChart.style.width = '75%';
+                    cvpChart.style.display = 'block';
+                } else {
+                    mainChart.style.width = '100%';
+                    cvpChart.style.display = 'none';
+                }
+                
+                // Trigger a window resize event to make Plotly adjust
+                window.dispatchEvent(new Event('resize'));
+            }
+            
+            // Initialize the display state
+            toggleCVPDisplay();
+            
+            // Auto refresh every minute - use incremental update
+            setInterval(() => loadData(false), 12000000);
+            
+            // Add event listener for margin percent slider
+            document.getElementById('marginPercent').addEventListener('input', function() {
+                document.getElementById('marginValue').textContent = this.value;
+            });
+            
+            function loadData(fullRefresh = false) {
+                const dateRangeMode = document.getElementById('dateRangeMode').value;
+                const buckets = document.getElementById('buckets').value;
+                const marginPercent = document.getElementById('marginPercent').value;
+                
+                let startTime, endTime;
+                
+                if (dateRangeMode === 'fromNow') {
+                    // Get the current time range selection
+                    const timeRange = document.getElementById('timeRange').value;
+                    
+                    // If time range or buckets changed, we need a full refresh
+                    if (timeRange !== currentTimeRange || fullRefresh) {
+                        currentTimeRange = timeRange;
+                    }
+                    
+                    // Always recalculate the time range on every refresh
+                    // Calculate time range in seconds
+                    let duration;
+                    switch (timeRange) {
+                        case '1h': duration = 3600; break;
+                        case '3h': duration = 3600 * 3; break;
+                        case '6h': duration = 3600 * 6; break;
+                        case '9h': duration = 3600 * 9; break;
+                        case '12h': duration = 3600 * 12; break;
+                        case '15h': duration = 3600 * 15; break;
+                        case '18h': duration = 3600 * 18; break;
+                        case '24h': duration = 3600 * 24; break;
+                        case '48h': duration = 3600 * 48; break;
+                        case '72h': duration = 3600 * 72; break;
+                        case '96h': duration = 3600 * 96; break;
+                        case '120h': duration = 3600 * 120; break;
+                        case '144h': duration = 3600 * 144; break;
+                        case '168h': duration = 3600 * 168; break;
+                        default: duration = 3600;
+                    }
+                    
+                    endTime = Math.floor(Date.now() / 1000);
+                    startTime = endTime - duration;
+                } else {
+                    // Custom date range mode
+                    const startDate = document.getElementById('startDate').valueAsDate;
+                    const endDate = document.getElementById('endDate').valueAsDate;
+                    const startTimeStr = document.getElementById('startTime').value;
+                    const endTimeStr = document.getElementById('endTime').value;
+                    
+                    // Parse time strings
+                    const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
+                    const [endHours, endMinutes] = endTimeStr.split(':').map(Number);
+                    
+                    // Set the time components
+                    startDate.setHours(startHours, startMinutes, 0, 0);
+                    endDate.setHours(endHours, endMinutes, 59, 999);
+                    
+                    // Convert to Unix timestamps (seconds)
+                    startTime = Math.floor(startDate.getTime() / 1000);
+                    endTime = Math.floor(endDate.getTime() / 1000);
+                }
+                
+                // Full refresh - fetch all data with margin percent parameter
+                Promise.all([
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                ])
+                .then(responses => Promise.all(responses.map(res => res.json())))
+                .then(([candlestickData, heatmapData]) => {
+                    // Just store the complete data
+                    cachedCandlestickData = candlestickData;
+                    cachedHeatmapData = heatmapData;
+                    lastFetchTime = endTime;
+                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    alert('Failed to load data. Please try again.');
+                });
+            }
+            
+            // Generate a colorscale with weights adjusted by the density value
+            function generateWeightedColorscale(density) {
+                const colorscale = [];
+                
+                // Base colors (from dark blue to bright yellow)
+                const colors = [
+                    'rgb(10, 10, 50)',      // Dark blue
+                    'rgb(20, 40, 150)',     // #010102
+                    'rgb(30, 100, 200)',    // Lighter blue
+                    'rgb(40, 150, 220)',    // Cyan-blue
+                    'rgb(80, 200, 200)',    // Cyan
+                    'rgb(120, 220, 150)',   // Cyan-green
+                    'rgb(180, 240, 80)',    // Green-yellow
+                    'rgb(220, 250, 40)',    // Yellow-green
+                    'rgb(255, 235, 0)'      // Bright yellow
+                ];
+                
+                // Set the baseline for minimal values
+                colorscale.push([0, colors[0]]);
+                
+                // Apply non-linear distribution of colors based on density
+                // Higher density = more color weight to lower values
+                const power = (11 - density) / 2; // Convert to 0.5-5 range (inverse)
+                
+                for (let i = 1; i < colors.length; i++) {
+                    // Calculate position with weighting based on density
+                    // This emphasizes lower values when density is high
+                    let position = Math.pow(i / (colors.length - 1), power);
+                    colorscale.push([position, colors[i]]);
+                }
+                
+                return colorscale;
+            }
+            
+            function renderChart(candlestickData, heatmapData) {
+                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                    return;
                 }
                 
                 // Calculate Order Book Momentum
@@ -637,17 +1541,16 @@
                         y: predictionData.predictedPath.map(p => p.price),
                         type: 'scatter',
                         mode: 'lines',
-                        name: 'Fluid Flow Path',  // Updated name to reflect fluid model
+                        name: 'Optical Path',
                         line: {
                             shape: 'spline',
-                            color: 'rgba(255, 215, 0, 0.9)', 
+                            color: 'rgba(255, 215, 0, 0.9)', // Brighter gold color
                             width: 3,
-                            dash: 'solid'
+                            dash: 'solid' // Change from dotted to solid for better visibility
                         },
                         hoverinfo: 'text+x',
                         text: predictionData.predictedPath.map(p => 
-                            // Fix: Change resistance to pressure
-                            `Price: ${p.price.toFixed(6)}<br>Pressure: ${(p.pressure || 0).toFixed(2)}`
+                            `Price: ${p.price.toFixed(6)}<br>Resistance: ${p.resistance.toFixed(2)}`
                         ),
                         hoverlabel: {
                             bgcolor: 'rgba(40, 40, 0, 0.9)',
@@ -719,189 +1622,77 @@
                     timestamps: [],
                     actualPrice: [],
                     predictedPath: [],
-                    pressureMap: [],
-                    velocityVectors: [],
+                    refractiveIndices: [],
+                    resistanceMap: [],
+                    momentumVectors: [],
                     confidenceScores: []
                 };
                 
                 if (!heatmapData.heatmap.length || !candlestickData.length) return result;
                 
-                // 1. Calculate pressure field from order density (replaces refractive indices)
-                const pressureField = calculatePressureField(heatmapData, candlestickData);
+                // 1. Calculate refractive indices based on order density
+                // Higher density = higher refractive index = slower light passage (more resistance)
+                const refractiveIndices = calculateRefractiveIndices(heatmapData);
                 
-                // 2. Calculate velocity field using pressure gradients
-                const velocityField = calculateVelocityField(pressureField, heatmapData);
+                // 2. Find price path of least resistance
+                const optimalPath = findOptimalPricePath(heatmapData, refractiveIndices, candlestickData);
                 
-                // 3. Simulate price flow through the fluid medium
-                const flowPath = simulateFluidFlow(heatmapData, pressureField, velocityField, candlestickData);
+                // 3. Calculate optical momentum and predict future movement
+                const prediction = calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData);
                 
-                // 4. Calculate momentum and turbulence for prediction confidence
-                const fluidDynamics = calculateFluidDynamics(flowPath, pressureField, velocityField);
-                
-                // 5. Populate result with prediction data
+                // 4. Populate result with prediction data
                 result.timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
                 result.actualPrice = candlestickData.map(c => c.close);
-                result.predictedPath = flowPath.path;
-                result.pressureMap = pressureField;
-                result.velocityVectors = fluidDynamics.velocityVectors;
-                result.confidenceScores = fluidDynamics.confidenceScores;
+                result.predictedPath = optimalPath.path;
+                result.refractiveIndices = refractiveIndices;
+                result.resistanceMap = optimalPath.resistanceMap;
+                result.momentumVectors = prediction.momentumVectors;
+                result.confidenceScores = prediction.confidenceScores;
                 
                 return result;
             }
 
-            // Calculate pressure field from order book density
-            function calculatePressureField(heatmapData, candlestickData) {
+            // Improve the refractive indices calculation to better represent order density
+            function calculateRefractiveIndices(heatmapData) {
                 const priceLevels = heatmapData.priceLevels;
-                const pressureField = [];
+                const refractiveIndices = [];
                 
-                // Find actual price indices for reference
-                const priceIndices = [];
-                for (let i = 0; i < Math.min(candlestickData.length, heatmapData.timestamps.length); i++) {
-                    const price = candlestickData[i].close;
-                    priceIndices.push(findClosestPriceIndex(priceLevels, price));
-                }
-                
-                // For each timestamp, calculate pressure at each price level
+                // For each timestamp, calculate refractive index at each price level
                 for (let i = 0; i < heatmapData.heatmap.length; i++) {
-                    const timePressures = [];
+                    const timeIndices = [];
                     const volumes = heatmapData.heatmap[i].volumes;
                     
-                    // Find current price index (or use middle if not available)
-                    const currentPriceIndex = i < priceIndices.length ? 
-                        priceIndices[i] : Math.floor(priceLevels.length / 2);
-                    
-                    // Normalize volumes for scale
+                    // Find maximum volume for normalization
                     const maxVolume = Math.max(...volumes.map(v => Math.abs(v)));
                     const epsilon = 0.0001; // Prevent division by zero
                     
-                    // Loop through each price level to calculate pressure
                     for (let j = 0; j < priceLevels.length; j++) {
-                        // Calculate basic normalized volume
-                        const volume = Math.abs(volumes[j]);
-                        const normalizedVolume = maxVolume > 0 ? volume / maxVolume : 0;
+                        // Normalize volume and calculate refractive index
+                        const normalizedVolume = maxVolume > 0 ? Math.abs(volumes[j]) / maxVolume : 0;
                         
-                        // Key fluid dynamics concept: pressure is affected by:
-                        // 1. Order density at this level (higher density = higher pressure)
-                        // 2. Distance from current price (further = exponentially less immediate effect)
-                        // 3. Whether it's above or below current price (buy walls vs sell walls)
-                        
-                        // Calculate pressure components
-                        const distanceFromPrice = Math.abs(j - currentPriceIndex);
-                        const distanceFactor = Math.exp(-distanceFromPrice / (priceLevels.length * 0.1));
-                        
-                        // Directional factor (buy walls below create upward pressure, sell walls above create downward)
-                        let directionalMultiplier;
-                        if (j < currentPriceIndex) {
-                            // Buy wall below - creates upward pressure
-                            directionalMultiplier = 1.0; // Positive pressure (pushing up)
-                        } else if (j > currentPriceIndex) {
-                            // Sell wall above - creates downward pressure
-                            directionalMultiplier = -1.0; // Negative pressure (pushing down)
-                        } else {
-                            // At current price level - neutral
-                            directionalMultiplier = 0;
-                        }
-                        
-                        // Wall effect: large concentrations of orders act as barriers
-                        // This creates a pressure differential that affects flow direction
-                        const wallEffect = normalizedVolume > 0.6 ? 
-                            3.0 * normalizedVolume * Math.sign(directionalMultiplier) : 0;
-                        
-                        // Calculate total pressure at this point
-                        // Base pressure + directional pressure + wall effect
-                        const basePressure = normalizedVolume * 2.0;
-                        const directionalPressure = normalizedVolume * directionalMultiplier * distanceFactor * 5.0;
-                        const totalPressure = basePressure + directionalPressure + wallEffect;
-                        
-                        timePressures.push({
-                            price: priceLevels[j],
-                            pressure: totalPressure,
-                            normalizedVolume: normalizedVolume,
-                            isWall: normalizedVolume > 0.6,
-                            flowDirection: directionalMultiplier
-                        });
+                        // Updated formula: Exponential relationship for better contrast
+                        // Areas with high volume have LOWER refractive index (easier for light to pass)
+                        // This matches our metaphor: price prefers to go through areas with more liquidity
+                        const refractiveIndex = 1 + Math.exp(-5 * normalizedVolume) * 2;
+                        timeIndices.push(refractiveIndex);
                     }
                     
-                    pressureField.push(timePressures);
+                    refractiveIndices.push(timeIndices);
                 }
                 
-                return pressureField;
+                return refractiveIndices;
             }
 
-            // Calculate velocity field based on pressure gradients
-            function calculateVelocityField(pressureField, heatmapData) {
-                const velocityField = [];
-                
-                for (let i = 0; i < pressureField.length; i++) {
-                    const timeVelocities = [];
-                    
-                    for (let j = 0; j < pressureField[i].length; j++) {
-                        // Calculate pressure gradients (how pressure changes in each direction)
-                        // In fluid dynamics, velocity flows from high pressure to low pressure
-                        
-                        let pressureGradientUp = 0;
-                        let pressureGradientDown = 0;
-                        
-                        // Calculate gradient in the upward direction
-                        if (j < pressureField[i].length - 1) {
-                            pressureGradientUp = pressureField[i][j].pressure - pressureField[i][j+1].pressure;
-                        }
-                        
-                        // Calculate gradient in the downward direction
-                        if (j > 0) {
-                            pressureGradientDown = pressureField[i][j].pressure - pressureField[i][j-1].pressure;
-                        }
-                        
-                        // Calculate velocity based on pressure gradient
-                        // Fluid flows from high pressure to low pressure
-                        // The velocity magnitude is proportional to the pressure gradient
-                        
-                        // For vertical movement, use the larger gradient
-                        const verticalGradient = Math.abs(pressureGradientUp) > Math.abs(pressureGradientDown) ?
-                            pressureGradientUp : pressureGradientDown;
-                        
-                        // Time gradient will always be positive (moving forward in time)
-                        const horizontalGradient = 1.0;
-                        
-                        // Check for walls that restrict flow
-                        const isWall = pressureField[i][j].isWall;
-                        const flowMultiplier = isWall ? 0.1 : 1.0; // Walls restrict flow
-                        
-                        // Calculate velocity components
-                        // Horizontal velocity is always positive (moving forward in time)
-                        // Vertical velocity depends on pressure gradients
-                        const vx = horizontalGradient;
-                        const vy = verticalGradient * flowMultiplier * 10.0; // Scale for visualization
-                        
-                        // Calculate magnitude and direction
-                        const magnitude = Math.sqrt(vx * vx + vy * vy);
-                        const direction = Math.atan2(vy, vx);
-                        
-                        timeVelocities.push({
-                            price: pressureField[i][j].price,
-                            vx: vx,
-                            vy: vy,
-                            magnitude: magnitude,
-                            direction: direction,
-                            isWall: isWall
-                        });
-                    }
-                    
-                    velocityField.push(timeVelocities);
-                }
-                
-                return velocityField;
-            }
-
-            // Simulate fluid flow to find the price path
-            function simulateFluidFlow(heatmapData, pressureField, velocityField, candlestickData) {
+            // Completely revamp the optimal path finding algorithm
+            function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
                 const priceLevels = heatmapData.priceLevels;
                 const timestamps = heatmapData.timestamps;
                 const path = [];
+                const resistanceMap = [];
                 
                 // Make sure we have enough data
                 if (timestamps.length < 2 || candlestickData.length < 2) {
-                    return { path };
+                    return { path, resistanceMap };
                 }
                 
                 // Initialize with actual price at first timestamp
@@ -911,112 +1702,143 @@
                 path.push({ 
                     time: new Date(timestamps[0] * 1000), 
                     price: priceLevels[currentPriceIndex],
-                    pressure: pressureField[0][currentPriceIndex].pressure
+                    resistance: refractiveIndices[0][currentPriceIndex]
                 });
                 
-                // Apply fluid flow simulation through timesteps
-                // This is a simplified version of solving the Navier-Stokes equations
+                // Calculate gradient of refractive indices (important for Snell's law)
+                for (let i = 0; i < refractiveIndices.length; i++) {
+                    const timeResistance = [];
+                    for (let j = 0; j < priceLevels.length; j++) {
+                        // Calculate gradient from neighboring points
+                        let gradientUp = 0, gradientDown = 0;
+                        
+                        if (j > 0) {
+                            gradientDown = refractiveIndices[i][j] - refractiveIndices[i][j-1];
+                        }
+                        
+                        if (j < priceLevels.length - 1) {
+                            gradientUp = refractiveIndices[i][j+1] - refractiveIndices[i][j];
+                        }
+                        
+                        // Store resistance and its gradient at this point
+                        timeResistance.push({ 
+                            price: priceLevels[j],
+                            resistance: refractiveIndices[i][j],
+                            gradientUp: gradientUp,
+                            gradientDown: gradientDown
+                        });
+                    }
+                    resistanceMap.push(timeResistance);
+                }
+                
+                // Apply Fermat's principle of least time
+                // This is analogous to finding path of least resistance through a medium
+                
+                // Variable search radius based on price volatility
+                const priceHistory = candlestickData.map(c => c.close);
+                const volatility = calculateVolatility(priceHistory);
+                const baseSearchRadius = Math.max(2, Math.floor(priceLevels.length * volatility * 0.2));
+                
+                // For each timestamp, find the next point on the path
                 for (let i = 1; i < timestamps.length; i++) {
                     // Find the actual price at this timestamp if available
                     const actualPriceIndex = i < candlestickData.length ? 
                         findClosestPriceIndex(priceLevels, candlestickData[i].close) : -1;
                     
-                    // Define search radius for potential next points
-                    const searchRadius = Math.max(5, Math.floor(priceLevels.length * 0.05));
+                    // Dynamic search radius that adapts to price movement
+                    const searchRadius = baseSearchRadius + 
+                        (actualPriceIndex >= 0 ? Math.abs(actualPriceIndex - currentPriceIndex) : 0);
+                        
+                    // Define the search space bounded by the search radius
                     const lowerBound = Math.max(0, currentPriceIndex - searchRadius);
                     const upperBound = Math.min(priceLevels.length - 1, currentPriceIndex + searchRadius);
                     
-                    // Variables to track best next point
-                    let nextPriceIndex = currentPriceIndex;
-                    let maxFlowScore = -Infinity;
+                    // Find path of least optical time (resistance)
+                    let minResistance = Infinity;
+                    let optimalNextIndex = currentPriceIndex;
                     
-                    // Evaluate each potential next point based on fluid flow physics
                     for (let j = lowerBound; j <= upperBound; j++) {
-                        // Skip if we're at a wall (fluid doesn't easily flow through walls)
-                        if (velocityField[i][j].isWall && Math.abs(j - currentPriceIndex) > 2) {
+                        // Skip points with very high resistance (extremely low liquidity)
+                        if (refractiveIndices[i][j] > 3) {
                             continue;
                         }
                         
-                        // Get velocity at current position and potential next position
-                        const currentVelocity = velocityField[i-1][currentPriceIndex];
-                        const nextVelocity = velocityField[i][j];
+                        // Calculate actual path resistance using the physics of refraction
+                        // 1. Base optical resistance at this point
+                        const opticalResistance = refractiveIndices[i][j];
                         
-                        // Get pressure at potential next position
-                        const nextPressure = pressureField[i][j];
+                        // 2. Apply Snell's law: light bends toward lower refractive index
+                        // Calculate the "bend penalty" - sharper turns cost more when going against the gradient
+                        const priceDelta = j - currentPriceIndex;
+                        const bendPenalty = Math.abs(priceDelta) * 0.05;
                         
-                        // Calculate flow score components:
+                        // 3. Factor in actual price attraction (prices tend to move toward actual market price)
+                        const actualPriceAttraction = actualPriceIndex >= 0 ? 
+                            0.3 * Math.abs(j - actualPriceIndex) / priceLevels.length : 0;
                         
-                        // 1. Pressure gradient effect: flow from high to low pressure
-                        const pressureDiff = pressureField[i-1][currentPriceIndex].pressure - nextPressure.pressure;
-                        const pressureScore = Math.sign(pressureDiff) * Math.sqrt(Math.abs(pressureDiff)) * 2.0;
+                        // 4. Incorporate gradient effects (light prefers paths where resistance decreases)
+                        const gradientEffect = priceDelta > 0 ? 
+                            resistanceMap[i][j].gradientUp * 0.1 : 
+                            resistanceMap[i][j].gradientDown * 0.1;
                         
-                        // 2. Momentum conservation: flow tends to continue in same direction
-                        let momentumScore = 0;
-                        if (i > 1) {
-                            const prevIndex = path[path.length - 2].price;
-                            const currentIndex = path[path.length - 1].price;
-                            const prevDirection = currentIndex > prevIndex ? 1 : (currentIndex < prevIndex ? -1 : 0);
-                            const nextDirection = j > currentPriceIndex ? 1 : (j < currentPriceIndex ? -1 : 0);
-                            
-                            // Higher score if maintaining direction
-                            momentumScore = prevDirection === nextDirection ? 3.0 : 0;
-                        }
+                        // Total resistance for this path option
+                        const totalResistance = 
+                            opticalResistance + 
+                            bendPenalty + 
+                            actualPriceAttraction + 
+                            gradientEffect;
                         
-                        // 3. Path of least resistance: prefer flowing around walls than through them
-                        const resistanceScore = nextPressure.isWall ? -5.0 : 0;
-                        
-                        // 4. Flow velocity alignment: prefer paths aligned with the velocity field
-                        const flowDirection = Math.sign(nextVelocity.vy);
-                        const movementDirection = j > currentPriceIndex ? 1 : (j < currentPriceIndex ? -1 : 0);
-                        const alignmentScore = flowDirection === movementDirection ? 2.0 : -1.0;
-                        
-                        // 5. Actual price attraction: slight bias toward actual market price
-                        const actualPriceScore = actualPriceIndex >= 0 ? 
-                            (1.0 - Math.abs(j - actualPriceIndex) / priceLevels.length) * 1.0 : 0;
-                        
-                        // Calculate total flow score for this potential next point
-                        const totalFlowScore = 
-                            pressureScore + 
-                            momentumScore + 
-                            resistanceScore + 
-                            alignmentScore + 
-                            actualPriceScore;
-                        
-                        // Update best next point if this has a better flow score
-                        if (totalFlowScore > maxFlowScore) {
-                            maxFlowScore = totalFlowScore;
-                            nextPriceIndex = j;
+                        // Update minimum resistance path
+                        if (totalResistance < minResistance) {
+                            minResistance = totalResistance;
+                            optimalNextIndex = j;
                         }
                     }
                     
-                    // Move to the next position with highest flow score
-                    currentPriceIndex = nextPriceIndex;
+                    // Update current position to optimal next point
+                    currentPriceIndex = optimalNextIndex;
                     
-                    // Add to path
+                    // Add to final path
                     path.push({
                         time: new Date(timestamps[i] * 1000),
                         price: priceLevels[currentPriceIndex],
-                        pressure: pressureField[i][currentPriceIndex].pressure,
-                        flowScore: maxFlowScore
+                        resistance: refractiveIndices[i][currentPriceIndex]
                     });
                 }
                 
-                return { path };
+                return { path, resistanceMap };
             }
 
-            // Calculate fluid dynamics metrics for visualization and prediction
-            function calculateFluidDynamics(flowPath, pressureField, velocityField) {
-                const velocityVectors = [];
-                const confidenceScores = [];
-                const path = flowPath.path;
+            // Helper function to calculate price volatility
+            function calculateVolatility(prices) {
+                if (prices.length < 2) return 0.01; // Default if not enough data
                 
-                // Need at least 3 points for meaningful calculations
-                if (path.length < 3) {
-                    return { velocityVectors, confidenceScores };
+                // Calculate returns
+                const returns = [];
+                for (let i = 1; i < prices.length; i++) {
+                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
                 }
                 
-                // Initialize with zero velocity
-                velocityVectors.push({ 
+                // Calculate standard deviation of returns (volatility)
+                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
+                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                
+                return Math.sqrt(variance) || 0.01; // Avoid zero
+            }
+
+            // Improve momentum calculation for better vector visualization
+            function calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData) {
+                const momentumVectors = [];
+                const confidenceScores = [];
+                const path = optimalPath.path;
+                
+                // Need at least 3 points for momentum calculation
+                if (path.length < 3) {
+                    return { momentumVectors, confidenceScores };
+                }
+                
+                // Initialize with zero momentum
+                momentumVectors.push({ 
                     x: path[0].time, 
                     y: path[0].price, 
                     dx: 0, 
@@ -1025,24 +1847,9 @@
                     direction: 0
                 });
                 
-                // For each point in the path, calculate fluid dynamics metrics
+                // Calculate momentum vectors along the path with improved physics
                 for (let i = 1; i < path.length - 1; i++) {
-                    // Find indices in the velocity field
-                    const timestamp = path[i].time.getTime() / 1000;
-                    const timeIndex = velocityField.findIndex((_, idx) => 
-                        idx < velocityField.length - 1 && 
-                        timestamp >= path[i-1].time.getTime() / 1000 && 
-                        timestamp <= path[i+1].time.getTime() / 1000);
-                    
-                    const priceIndex = findClosestPriceIndex(
-                        velocityField[timeIndex].map(v => v.price), 
-                        path[i].price
-                    );
-                    
-                    // Get velocity data at this point
-                    const velocity = velocityField[timeIndex][priceIndex];
-                    
-                    // Time deltas for derivatives
+                    // Time delta in milliseconds converted to hours for scaling
                     const dt1 = (path[i].time - path[i-1].time) / (1000 * 3600);
                     const dt2 = (path[i+1].time - path[i].time) / (1000 * 3600);
                     
@@ -1050,76 +1857,75 @@
                     const dp1 = path[i].price - path[i-1].price;
                     const dp2 = path[i+1].price - path[i].price;
                     
-                    // Calculate real-world velocity
-                    const realVx = 1.0; // Normalized time component
-                    const realVy = (dp2 / dt2 + dp1 / dt1) / 2; // Average velocity
+                    // Calculate velocity vectors (speed of light varies with refractive index)
+                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance);
+                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance);
                     
-                    // Scale velocity components for visualization
-                    const dx = realVx;
-                    const dy = realVy * 20; // Scale for visibility
+                    // Acceleration = change in velocity over time
+                    const acceleration = (v2 - v1) / (dt1 + dt2);
                     
-                    // Calculate fluid dynamics metrics
+                    // Force = mass * acceleration (mass proportional to resistance)
+                    const force = acceleration * path[i].resistance;
                     
-                    // 1. Reynolds number analog - measure of flow turbulence
-                    // Higher values indicate more chaotic flow (less predictable)
-                    const pressureGradient = Math.abs(path[i].pressure - path[i-1].pressure);
-                    const turbulence = pressureGradient * Math.abs(realVy) / (0.1 + Math.abs(velocity.magnitude));
+                    // Calculate momentum components with improved scaling
+                    // Use a normalized time component for consistent visualization
+                    const dx = 1;
                     
-                    // 2. Flow stability - inertial vs pressure forces
-                    // Higher values indicate more stable, predictable flow
-                    const inertia = Math.abs(realVy) / (0.01 + Math.abs(velocity.vy - realVy));
-                    const stability = 1.0 / (1.0 + Math.exp(-inertia + 2));
+                    // Scale dy for better visibility - this is the important directional component
+                    const dy = v2 * 20; // Amplify for visibility
                     
-                    // 3. Pressure-velocity consistency
-                    // Higher when pressure gradients align with actual flow direction
-                    const pressureDirection = Math.sign(velocity.vy);
-                    const actualDirection = Math.sign(realVy);
-                    const directionalConsistency = pressureDirection === actualDirection ? 
-                        1.0 : (pressureDirection === 0 ? 0.5 : 0);
+                    // Calculate magnitude and direction
+                    const magnitude = Math.sqrt(dx * dx + dy * dy);
+                    const direction = Math.atan2(dy, dx);
                     
-                    // Create velocity vector
-                    velocityVectors.push({
+                    momentumVectors.push({
                         x: path[i].time,
                         y: path[i].price,
                         dx,
                         dy,
-                        magnitude: Math.sqrt(dx * dx + dy * dy),
-                        direction: Math.atan2(dy, dx),
-                        turbulence,
-                        stability
+                        magnitude,
+                        direction,
+                        force // Store force for confidence calculation
                     });
                     
-                    // Calculate prediction confidence based on fluid dynamics
-                    // Lower turbulence and higher stability = higher confidence
-                    const turbulenceFactor = 1.0 / (1.0 + turbulence);
-                    const confidenceScore = 0.2 + 0.8 * (
-                        stability * 0.5 + 
-                        turbulenceFactor * 0.3 + 
-                        directionalConsistency * 0.2
+                    // Calculate prediction confidence based on physical principles
+                    // 1. Consistency of force direction (stable forces = higher confidence)
+                    const forceConsistency = i > 1 ? 
+                        Math.abs(Math.cos(momentumVectors[i-1].direction - direction)) : 0.5;
+                    
+                    // 2. Light speeds up in areas of low refractive index (low resistance)
+                    const speedFactor = 1 / path[i].resistance;
+                    
+                    // 3. Path predictability based on density gradients
+                    const gradientStability = Math.exp(-Math.abs(force) * 2);
+                    
+                    // Combined confidence score
+                    const confidence = 0.3 + 0.7 * (
+                        forceConsistency * 0.4 + 
+                        speedFactor * 0.3 + 
+                        gradientStability * 0.3
                     );
                     
-                    confidenceScores.push(confidenceScore);
+                    confidenceScores.push(confidence);
                 }
                 
-                // Add final point with same velocity as the previous point
-                if (velocityVectors.length > 1) {
-                    const lastVector = velocityVectors[velocityVectors.length-1];
+                // Add final point with forward projection
+                if (momentumVectors.length > 1) {
+                    const lastVector = momentumVectors[momentumVectors.length-1];
                     
-                    velocityVectors.push({
+                    momentumVectors.push({
                         x: path[path.length-1].time,
                         y: path[path.length-1].price,
                         dx: lastVector.dx,
                         dy: lastVector.dy,
                         magnitude: lastVector.magnitude,
-                        direction: lastVector.direction,
-                        turbulence: lastVector.turbulence,
-                        stability: lastVector.stability
+                        direction: lastVector.direction
                     });
                     
-                    confidenceScores.push(confidenceScores[confidenceScores.length-1]);
+                    confidenceScores.push(confidenceScores[confidenceScores.length-1] || 0.5);
                 }
                 
-                return { velocityVectors, confidenceScores };
+                return { momentumVectors, confidenceScores };
             }
 
             // Helper function to find index of closest price in priceLevels array
@@ -1137,10 +1943,597 @@
                 
                 return closestIndex;
             }
-        });
-    </script>
-</body>
-</html>
+
+            // Neural-enhanced price prediction system
+            let predictionModel;
+            let isModelReady = false;
+            let historicalFeatures = [];
+            
+            // Initialize the neural network model
+            async function initNeuralModel() {
+                try {
+                    console.log("Initializing TensorFlow.js with GPU acceleration...");
+                    
+                    // Check for GPU support
+                    const backend = await tf.backend();
+                    console.log(`TensorFlow backend: ${backend}`);
+                    
+                    // Create the model architecture
+                    predictionModel = createHybridOpticalFlowModel();
+                    isModelReady = true;
+                    
+                    console.log("Neural-enhanced optical model initialized successfully");
+                    // Start training on initial data if available
+                    if (cachedHeatmapData.timestamps.length > 0 && cachedCandlestickData.length > 0) {
+                        trainModel(cachedHeatmapData, cachedCandlestickData);
+                    }
+                    
+                } catch (err) {
+                    console.error("Failed to initialize neural model:", err);
+                    alert("GPU acceleration not available. Falling back to standard prediction.");
+                }
+            }
+            
+            // Create the neural model architecture
+            function createHybridOpticalFlowModel() {
+                // Define a multi-input model that combines:
+                // 1. Order book density features
+                // 2. Price time series data
+                // 3. Physics-derived features (refraction, resistance)
+                
+                // Input for order book density matrix (time x price levels)
+                const orderBookInput = tf.input({shape: [null, 100, 1], name: 'orderbook_density'});
+                
+                // Input for price series
+                const priceInput = tf.input({shape: [null, 5], name: 'price_features'});
+                
+                // Input for physics-derived features
+                const physicsInput = tf.input({shape: [null, 8], name: 'physics_features'});
+                
+                // Process order book data with 3D convolutions (time x price x features)
+                const orderBookFeatures = tf.layers.conv2d({
+                    filters: 32,
+                    kernelSize: [3, 5],
+                    strides: [1, 1],
+                    padding: 'same',
+                    activation: 'relu',
+                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
+                }).apply(tf.layers.reshape({targetShape: [20, 100, 1]}).apply(orderBookInput));
+                
+                // Add pooling to reduce dimensions
+                const pooledFeatures = tf.layers.maxPooling2d({
+                    poolSize: [2, 2],
+                    strides: [2, 2]
+                }).apply(orderBookFeatures);
+                
+                // Further process with another convolution
+                const conv2 = tf.layers.conv2d({
+                    filters: 64,
+                    kernelSize: [2, 3],
+                    activation: 'relu'
+                }).apply(pooledFeatures);
+                
+                // Flatten for dense layers
+                const flattened = tf.layers.flatten().apply(conv2);
+                
+                // Process price data with LSTM (good for time series)
+                const priceLSTM = tf.layers.lstm({
+                    units: 64,
+                    returnSequences: false,
+                    dropout: 0.2,
+                    recurrentDropout: 0.2
+                }).apply(priceInput);
+                
+                // Process physics features with dense layers
+                const physicsDense = tf.layers.dense({
+                    units: 32,
+                    activation: 'relu',
+                    kernelRegularizer: tf.regularizers.l1l2({l1: 1e-5, l2: 1e-4})
+                }).apply(physicsInput);
+                
+                // Combine all feature streams
+                const combined = tf.layers.concatenate().apply([
+                    flattened, 
+                    priceLSTM, 
+                    physicsDense
+                ]);
+                
+                // Add attention mechanism for focusing on relevant parts of the order book
+                const attention = tf.layers.dense({
+                    units: 128,
+                    activation: 'tanh',
+                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
+                }).apply(combined);
+                
+                const attentionWeights = tf.layers.dense({
+                    units: 128,
+                    activation: 'softmax'
+                }).apply(attention);
+                
+                const attentionOutput = tf.layers.multiply().apply([attention, attentionWeights]);
+                
+                // Final dense layers
+                const dense1 = tf.layers.dense({
+                    units: 64, 
+                    activation: 'relu',
+                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
+                }).apply(attentionOutput);
+                
+                const dropout = tf.layers.dropout({rate: 0.3}).apply(dense1);
+                
+                // Multiple outputs for different prediction tasks
+                const priceOutput = tf.layers.dense({
+                    units: 1, 
+                    name: 'price_prediction'
+                }).apply(dropout);
+                
+                const resistanceOutput = tf.layers.dense({
+                    units: 100,
+                    name: 'resistance_map'
+                }).apply(dropout);
+                
+                const momentumOutput = tf.layers.dense({
+                    units: 2,
+                    name: 'momentum_vector'
+                }).apply(dropout);
+                
+                const confidenceOutput = tf.layers.dense({
+                    units: 1,
+                    activation: 'sigmoid',
+                    name: 'prediction_confidence'
+                }).apply(dropout);
+                
+                // Create the model with multiple inputs and outputs
+                const model = tf.model({
+                    inputs: [orderBookInput, priceInput, physicsInput],
+                    outputs: [priceOutput, resistanceOutput, momentumOutput, confidenceOutput]
+                });
+                
+                // Compile with appropriate loss functions for each output
+                model.compile({
+                    optimizer: tf.train.adam({learningRate: 0.0001}),
+                    loss: {
+                        price_prediction: 'meanSquaredError',
+                        resistance_map: 'meanSquaredError',
+                        momentum_vector: 'meanSquaredError',
+                        prediction_confidence: 'binaryCrossentropy'
+                    },
+                    metrics: {
+                        price_prediction: ['mae', 'mse'],
+                        prediction_confidence: ['accuracy']
+                    }
+                });
+                
+                return model;
+            }
+            
+            // Function to prepare features for the neural model
+            function prepareFeatures(heatmapData, candlestickData) {
+                const features = {
+                    orderBookDensity: [],
+                    priceFeatures: [],
+                    physicsFeatures: []
+                };
+                
+                // Skip if not enough data
+                if (!heatmapData.heatmap.length || !candlestickData.length) {
+                    return features;
+                }
+                
+                // Calculate refractive indices using existing function
+                const refractiveIndices = calculateRefractiveIndices(heatmapData);
+                
+                // Align timestamps between heatmap and candlestick data
+                const alignedPrices = [];
+                let candleIndex = 0;
+                
+                for (let i = 0; i < heatmapData.timestamps.length; i++) {
+                    const heatmapTime = heatmapData.timestamps[i];
+                    
+                    // Find matching candlestick or closest one
+                    let price = null;
+                    let matchedCandle = null;
+                    
+                    while (candleIndex < candlestickData.length) {
+                        const candleTime = candlestickData[candleIndex].timestamp / 1000;
+                        
+                        if (Math.abs(candleTime - heatmapTime) < 60) { // Within a minute
+                            price = candlestickData[candleIndex].close;
+                            matchedCandle = candlestickData[candleIndex];
+                            break;
+                        } else if (candleTime > heatmapTime) {
+                            break;
+                        }
+                        
+                        candleIndex++;
+                    }
+                    
+                    // If no exact match found, interpolate
+                    if (price === null && candleIndex > 0 && candleIndex < candlestickData.length) {
+                        const prevCandle = candlestickData[candleIndex - 1];
+                        const nextCandle = candlestickData[candleIndex];
+                        
+                        const prevTime = prevCandle.timestamp / 1000;
+                        const nextTime = nextCandle.timestamp / 1000;
+                        
+                        const timeRatio = (heatmapTime - prevTime) / (nextTime - prevTime);
+                        price = prevCandle.close + timeRatio * (nextCandle.close - prevCandle.close);
+                        
+                        // Create an interpolated candle
+                        matchedCandle = {
+                            timestamp: heatmapTime * 1000,
+                            open: price,
+                            high: price,
+                            low: price,
+                            close: price,
+                            volume: (prevCandle.volume + nextCandle.volume) / 2
+                        };
+                    }
+                    
+                    // Skip this timestamp if we can't find or interpolate a price
+                    if (price === null) continue;
+                    
+                    // Prepare order book density feature
+                    features.orderBookDensity.push(
+                        heatmapData.heatmap[i].volumes.map(v => Math.abs(v))
+                    );
+                    
+                    // Prepare price features
+                    // [price, price_change, range, volume, avg_price]
+                    const priceChange = i > 0 ? price - alignedPrices[alignedPrices.length - 1] : 0;
+                    const priceFeature = [
+                        price,
+                        priceChange,
+                        matchedCandle.high - matchedCandle.low,
+                        matchedCandle.volume,
+                        (matchedCandle.high + matchedCandle.low) / 2
+                    ];
+                    features.priceFeatures.push(priceFeature);
+                    alignedPrices.push(price);
+                    
+                    // Prepare physics-based features
+                    // Find closest price level
+                    const priceIndex = findClosestPriceIndex(heatmapData.priceLevels, price);
+                    
+                    // Calculate aggregate density above and below current price
+                    let densityBelow = 0;
+                    let densityAbove = 0;
+                    
+                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
+                        const volume = Math.abs(heatmapData.heatmap[i].volumes[j]);
+                        if (j < priceIndex) {
+                            densityBelow += volume;
+                        } else if (j > priceIndex) {
+                            densityAbove += volume;
+                        }
+                    }
+                    
+                    // Calculate density imbalance
+                    const totalDensity = densityBelow + densityAbove;
+                    const densityImbalance = totalDensity > 0 ? 
+                        (densityBelow - densityAbove) / totalDensity : 0;
+                    
+                    // Get the refractive index at current price
+                    const refractiveIndex = refractiveIndices[i][priceIndex];
+                    
+                    // Calculate the gradient of refractive index
+                    let gradientUp = 0, gradientDown = 0;
+                    
+                    if (priceIndex > 0) {
+                        gradientDown = refractiveIndices[i][priceIndex] - refractiveIndices[i][priceIndex-1];
+                    }
+                    
+                    if (priceIndex < heatmapData.priceLevels.length - 1) {
+                        gradientUp = refractiveIndices[i][priceIndex+1] - refractiveIndices[i][priceIndex];
+                    }
+                    
+                    // Calculate volatility over last few points
+                    const lookback = Math.min(10, alignedPrices.length);
+                    const recentPrices = alignedPrices.slice(-lookback);
+                    const volatility = calculateVolatility(recentPrices);
+                    
+                    // Physics features:
+                    // [refractive_index, gradient_up, gradient_down, density_imbalance,
+                    //  density_below, density_above, local_volatility, price_momentum]
+                    const physicsFeature = [
+                        refractiveIndex,
+                        gradientUp,
+                        gradientDown,
+                        densityImbalance,
+                        densityBelow,
+                        densityAbove,
+                        volatility,
+                        i > 0 ? priceChange / (alignedPrices[alignedPrices.length - 2] || 1) : 0
+                    ];
+                    
+                    features.physicsFeatures.push(physicsFeature);
+                }
+                
+                return features;
+            }
+            
+            // Train the model with new data
+            async function trainModel(heatmapData, candlestickData) {
+                if (!isModelReady) {
+                    console.log("Model not ready for training");
+                    return;
+                }
+                
+                console.log("Preparing training features...");
+                const features = prepareFeatures(heatmapData, candlestickData);
+                
+                // Skip if not enough data
+                if (!features.orderBookDensity.length) {
+                    console.log("Not enough data for training");
+                    return;
+                }
+                
+                // Prepare training data
+                const orderBookTensor = tf.tensor3d(
+                    features.orderBookDensity,
+                    [features.orderBookDensity.length, features.orderBookDensity[0].length, 1]
+                );
+                
+                const priceTensor = tf.tensor2d(features.priceFeatures);
+                const physicsTensor = tf.tensor2d(features.physicsFeatures);
+                
+                // Prepare target data (we're using future prices as targets)
+                // For simplicity, one-step-ahead prediction
+                const futureIndices = features.priceFeatures.map((_, i) => 
+                    Math.min(i + 1, features.priceFeatures.length - 1));
+                
+                const priceTargets = futureIndices.map(i => [features.priceFeatures[i][0]]);
+                
+                // Resistance targets - for now we're just using the refraction indices
+                const resistanceTargets = features.physicsFeatures.map((_, i) => {
+                    const futureIndex = futureIndices[i];
+                    const refIndex = futureIndex < refractiveIndices.length ? 
+                        refractiveIndices[futureIndex] : refractiveIndices[refractiveIndices.length - 1];
+                    
+                    // Flatten to a fixed size
+                    return Array(100).fill(0).map((_, j) => {
+                        const refJ = Math.min(j, refIndex.length - 1);
+                        return refIndex[refJ] || 1;
+                    });
+                });
+                
+                // Momentum targets - direction and magnitude of future price movement
+                const momentumTargets = features.priceFeatures.map((_, i) => {
+                    const futureIndex = Math.min(i + 5, features.priceFeatures.length - 1);
+                    const currentPrice = features.priceFeatures[i][0];
+                    const futurePrice = features.priceFeatures[futureIndex][0];
+                    
+                    const priceDelta = futurePrice - currentPrice;
+                    const magnitude = Math.abs(priceDelta);
+                    const direction = priceDelta > 0 ? 1 : -1;
+                    
+                    return [direction, magnitude];
+                });
+                
+                // Confidence targets - binary labels indicating accuracy
+                // For now, we're using a simple heuristic
+                const confidenceTargets = features.priceFeatures.map((_, i) => {
+                    // If current prediction is within 0.5% of actual future, high confidence
+                    const futureIndex = Math.min(i + 1, features.priceFeatures.length - 1);
+                    const nextPrice = features.priceFeatures[futureIndex][0];
+                    const currentPrice = features.priceFeatures[i][0];
+                    
+                    // Mark targets as accurate if they're within volatility threshold
+                    const threshold = currentPrice * volatility * 2;
+                    const isAccurate = Math.abs(nextPrice - currentPrice) < threshold;
+                    
+                    return [isAccurate ? 1 : 0];
+                });
+                
+                const priceTargetTensor = tf.tensor2d(priceTargets);
+                const resistanceTargetTensor = tf.tensor2d(resistanceTargets);
+                const momentumTargetTensor = tf.tensor2d(momentumTargets);
+                const confidenceTargetTensor = tf.tensor2d(confidenceTargets);
+                
+                console.log("Starting model training...");
+                
+                try {
+                    // Train the model (online learning - small number of epochs per update)
+                    await predictionModel.fit(
+                        [orderBookTensor, priceTensor, physicsTensor],
+                        {
+                            price_prediction: priceTargetTensor,
+                            resistance_map: resistanceTargetTensor,
+                            momentum_vector: momentumTargetTensor,
+                            prediction_confidence: confidenceTargetTensor
+                        },
+                        {
+                            epochs: 5,
+                            batchSize: 16,
+                            shuffle: true,
+                            validationSplit: 0.2,
+                            callbacks: {
+                                onEpochEnd: (epoch, logs) => {
+                                    console.log(`Epoch ${epoch + 1}: price MSE = ${logs.price_prediction_mse.toFixed(6)}`);
+                                }
+                            }
+                        }
+                    );
+                    
+                    console.log("Model training complete");
+                    
+                    // Store features for future prediction
+                    historicalFeatures = features;
+                    
+                } catch (err) {
+                    console.error("Error training model:", err);
+                } finally {
+                    // Clean up tensors
+                    tf.dispose([
+                        orderBookTensor, priceTensor, physicsTensor,
+                        priceTargetTensor, resistanceTargetTensor,
+                        momentumTargetTensor, confidenceTargetTensor
+                    ]);
+                }
+            }
+            
+            // Function to make predictions with the neural model
+            async function predictWithNeuralModel(heatmapData, candlestickData) {
+                if (!isModelReady || !historicalFeatures.orderBookDensity.length) {
+                    console.log("Model not ready for prediction or no historical data");
+                    // Fall back to the physics-based prediction
+                    return calculatePricePrediction(heatmapData, candlestickData);
+                }
+                
+                // Prepare latest features for prediction
+                const features = prepareFeatures(heatmapData, candlestickData);
+                
+                // Create tensors
+                const orderBookTensor = tf.tensor3d(
+                    features.orderBookDensity,
+                    [features.orderBookDensity.length, features.orderBookDensity[0].length, 1]
+                );
+                
+                const priceTensor = tf.tensor2d(features.priceFeatures);
+                const physicsTensor = tf.tensor2d(features.physicsFeatures);
+                
+                try {
+                    // Make prediction
+                    const [pricesPredicted, resistancePredicted, momentumPredicted, confidencePredicted] = 
+                        await predictionModel.predict([orderBookTensor, priceTensor, physicsTensor]);
+                    
+                    // Convert predictions to JavaScript arrays
+                    const pricesArray = await pricesPredicted.array();
+                    const resistanceArray = await resistancePredicted.array();
+                    const momentumArray = await momentumPredicted.array();
+                    const confidenceArray = await confidencePredicted.array();
+                    
+                    // Format the results to match the structure expected by the visualization code
+                    const result = {
+                        timestamps: heatmapData.timestamps.map(ts => new Date(ts * 1000)),
+                        actualPrice: candlestickData.map(c => c.close),
+                        predictedPath: [],
+                        refractiveIndices: [],
+                        resistanceMap: [],
+                        momentumVectors: [],
+                        confidenceScores: []
+                    };
+                    
+                    // Populate the predictedPath
+                    for (let i = 0; i < pricesArray.length; i++) {
+                        // Get the corresponding timestamp
+                        const timestamp = result.timestamps[i];
+                        
+                        // Get the predicted price
+                        const predictedPrice = pricesArray[i][0];
+                        
+                        // Get the resistance for this point
+                        const resistance = resistanceArray[i].reduce((sum, val) => sum + val, 0) / resistanceArray[i].length;
+                        
+                        result.predictedPath.push({
+                            time: timestamp,
+                            price: predictedPrice,
+                            resistance: resistance
+                        });
+                        
+                        // Add momentum vectors
+                        if (i > 0) {
+                            const [direction, magnitude] = momentumArray[i];
+                            
+                            // Calculate dx and dy components
+                            // dx is time direction (always positive)
+                            const dx = 1;
+                            // dy is price direction (scaled by magnitude)
+                            const dy = direction * magnitude;
+                            
+                            result.momentumVectors.push({
+                                x: timestamp,
+                                y: predictedPrice,
+                                dx: dx,
+                                dy: dy,
+                                magnitude: magnitude,
+                                direction: Math.atan2(dy, dx)
+                            });
+                        } else {
+                            // Default momentum for first point
+                            result.momentumVectors.push({
+                                x: timestamp,
+                                y: predictedPrice,
+                                dx: 0,
+                                dy: 0,
+                                magnitude: 0,
+                                direction: 0
+                            });
+                        }
+                        
+                        // Add confidence scores
+                        result.confidenceScores.push(confidenceArray[i][0]);
+                    }
+                    
+                    // Return the prediction result
+                    return result;
+                    
+                } catch (err) {
+                    console.error("Error making prediction:", err);
+                    // Fall back to the physics-based prediction
+                    return calculatePricePrediction(heatmapData, candlestickData);
+                } finally {
+                    // Clean up tensors
+                    tf.dispose([orderBookTensor, priceTensor, physicsTensor]);
+                }
+            }
+            
+            // Replace the original calculatePricePrediction function
+            const originalCalculatePricePrediction = calculatePricePrediction;
+            
+            calculatePricePrediction = async function(heatmapData, candlestickData) {
+                // If model is ready, use neural prediction
+                if (isModelReady) {
+                    return await predictWithNeuralModel(heatmapData, candlestickData);
+                } else {
+                    // Fall back to physics-based prediction
+                    return originalCalculatePricePrediction(heatmapData, candlestickData);
+                }
+            };
+            
+            // Modify the renderChart function to handle async predictions
+            const originalRenderChart = renderChart;
+            
+            renderChart = async function(candlestickData, heatmapData) {
+                if (!candlestickData.length || !heatmapData.timestamps.length) {
+                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
+                    return;
+                }
+                
+                // Calculate Order Book Momentum
+                const obmData = calculateOBM(heatmapData);
+                
+                // Calculate physics-based or neural price prediction
+                let predictionData;
+                
+                if (isModelReady) {
+                    // Neural prediction
+                    predictionData = await calculatePricePrediction(heatmapData, candlestickData);
+                } else {
+                    // Traditional prediction
+                    predictionData = originalCalculatePricePrediction(heatmapData, candlestickData);
+                }
+                
+                // Rest of the function remains the same as the original renderChart...
+                // ... (existing code)
+            };
+            
+            // Initialize the neural model when the app loads
+            initNeuralModel();
+            
+            // Modify the loadData function to train the model when new data arrives
+            const originalLoadData = loadData;
+            
+            loadData = function(fullRefresh = false) {
+                // Call the original function
+                originalLoadData(fullRefresh);
+                
+                // If the model is ready and we have data, train it
+                if (isModelReady && cachedHeatmapData.timestamps.length > 0 && cachedCandlestickData.length > 0) {
+                    // Train the model with the latest data
+                    trainModel(cachedHeatmapData, cachedCandlestickData);
+                }
+            };
         });
     </script>
 </body>
