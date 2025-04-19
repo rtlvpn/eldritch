@@ -1710,6 +1710,24 @@
                 return refractiveIndices;
             }
 
+            // Add this function before it's used in findOptimalPricePath
+            // Helper function to calculate price volatility
+            function calculateVolatility(prices) {
+                if (prices.length < 2) return 0.01; // Default if not enough data
+                
+                // Calculate returns
+                const returns = [];
+                for (let i = 1; i < prices.length; i++) {
+                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+                }
+                
+                // Calculate standard deviation of returns (volatility)
+                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
+                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                
+                return Math.sqrt(variance) || 0.01; // Avoid zero
+            }
+
             // Update the optimal path finding algorithm to consider distance weighting
             function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
                 const priceLevels = heatmapData.priceLevels;
