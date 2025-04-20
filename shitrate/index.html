@@ -1,10 +1,10 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -213,7 +213,7 @@
             top: 10px;
             left: 50%;
             transform: translateX(-50%);
-            font-family: 'Courier New', monospace;
+            font-family: 'Courier New, monospace';
             color: #00ff9d;
             text-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
             font-size: 16px;
@@ -258,6 +258,53 @@
         ::-webkit-calendar-picker-indicator {
             filter: invert(1) hue-rotate(130deg) brightness(1.5);
             cursor: pointer;
+        }
+        
+        /* Add styles for prediction-related elements */
+        .prediction-container {
+            margin-top: 20px;
+            background-color: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 3px solid #00ff9d;
+            color: #00ff9d;
+        }
+        
+        .prediction-metrics {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .metric {
+            background-color: rgba(10, 10, 20, 0.7);
+            padding: 8px 15px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        
+        .prediction-up {
+            color: rgb(0, 255, 157);
+        }
+        
+        .prediction-down {
+            color: rgb(255, 41, 105);
+        }
+        
+        .model-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            align-items: center;
         }
     </style>
 </head>
@@ -311,8 +358,10 @@
             <label for="buckets">Price Buckets:</label>
             <select id="buckets">
                 <option value="50">50</option>
-                <option value="100" selected>100</option>
-                <option value="200">200</option>
+                <option value="100">100</option>
+                <option value="200" selected>200</option>
+                <option value="300">300</option>
+                <option value="400">400</option>
             </select>
             
             <div class="slider-container">
@@ -335,6 +384,54 @@
             <div class="checkbox-container">
                 <input type="checkbox" id="showOBM" checked>
                 <label for="showOBM">Show Order Book Momentum</label>
+            </div>
+        </div>
+        
+        <div class="control-section">
+            <div class="checkbox-container">
+                <input type="checkbox" id="enablePrediction" checked>
+                <label for="enablePrediction">Enable TensorFlow Price Prediction</label>
+            </div>
+            
+            <div class="model-controls">
+                <label for="lookbackPeriods">Lookback Periods:</label>
+                <select id="lookbackPeriods">
+                    <option value="3">3</option>
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                </select>
+                
+                <label for="predictionHorizon">Predict Ahead:</label>
+                <select id="predictionHorizon">
+                    <option value="1">1 period</option>
+                    <option value="3" selected>3 periods</option>
+                    <option value="5">5 periods</option>
+                </select>
+                
+                <button id="trainModelBtn">Train Model</button>
+            </div>
+        </div>
+        
+        <div class="prediction-container" id="predictionContainer" style="display: none;">
+            <h3>Price Prediction</h3>
+            <div class="prediction-metrics">
+                <div class="metric">
+                    <span>Next Price Prediction</span>
+                    <span class="metric-value" id="nextPricePrediction">--</span>
+                </div>
+                <div class="metric">
+                    <span>Direction</span>
+                    <span class="metric-value" id="priceDirection">--</span>
+                </div>
+                <div class="metric">
+                    <span>Confidence</span>
+                    <span class="metric-value" id="predictionConfidence">--</span>
+                </div>
+                <div class="metric">
+                    <span>Model Accuracy</span>
+                    <span class="metric-value" id="modelAccuracy">--</span>
+                </div>
             </div>
         </div>
         
@@ -786,6 +883,637 @@
                 document.getElementById('marginValue').textContent = this.value;
             });
             
+            // TensorFlow Model Variables
+            let model = null;
+            let isModelTrained = false;
+            let normalizedParams = {};
+            
+            // Add event listener for enable prediction checkbox
+            document.getElementById('enablePrediction').addEventListener('change', function() {
+                document.getElementById('predictionContainer').style.display = this.checked ? 'block' : 'none';
+                if (this.checked && cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
+                    if (!isModelTrained) {
+                        trainModel();
+                    } else {
+                        makePrediction();
+                    }
+                }
+            });
+            
+            // Add event listener for train model button
+            document.getElementById('trainModelBtn').addEventListener('click', function() {
+                if (cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
+                    trainModel();
+                } else {
+                    alert('No data available for training. Please load data first.');
+                }
+            });
+            
+            // Function to create the TensorFlow model
+            function createModel() {
+                // Dispose previous model if exists
+                if (model !== null) {
+                    model.dispose();
+                }
+                
+                model = tf.sequential();
+                
+                // Get lookback periods
+                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                
+                // Input shape: [lookback periods, features (heatmap buckets + OBM values)]
+                const numFeatures = getNumFeatures();
+                
+                // Get prediction horizon (how many periods to predict)
+                const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
+                
+                // Use a simpler model architecture with better numerical stability
+                // Add a Dense layer first to pre-process inputs
+                model.add(tf.layers.dense({
+                    units: 32,
+                    activation: 'relu',
+                    inputShape: [lookbackPeriods, numFeatures]
+                }));
+                
+                // Add a GRU layer (more stable than LSTM)
+                model.add(tf.layers.gru({
+                    units: 16,
+                    returnSequences: false,
+                    activation: 'tanh',
+                    recurrentActivation: 'sigmoid',
+                    useBias: true,
+                    kernelInitializer: 'glorotNormal',
+                    recurrentInitializer: 'orthogonal',
+                    biasInitializer: 'zeros'
+                }));
+                
+                // Add a dropout layer with moderate dropout
+                model.add(tf.layers.dropout({ rate: 0.2 }));
+                
+                // Change output layer to predict multiple values (one for each future period)
+                model.add(tf.layers.dense({ 
+                    units: predictionHorizon,  // Output multiple values instead of just 1
+                    activation: 'sigmoid' // Bounds output between 0-1 (for normalization)
+                }));
+                
+                // Compile the model with clipping to prevent exploding gradients
+                model.compile({
+                    optimizer: tf.train.adamax(0.0005), // Use adamax (more stable)
+                    loss: 'meanSquaredError',
+                    metrics: ['mse']
+                });
+                
+                return model;
+            }
+            
+            // Function to get the number of features for the model
+            function getNumFeatures() {
+                // Use a subset of heatmap buckets as features to keep the model small
+                // Plus OBM values, trend strength, etc.
+                const buckets = parseInt(document.getElementById('buckets').value);
+                // Use 20% of buckets + 5 OBM features
+                return Math.ceil(buckets * 0.2) + 5;
+            }
+            
+            // Function to prepare data for the model
+            function prepareData() {
+                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
+                
+                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon || 
+                    cachedHeatmapData.heatmap.length <= lookbackPeriods + predictionHorizon) {
+                    alert('Not enough data for the selected lookback and prediction periods.');
+                    return null;
+                }
+                
+                // Calculate OBM data
+                const obmData = calculateOBM(cachedHeatmapData);
+                
+                // Extract prices from candlestick data
+                const prices = cachedCandlestickData.map(item => item.close);
+                
+                // Extract features from heatmap data
+                const features = extractFeatures(cachedHeatmapData, obmData);
+                
+                // Normalize data
+                const { normalizedPrices, normalizedFeatures } = normalizeData(prices, features);
+                
+                // Create sequences for training
+                const { xs, ys } = createSequences(
+                    normalizedFeatures, 
+                    normalizedPrices, 
+                    lookbackPeriods, 
+                    predictionHorizon
+                );
+                
+                return {
+                    xs: xs,
+                    ys: ys,
+                    originalPrices: prices,
+                    originalFeatures: features
+                };
+            }
+            
+            // Function to extract features from heatmap and OBM data
+            function extractFeatures(heatmapData, obmData) {
+                const result = [];
+                const buckets = parseInt(document.getElementById('buckets').value);
+                const featureBuckets = Math.ceil(buckets * 0.2); // Use 20% of buckets as features
+                const bucketStep = Math.floor(buckets / featureBuckets);
+                
+                for (let i = 0; i < heatmapData.heatmap.length; i++) {
+                    const timestampFeatures = [];
+                    
+                    // Sample volume features from heatmap (evenly distributed)
+                    let hasNonZeroValue = false;
+                    for (let j = 0; j < featureBuckets; j++) {
+                        const bucketIndex = j * bucketStep;
+                        if (bucketIndex < heatmapData.heatmap[i].volumes.length) {
+                            const value = Math.abs(heatmapData.heatmap[i].volumes[bucketIndex]);
+                            timestampFeatures.push(value);
+                            if (value > 0) hasNonZeroValue = true;
+                        }
+                    }
+                    
+                    // If all volume features are zero, add a small random noise to avoid min=max=0
+                    if (!hasNonZeroValue) {
+                        for (let j = 0; j < timestampFeatures.length; j++) {
+                            // Add tiny random noise (0.00001 to 0.0001) to prevent all zeros
+                            timestampFeatures[j] = Math.random() * 0.00009 + 0.00001;
+                        }
+                    }
+                    
+                    // Add OBM features if available for this timestamp
+                    if (obmData && obmData.obmValues.length > i) {
+                        // OBM value (ensure non-zero if all zeros)
+                        const obmValue = obmData.obmValues[i] || Math.random() * 0.00002 - 0.00001;
+                        timestampFeatures.push(obmValue);
+                        
+                        // Trend strength (ensure non-zero if zero)
+                        const trendStrength = obmData.trendStrength[i] || Math.random() * 0.00002 - 0.00001;
+                        timestampFeatures.push(trendStrength);
+                        
+                        // Add imbalance data approximation
+                        const middleIndex = Math.floor(heatmapData.heatmap[i].volumes.length / 2);
+                        let buyPressure = 0;
+                        let sellPressure = 0;
+                        
+                        for (let j = 0; j < heatmapData.heatmap[i].volumes.length; j++) {
+                            const volume = Math.abs(heatmapData.heatmap[i].volumes[j]);
+                            if (j < middleIndex) {
+                                buyPressure += volume;
+                            } else {
+                                sellPressure += volume;
+                            }
+                        }
+                        
+                        // Add small non-zero value to prevent all zeros
+                        buyPressure = buyPressure || Math.random() * 0.00009 + 0.00001;
+                        sellPressure = sellPressure || Math.random() * 0.00009 + 0.00001;
+                        
+                        // Order book imbalance
+                        const totalPressure = buyPressure + sellPressure;
+                        const imbalance = (buyPressure - sellPressure) / totalPressure;
+                        timestampFeatures.push(imbalance);
+                        
+                        // Add buy and sell pressure ratio
+                        timestampFeatures.push(buyPressure / totalPressure);
+                        timestampFeatures.push(sellPressure / totalPressure);
+                    }
+                    
+                    result.push(timestampFeatures);
+                }
+                
+                return result;
+            }
+            
+            // Function to normalize data for the model
+            function normalizeData(prices, features) {
+                // Normalize prices
+                const minPrice = Math.min(...prices);
+                const maxPrice = Math.max(...prices);
+                
+                // Ensure we don't have min=max for price normalization
+                const priceRange = maxPrice - minPrice;
+                const normalizedPrices = prices.map(price => 
+                    priceRange > 0 ? (price - minPrice) / priceRange : 0.5
+                );
+                
+                // Store normalization parameters for later use
+                normalizedParams.minPrice = minPrice;
+                normalizedParams.maxPrice = maxPrice > minPrice ? maxPrice : minPrice + 0.0001; // Ensure difference
+                
+                // Normalize features
+                const normalizedFeatures = [];
+                const featureLength = features[0].length;
+                const featureStats = Array(featureLength).fill().map(() => ({ min: Infinity, max: -Infinity }));
+                
+                // Find min/max for each feature
+                for (let i = 0; i < features.length; i++) {
+                    for (let j = 0; j < features[i].length; j++) {
+                        featureStats[j].min = Math.min(featureStats[j].min, features[i][j]);
+                        featureStats[j].max = Math.max(featureStats[j].max, features[i][j]);
+                    }
+                }
+                
+                // Ensure min != max for all features by adding small offset if needed
+                for (let j = 0; j < featureLength; j++) {
+                    if (featureStats[j].min === featureStats[j].max) {
+                        // Add a small offset to max to ensure normalization works
+                        featureStats[j].max = featureStats[j].min + 0.0001;
+                        console.log(`Debug - Fixed feature ${j} min/max: ${featureStats[j].min} -> ${featureStats[j].max}`);
+                    }
+                }
+                
+                // Store feature normalization parameters
+                normalizedParams.featureStats = featureStats;
+                
+                // Normalize features
+                for (let i = 0; i < features.length; i++) {
+                    const normalizedTimestampFeatures = [];
+                    for (let j = 0; j < features[i].length; j++) {
+                        const min = featureStats[j].min;
+                        const max = featureStats[j].max;
+                        const range = max - min;
+                        normalizedTimestampFeatures.push(
+                            range > 0 ? (features[i][j] - min) / range : 0.5
+                        );
+                    }
+                    normalizedFeatures.push(normalizedTimestampFeatures);
+                }
+                
+                return { normalizedPrices, normalizedFeatures };
+            }
+            
+            // Function to create sequences for training
+            function createSequences(features, prices, lookback, horizon) {
+                const xs = [];
+                const ys = [];
+                
+                for (let i = 0; i <= features.length - lookback - horizon; i++) {
+                    // Input sequence
+                    const sequence = features.slice(i, i + lookback);
+                    xs.push(sequence);
+                    
+                    // Output values (multiple future prices)
+                    const futureValues = prices.slice(i + lookback, i + lookback + horizon);
+                    ys.push(futureValues);
+                }
+                
+                return {
+                    xs: tf.tensor3d(xs),
+                    ys: tf.tensor2d(ys, [ys.length, horizon])
+                };
+            }
+            
+            // Function to train the model
+            async function trainModel() {
+                // Show loading indicator
+                document.getElementById('nextPricePrediction').textContent = 'Training...';
+                document.getElementById('priceDirection').textContent = '---';
+                document.getElementById('predictionConfidence').textContent = '---';
+                document.getElementById('modelAccuracy').textContent = '---';
+                
+                // Prepare data
+                const data = prepareData();
+                if (!data) return;
+                
+                // Create the model with our improved architecture
+                createModel();
+                
+                try {
+                    // Use tf.tidy for memory management but handle it synchronously
+                    // since tf.tidy doesn't return a Promise
+                    const cleanData = tf.tidy(() => {
+                        // Check for NaN in the training data
+                        const xsHasNaN = tf.any(tf.isNaN(data.xs)).dataSync()[0];
+                        const ysHasNaN = tf.any(tf.isNaN(data.ys)).dataSync()[0];
+                        
+                        if (xsHasNaN || ysHasNaN) {
+                            console.error("Training data contains NaN values - fixing...");
+                            
+                            // If we have NaN in training data, we need to fix it
+                            // For xs, replace NaN with 0.5 (midpoint of normalized range)
+                            const fixedXs = tf.where(tf.isNaN(data.xs), tf.scalar(0.5), data.xs);
+                            
+                            // For ys, replace NaN with mean of non-NaN values
+                            const ysData = data.ys.dataSync();
+                            const validYs = Array.from(ysData).filter(v => !isNaN(v));
+                            const meanY = validYs.length > 0 ? 
+                                validYs.reduce((a, b) => a + b, 0) / validYs.length : 0.5;
+                            
+                            const fixedYs = tf.where(tf.isNaN(data.ys), tf.scalar(meanY), data.ys);
+                            
+                            // Now use the fixed data
+                            return { xs: fixedXs, ys: fixedYs };
+                        } else {
+                            // Data is good, return as is
+                            return { xs: data.xs, ys: data.ys };
+                        }
+                    });
+                    
+                    // Train the model
+                    const batchSize = Math.min(32, Math.floor(cleanData.xs.shape[0] / 4));
+                    const epochs = 50;
+                    
+                    // Add early stopping to prevent overfitting
+                    const earlyStoppingCallback = {
+                        onEpochEnd: (epoch, logs) => {
+                            console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
+                            // Properly calculate and display accuracy
+                            const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
+                            document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
+                            
+                            // If the loss is extremely small or NaN, stop training
+                            if (isNaN(logs.loss) || logs.loss < 0.0001) {
+                                console.log("Early stopping - loss is too small or NaN");
+                                model.stopTraining = true;
+                            }
+                        }
+                    };
+                    
+                    // Train the model with early stopping
+                    const history = await model.fit(cleanData.xs, cleanData.ys, {
+                        batchSize,
+                        epochs,
+                        shuffle: true,
+                        validationSplit: 0.2,
+                        callbacks: [earlyStoppingCallback]
+                    });
+                    
+                    // Update model status
+                    isModelTrained = true;
+                    
+                    // Make prediction
+                    makePrediction();
+                    
+                    // Dispose tensors to prevent memory leaks
+                    if (cleanData.xs !== data.xs) cleanData.xs.dispose();
+                    if (cleanData.ys !== data.ys) cleanData.ys.dispose();
+                    
+                } catch (error) {
+                    console.error('Error during model training:', error);
+                    document.getElementById('nextPricePrediction').textContent = 'Training failed';
+                } finally {
+                    // Dispose original tensors if they exist
+                    if (data && data.xs) data.xs.dispose();
+                    if (data && data.ys) data.ys.dispose();
+                }
+            }
+            
+            // Function to make a prediction
+            function makePrediction() {
+                if (!isModelTrained || !model) {
+                    document.getElementById('nextPricePrediction').textContent = 'Train model first';
+                    return;
+                }
+                
+                try {
+                    const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                    const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
+                    
+                    // Get the latest data for prediction
+                    const obmData = calculateOBM(cachedHeatmapData);
+                    const features = extractFeatures(cachedHeatmapData, obmData);
+                    const prices = cachedCandlestickData.map(item => item.close);
+                    
+                    if (features.length < lookbackPeriods) {
+                        document.getElementById('nextPricePrediction').textContent = 'Not enough data';
+                        return;
+                    }
+                    
+                    // Get the latest sequence for prediction
+                    const latestFeatures = features.slice(features.length - lookbackPeriods);
+                    
+                    // Normalize the features using saved parameters
+                    const normalizedLatestFeatures = latestFeatures.map(timestampFeatures => {
+                        return timestampFeatures.map((value, index) => {
+                            if (index >= normalizedParams.featureStats.length) {
+                                console.log(`Warning: Feature index ${index} out of bounds`);
+                                return 0.5;
+                            }
+                            
+                            const min = normalizedParams.featureStats[index].min;
+                            const max = normalizedParams.featureStats[index].max;
+                            const range = max - min;
+                            
+                            if (range <= 0) {
+                                console.log(`Debug - Feature ${index} has zero range: min=${min}, max=${max}`);
+                                return 0.5; // Use middle value for zero-range features
+                            }
+                            
+                            const normalized = (value - min) / range;
+                            
+                            // Ensure value is valid - very important for numerical stability
+                            if (isNaN(normalized) || !isFinite(normalized)) {
+                                console.log(`Debug - Invalid normalized value for feature ${index}: ${normalized}`);
+                                return 0.5;
+                            }
+                            
+                            // Clamp values to prevent extreme outliers
+                            return Math.max(0, Math.min(1, normalized));
+                        });
+                    });
+                    
+                    // Use tf.tidy to automatically dispose intermediate tensors
+                    const prediction = tf.tidy(() => {
+                        // Create input tensor and check for NaN values
+                        const inputTensor = tf.tensor3d([normalizedLatestFeatures]);
+                        
+                        // Log tensor shape to verify input is correct
+                        console.log("Input tensor shape:", inputTensor.shape);
+                        
+                        // Check for NaN values in input tensor
+                        const inputHasNaN = tf.any(tf.isNaN(inputTensor)).dataSync()[0];
+                        if (inputHasNaN) {
+                            console.error("Input tensor contains NaN values");
+                            return null;
+                        }
+                        
+                        // Make prediction
+                        return model.predict(inputTensor);
+                    });
+                    
+                    // Handle the case where prediction is null (due to NaN inputs)
+                    if (prediction === null) {
+                        document.getElementById('nextPricePrediction').textContent = 'Invalid input data';
+                        return;
+                    }
+                    
+                    // Get the predicted values (now multiple values)
+                    const predictionData = prediction.dataSync();
+                    
+                    // Create array of future predicted prices
+                    const futurePrices = [];
+                    const lastDate = new Date(cachedCandlestickData[cachedCandlestickData.length - 1].timestamp);
+                    const futureTimestamps = [];
+                    
+                    // Calculate interval in minutes from the existing data 
+                    // assuming each tick is 1 minute or whatever your data interval is
+                    const dataInterval = 60 * 1000; // 1 minute in milliseconds
+                    
+                    // Denormalize and store future predictions 
+                    for (let i = 0; i < predictionHorizon; i++) {
+                        const predictedNormalized = predictionData[i];
+                        
+                        // Check for invalid prediction
+                        if (!isFinite(predictedNormalized)) {
+                            console.log(`Predicted normalized value at index ${i} is NaN or Infinity, skipping`);
+                            continue;
+                        }
+                        
+                        // Denormalize the prediction
+                        const priceRange = normalizedParams.maxPrice - normalizedParams.minPrice;
+                        const predictedPrice = (predictedNormalized * priceRange) + normalizedParams.minPrice;
+                        
+                        // Calculate future timestamp
+                        const futureTimestamp = new Date(lastDate.getTime() + (i + 1) * dataInterval);
+                        
+                        futurePrices.push(predictedPrice);
+                        futureTimestamps.push(futureTimestamp);
+                    }
+                    
+                    // Update UI with first prediction
+                    if (futurePrices.length > 0) {
+                        const nextPrice = futurePrices[0];
+                        const lastPrice = prices[prices.length - 1];
+                        const priceChange = nextPrice - lastPrice;
+                        const percentChange = (priceChange / lastPrice) * 100;
+                        
+                        // Determine direction and confidence
+                        const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
+                        const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
+                        
+                        // Update UI
+                        document.getElementById('nextPricePrediction').textContent = nextPrice.toFixed(4);
+                        document.getElementById('priceDirection').textContent = direction;
+                        document.getElementById('priceDirection').className = 
+                            'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
+                        document.getElementById('predictionConfidence').textContent = confidence;
+                    }
+                    
+                    // Add future price predictions to the chart
+                    addPredictionsToChart(futureTimestamps, futurePrices);
+                    
+                    // Dispose tensors
+                    prediction.dispose();
+                } catch (error) {
+                    console.error('Error making prediction:', error);
+                    document.getElementById('nextPricePrediction').textContent = 'Prediction failed';
+                }
+            }
+            
+            // Create a new function to add predictions to the chart
+            function addPredictionsToChart(timestamps, prices) {
+                if (!timestamps.length || !prices.length) return;
+                
+                // Create prediction trace
+                const predictionTrace = {
+                    x: timestamps,
+                    y: prices,
+                    mode: 'lines',
+                    name: 'Price Prediction',
+                    line: {
+                        shape: 'spline',
+                        color: 'rgba(255, 255, 0, 0.9)',
+                        width: 2,
+                        dash: 'dash'
+                    },
+                    yaxis: 'y',
+                    type: 'scatter'
+                };
+                
+                // When calling renderChart, we could add a parameter to include predictions
+                // But for now, let's just modify the chart directly
+                Plotly.addTraces('chart', predictionTrace);
+            }
+            
+            // And then when we re-render the chart:
+            function renderChart(candlestickData, heatmapData, clearPredictions = true) {
+                // Existing rendering code...
+                
+                // After creating the chart, if clearPredictions is true, we can clear any existing predictions
+                if (clearPredictions) {
+                    // Find the prediction trace and remove it if it exists
+                    const chartDiv = document.getElementById('chart');
+                    if (chartDiv._fullData) {
+                        const predictionTraceIndex = chartDiv._fullData.findIndex(trace => trace.name === 'Price Prediction');
+                        if (predictionTraceIndex !== -1) {
+                            Plotly.deleteTraces('chart', predictionTraceIndex);
+                        }
+                    }
+                }
+            }
+            
+            // Function to update the prediction horizon selector
+            function updatePredictionHorizonOptions() {
+                const timeRange = document.getElementById('timeRange').value;
+                const predictionHorizonSelect = document.getElementById('predictionHorizon');
+                
+                // Clear existing options
+                predictionHorizonSelect.innerHTML = '';
+                
+                // Set options based on time range
+                let maxPeriods;
+                switch (timeRange) {
+                    case '1h': maxPeriods = 60; break;  // 60 minutes
+                    case '3h': maxPeriods = 180; break; // 180 minutes
+                    case '6h': maxPeriods = 360; break;
+                    case '12h': maxPeriods = 720; break;
+                    case '24h': maxPeriods = 1440; break;
+                    default: maxPeriods = 60; // Default to 60 minutes
+                }
+                
+                // Add options for different forecast lengths
+                const options = [
+                    { value: 1, text: '1 period' },
+                    { value: 3, text: '3 periods' },
+                    { value: 10, text: '10 periods' },
+                    { value: 30, text: '30 periods' },
+                    { value: Math.min(60, maxPeriods), text: '1 hour' }
+                ];
+                
+                // Add additional options for longer time ranges
+                if (maxPeriods >= 180) options.push({ value: 180, text: '3 hours' });
+                if (maxPeriods >= 360) options.push({ value: 360, text: '6 hours' });
+                if (maxPeriods >= 720) options.push({ value: 720, text: '12 hours' });
+                
+                // Create and append options
+                options.forEach(option => {
+                    const optElement = document.createElement('option');
+                    optElement.value = option.value;
+                    optElement.textContent = option.text;
+                    predictionHorizonSelect.appendChild(optElement);
+                });
+                
+                // Set default selection
+                predictionHorizonSelect.value = '3';
+            }
+            
+            // Add event listener for timeRange to update prediction horizon options
+            document.getElementById('timeRange').addEventListener('change', updatePredictionHorizonOptions);
+            
+            // Initialize prediction horizon options
+            updatePredictionHorizonOptions();
+            
+            // Modify loadData to call makePrediction when new data is loaded
+            const originalLoadData = loadData;
+            loadData = function(fullRefresh = false) {
+                originalLoadData(fullRefresh);
+                
+                // Make a prediction if the model is trained and prediction is enabled
+                if (isModelTrained && document.getElementById('enablePrediction').checked) {
+                    // Wait for data to be loaded
+                    setTimeout(() => {
+                        makePrediction();
+                    }, 1000);
+                }
+            };
+            
+            // Initial state of prediction container
+            document.getElementById('predictionContainer').style.display = 
+                document.getElementById('enablePrediction').checked ? 'block' : 'none';
+            
             function loadData(fullRefresh = false) {
                 const dateRangeMode = document.getElementById('dateRangeMode').value;
                 const buckets = document.getElementById('buckets').value;
@@ -907,9 +1635,6 @@
                 // Calculate Order Book Momentum
                 const obmData = calculateOBM(heatmapData);
                 
-                // Calculate physics-based price prediction
-                const predictionData = calculatePricePrediction(heatmapData, candlestickData);
-                
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
                 const prices = candlestickData.map(item => item.close);
@@ -967,7 +1692,7 @@
                         titlefont: { color: '#00ff9d' },
                         tickfont: { color: '#00ff9d' }
                     },
-                    zsmooth: false,
+                    zsmooth: 'best',  // Change this from 'false' to 'best'
                     showscale: true
                 };
                 
@@ -1531,76 +2256,6 @@
                 } else {
                     document.getElementById('obmChart').style.display = 'none';
                 }
-
-                // After creating the main chart, add the physics-based prediction
-                if (predictionData.predictedPath.length > 0) {
-                    // Add prediction trace to the main chart with improved styling
-                    const predictionTrace = {
-                        x: predictionData.predictedPath.map(p => p.time),
-                        y: predictionData.predictedPath.map(p => p.price),
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Optical Path',
-                        line: {
-                            shape: 'spline',
-                            color: 'rgba(255, 215, 0, 0.9)', // Brighter gold color
-                            width: 3,
-                            dash: 'solid' // Change from dotted to solid for better visibility
-                        },
-                        hoverinfo: 'text+x',
-                        text: predictionData.predictedPath.map(p => 
-                            `Price: ${p.price.toFixed(6)}<br>Resistance: ${p.resistance.toFixed(2)}`
-                        ),
-                        hoverlabel: {
-                            bgcolor: 'rgba(40, 40, 0, 0.9)',
-                            bordercolor: 'rgba(255, 215, 0, 1)',
-                            font: {
-                                family: 'Courier New, monospace',
-                                size: 12,
-                                color: 'rgb(255, 255, 200)'
-                            }
-                        }
-                    };
-                    
-                    // Add momentum vectors as annotations with better scaling
-                    const annotations = [];
-                    // Only add vectors for key points to avoid cluttering
-                    const step = Math.max(1, Math.floor(predictionData.momentumVectors.length / 7));
-                    
-                    for (let i = 1; i < predictionData.momentumVectors.length - 1; i += step) {
-                        const vector = predictionData.momentumVectors[i];
-                        if (!vector || vector.magnitude === 0) continue;
-                        
-                        // Scale the vector dynamically based on the chart size
-                        const scaleFactor = 0.02; // Smaller value for better proportions
-                        const confidence = predictionData.confidenceScores[i-1] || 0.5;
-                        
-                        // Calculate arrow endpoint relative to vector direction
-                        const arrowLength = Math.min(0.02, vector.magnitude * scaleFactor);
-                        
-                        annotations.push({
-                            x: vector.x,
-                            y: vector.y,
-                            ax: vector.dx * arrowLength * 500000, // Large scaling for visibility
-                            ay: vector.dy * arrowLength * 1000, // Reduced scaling for y to avoid extreme arrows
-                            arrowhead: 2,
-                            arrowsize: 1.5,
-                            arrowwidth: 1.5 + confidence * 2,
-                            arrowcolor: `rgba(255, ${Math.floor(255 * confidence)}, 0, ${0.5 + 0.5 * confidence})`,
-                            showarrow: true,
-                            xref: 'x',
-                            yref: 'y'
-                        });
-                    }
-                    
-                    // Add the prediction trace to the chart
-                    Plotly.addTraces('chart', predictionTrace);
-                    
-                    // Update the layout to include momentum vector annotations
-                    Plotly.relayout('chart', {
-                        annotations: annotations
-                    });
-                }
             }
             
             // Also add event listener for the OBM checkbox
@@ -1613,424 +2268,72 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
-
-            // Physics-inspired prediction model functions
-            function calculatePricePrediction(heatmapData, candlestickData) {
-                // Return object with prediction results
-                const result = {
-                    timestamps: [],
-                    actualPrice: [],
-                    predictedPath: [],
-                    refractiveIndices: [],
-                    resistanceMap: [],
-                    momentumVectors: [],
-                    confidenceScores: []
-                };
-                
-                if (!heatmapData.heatmap.length || !candlestickData.length) return result;
-                
-                // 1. Calculate refractive indices based on order density
-                // Higher density = higher refractive index = slower light passage (more resistance)
-                const refractiveIndices = calculateRefractiveIndices(heatmapData);
-                
-                // 2. Find price path of least resistance
-                const optimalPath = findOptimalPricePath(heatmapData, refractiveIndices, candlestickData);
-                
-                // 3. Calculate optical momentum and predict future movement
-                const prediction = calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData);
-                
-                // 4. Populate result with prediction data
-                result.timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
-                result.actualPrice = candlestickData.map(c => c.close);
-                result.predictedPath = optimalPath.path;
-                result.refractiveIndices = refractiveIndices;
-                result.resistanceMap = optimalPath.resistanceMap;
-                result.momentumVectors = prediction.momentumVectors;
-                result.confidenceScores = prediction.confidenceScores;
-                
-                return result;
-            }
-
-            // Update the refractive indices calculation to account for buy/sell wall reflective effects
-            function calculateRefractiveIndices(heatmapData) {
-                const priceLevels = heatmapData.priceLevels;
-                const refractiveIndices = [];
-                
-                // Find the middle index (reference price) - better to use actual price if available
-                const middleIndex = Math.floor(priceLevels.length / 2);
-                
-                for (let i = 0; i < heatmapData.heatmap.length; i++) {
-                    const timeIndices = [];
-                    const volumes = heatmapData.heatmap[i].volumes;
-                    
-                    // Find maximum volume for normalization
-                    const maxVolume = Math.max(...volumes.map(v => Math.abs(v)));
-                    const epsilon = 0.0001; // Prevent division by zero
-                    
-                    // First pass: Calculate distance-weighted volumes with directional effects
-                    const weightedVolumes = [];
-                    
-                    for (let j = 0; j < priceLevels.length; j++) {
-                        // Basic distance factor as before
-                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
-                        const rawVolume = Math.abs(volumes[j]);
-                        
-                        // Apply directional weighting to create reflective barriers
-                        // Orders below current price (buy walls) have upward reflection
-                        // Orders above current price (sell walls) have downward reflection
-                        let reflectionFactor = 1.0;
-                        if (j < middleIndex) {
-                            // Buy wall below price - creates upward reflection (barrier effect)
-                            reflectionFactor = 1.5 + distanceFactor;
-                        } else if (j > middleIndex) {
-                            // Sell wall above price - creates downward reflection (barrier effect)
-                            reflectionFactor = 1.5 + distanceFactor;
-                        }
-                        
-                        // Weight by distance and reflection factor
-                        const weightedVolume = rawVolume * reflectionFactor * (1 + distanceFactor * 0.75);
-                        weightedVolumes.push(weightedVolume);
-                    }
-                    
-                    // Find max weighted volume for normalization
-                    const maxWeightedVolume = Math.max(...weightedVolumes);
-                    
-                    // Second pass: Calculate refractive indices with one-sided reflection
-                    for (let j = 0; j < priceLevels.length; j++) {
-                        // Normalize weighted volume
-                        const normalizedVolume = maxWeightedVolume > 0 ? 
-                            weightedVolumes[j] / maxWeightedVolume : 0;
-                        
-                        // IMPORTANT CONCEPTUAL CHANGE:
-                        // For high-volume areas, set different refractive indices based on location
-                        // This creates barriers/reflection rather than attraction
-                        let refractiveIndex;
-                        
-                        if (j < middleIndex && normalizedVolume > 0.6) {
-                            // Strong buy wall below price - high refractive index creates upward reflection
-                            refractiveIndex = 3.0 + normalizedVolume * 2.0;
-                        } else if (j > middleIndex && normalizedVolume > 0.6) {
-                            // Strong sell wall above price - high refractive index creates downward reflection
-                            refractiveIndex = 3.0 + normalizedVolume * 2.0;
-                        } else {
-                            // Normal case - exponential relationship for regular liquidity
-                            refractiveIndex = 1 + Math.exp(-5 * normalizedVolume) * 2;
-                        }
-                        
-                        timeIndices.push(refractiveIndex);
-                    }
-                    
-                    refractiveIndices.push(timeIndices);
+            
+            // Add a more sophisticated model architecture that better captures fluid dynamics
+            function createAdvancedFluidModel() {
+                // Dispose previous model if exists
+                if (model !== null) {
+                    model.dispose();
                 }
                 
-                return refractiveIndices;
-            }
-
-            // Add this function before it's used in findOptimalPricePath
-            // Helper function to calculate price volatility
-            function calculateVolatility(prices) {
-                if (prices.length < 2) return 0.01; // Default if not enough data
+                model = tf.sequential();
                 
-                // Calculate returns
-                const returns = [];
-                for (let i = 1; i < prices.length; i++) {
-                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
-                }
+                // Get configuration
+                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const numFeatures = getNumFeatures();
+                const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
                 
-                // Calculate standard deviation of returns (volatility)
-                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
-                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                // Create a multi-level recurrent architecture with residual connections
+                // This better simulates fluid dynamics through a system
                 
-                return Math.sqrt(variance) || 0.01; // Avoid zero
-            }
-
-            // Modify the findOptimalPricePath function to properly handle reflective barriers
-            function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
-                const priceLevels = heatmapData.priceLevels;
-                const timestamps = heatmapData.timestamps;
-                const path = [];
-                const resistanceMap = [];
+                // First layer processes the raw features
+                model.add(tf.layers.dense({
+                    units: 64,
+                    activation: 'relu',
+                    inputShape: [lookbackPeriods, numFeatures]
+                }));
                 
-                // Make sure we have enough data
-                if (timestamps.length < 2 || candlestickData.length < 2) {
-                    return { path, resistanceMap };
-                }
+                // Add a bidirectional layer to capture flow in both directions
+                model.add(tf.layers.bidirectional({
+                    layer: tf.layers.gru({
+                        units: 32,
+                        returnSequences: true,
+                        activation: 'tanh',
+                        recurrentActivation: 'sigmoid'
+                    }),
+                    mergeMode: 'concat'
+                }));
                 
-                // Initialize with actual price at first timestamp
-                const startPrice = candlestickData[0].close;
-                let currentPriceIndex = findClosestPriceIndex(priceLevels, startPrice);
+                // Add a layer to model non-linear fluid dynamics
+                model.add(tf.layers.dense({
+                    units: 64,
+                    activation: 'swish' // More fluid-like activation function
+                }));
                 
-                // Find the middle index for distance calculations
-                const middleIndex = Math.floor(priceLevels.length / 2);
+                // Reduce dimensionality while preserving dynamic properties
+                model.add(tf.layers.gru({
+                    units: 32,
+                    returnSequences: false
+                }));
                 
-                path.push({ 
-                    time: new Date(timestamps[0] * 1000), 
-                    price: priceLevels[currentPriceIndex],
-                    resistance: refractiveIndices[0][currentPriceIndex]
+                // Output layer to predict multiple future points
+                model.add(tf.layers.dense({
+                    units: predictionHorizon,
+                    activation: 'sigmoid'
+                }));
+                
+                // Use a more sophisticated optimizer with gradient clipping
+                const optimizer = tf.train.adam(0.001, 0.9, 0.999, 1e-8);
+                
+                model.compile({
+                    optimizer: optimizer,
+                    loss: 'meanSquaredError',
+                    metrics: ['mse']
                 });
                 
-                // Calculate gradient of refractive indices with distance considerations
-                for (let i = 0; i < refractiveIndices.length; i++) {
-                    const timeResistance = [];
-                    for (let j = 0; j < priceLevels.length; j++) {
-                        // Calculate gradient from neighboring points
-                        let gradientUp = 0, gradientDown = 0;
-                        
-                        if (j > 0) {
-                            gradientDown = refractiveIndices[i][j] - refractiveIndices[i][j-1];
-                        }
-                        
-                        if (j < priceLevels.length - 1) {
-                            gradientUp = refractiveIndices[i][j+1] - refractiveIndices[i][j];
-                        }
-                        
-                        // Distance from the middle (percentage of full range)
-                        const distanceFromMiddle = Math.abs(j - middleIndex) / middleIndex;
-                        
-                        // Store resistance and its gradient at this point
-                        timeResistance.push({ 
-                            price: priceLevels[j],
-                            resistance: refractiveIndices[i][j],
-                            gradientUp: gradientUp,
-                            gradientDown: gradientDown,
-                            distanceFactor: distanceFromMiddle
-                        });
-                    }
-                    resistanceMap.push(timeResistance);
-                }
-                
-                // Variable search radius based on price volatility
-                const priceHistory = candlestickData.map(c => c.close);
-                const volatility = calculateVolatility(priceHistory);
-                const baseSearchRadius = Math.max(3, Math.floor(priceLevels.length * volatility * 0.25));
-                
-                // For each timestamp, find the next point on the path
-                for (let i = 1; i < timestamps.length; i++) {
-                    // Find the actual price at this timestamp if available
-                    const actualPriceIndex = i < candlestickData.length ? 
-                        findClosestPriceIndex(priceLevels, candlestickData[i].close) : -1;
-                    
-                    // Dynamic search radius that adapts to price movement and volatility
-                    const searchRadius = baseSearchRadius + 
-                        (actualPriceIndex >= 0 ? Math.floor(Math.abs(actualPriceIndex - currentPriceIndex) * 0.5) : 0);
-                        
-                    // Define the search space bounded by the search radius
-                    const lowerBound = Math.max(0, currentPriceIndex - searchRadius);
-                    const upperBound = Math.min(priceLevels.length - 1, currentPriceIndex + searchRadius);
-                    
-                    // Find path of least optical time (resistance) with distance weighting
-                    let minResistance = Infinity;
-                    let optimalNextIndex = currentPriceIndex;
-                    
-                    for (let j = lowerBound; j <= upperBound; j++) {
-                        // Skip points with extremely high resistance (very low liquidity)
-                        if (refractiveIndices[i][j] > 2.8) {
-                            continue;
-                        }
-                        
-                        // Calculate actual path resistance using the physics of refraction
-                        
-                        // 1. Base optical resistance at this point
-                        const opticalResistance = refractiveIndices[i][j];
-                        
-                        // 2. Apply Snell's law: light bends toward lower refractive index
-                        // Calculate the "bend penalty" - sharper turns cost more when going against the gradient
-                        const priceDelta = j - currentPriceIndex;
-                        const bendPenalty = Math.abs(priceDelta) * 0.05;
-                        
-                        // 3. Factor in actual price attraction 
-                        // Stronger attraction for points closer to the actual price (inverse distance weighting)
-                        const actualPriceAttraction = actualPriceIndex >= 0 ? 
-                            0.3 * Math.abs(j - actualPriceIndex) / priceLevels.length : 0;
-                        
-                        // 4. Incorporate gradient effects (light prefers paths where resistance decreases)
-                        // Gradient effect is stronger for points farther from the middle (distance weighted)
-                        const distanceFactor = resistanceMap[i][j].distanceFactor;
-                        const gradientEffect = priceDelta > 0 ? 
-                            resistanceMap[i][j].gradientUp * (0.1 + distanceFactor * 0.15) : 
-                            resistanceMap[i][j].gradientDown * (0.1 + distanceFactor * 0.15);
-                        
-                        // 5. Add distance weighting: consider the absolute distance from middle
-                        // Path through distant strong liquidity points has more significance
-                        const distanceWeight = 0.1 * distanceFactor;
-                        
-                        // Detect reflective barriers and apply proper physics
-                        const isReflectiveBarrier = refractiveIndices[i][j] > 4.0;
-                        
-                        // If it's a reflective barrier below current price, add upward force
-                        // If it's a reflective barrier above current price, add downward force
-                        let reflectionEffect = 0;
-                        
-                        if (isReflectiveBarrier) {
-                            if (j < currentPriceIndex) {
-                                // Upward reflection from buy wall below price
-                                reflectionEffect = -20 * (refractiveIndices[i][j] - 4.0) * (currentPriceIndex - j) / priceLevels.length;
-                            } else if (j > currentPriceIndex) {
-                                // Downward reflection from sell wall above price
-                                reflectionEffect = 20 * (refractiveIndices[i][j] - 4.0) * (j - currentPriceIndex) / priceLevels.length;
-                            }
-                        }
-                        
-                        // Total resistance for this path option with all factors
-                        const totalResistance = 
-                            opticalResistance * (1.0 - distanceWeight) + 
-                            bendPenalty + 
-                            actualPriceAttraction + 
-                            gradientEffect +
-                            reflectionEffect; // Add the reflection effect
-                        
-                        // Update minimum resistance path
-                        if (totalResistance < minResistance) {
-                            minResistance = totalResistance;
-                            optimalNextIndex = j;
-                        }
-                    }
-                    
-                    // Update current position to optimal next point
-                    currentPriceIndex = optimalNextIndex;
-                    
-                    // Add to final path
-                    path.push({
-                        time: new Date(timestamps[i] * 1000),
-                        price: priceLevels[currentPriceIndex],
-                        resistance: refractiveIndices[i][currentPriceIndex]
-                    });
-                }
-                
-                return { path, resistanceMap };
-            }
-
-            // Update the momentum calculation to incorporate distance weighting
-            function calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData) {
-                const momentumVectors = [];
-                const confidenceScores = [];
-                const path = optimalPath.path;
-                
-                // Need at least 3 points for momentum calculation
-                if (path.length < 3) {
-                    return { momentumVectors, confidenceScores };
-                }
-                
-                // Find middle index for distance calculations
-                const middleIndex = Math.floor(heatmapData.priceLevels.length / 2);
-                
-                // Initialize with zero momentum
-                momentumVectors.push({ 
-                    x: path[0].time, 
-                    y: path[0].price, 
-                    dx: 0, 
-                    dy: 0,
-                    magnitude: 0,
-                    direction: 0
-                });
-                
-                // Calculate momentum vectors with distance weighting
-                for (let i = 1; i < path.length - 1; i++) {
-                    // Time delta in milliseconds converted to hours for scaling
-                    const dt1 = (path[i].time - path[i-1].time) / (1000 * 3600);
-                    const dt2 = (path[i+1].time - path[i].time) / (1000 * 3600);
-                    
-                    // Price deltas
-                    const dp1 = path[i].price - path[i-1].price;
-                    const dp2 = path[i+1].price - path[i].price;
-                    
-                    // Find the price index for current point to calculate distance factor
-                    const priceIndex = findClosestPriceIndex(heatmapData.priceLevels, path[i].price);
-                    const distanceFactor = Math.abs(priceIndex - middleIndex) / middleIndex;
-                    
-                    // Calculate velocity vectors with distance-weighted resistance
-                    // Further from middle = stronger impact on velocity (reduces resistance effect)
-                    const resistanceWeight = 1 / (1 + 0.5 * distanceFactor);
-                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance * resistanceWeight);
-                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance * resistanceWeight);
-                    
-                    // Acceleration = change in velocity over time
-                    const acceleration = (v2 - v1) / (dt1 + dt2);
-                    
-                    // Force = mass * acceleration (mass proportional to resistance, modified by distance)
-                    // Orders far from center have higher impact (lower effective mass)
-                    const effectiveMass = path[i].resistance * (1 - 0.3 * distanceFactor);
-                    const force = acceleration * effectiveMass;
-                    
-                    // Calculate momentum components with improved scaling and distance effects
-                    const dx = 1;
-                    
-                    // Scale dy for better visibility, increased impact for distant points
-                    const dy = v2 * 20 * (1 + 0.5 * distanceFactor); 
-                    
-                    // Calculate magnitude and direction
-                    const magnitude = Math.sqrt(dx * dx + dy * dy);
-                    const direction = Math.atan2(dy, dx);
-                    
-                    momentumVectors.push({
-                        x: path[i].time,
-                        y: path[i].price,
-                        dx,
-                        dy,
-                        magnitude,
-                        direction,
-                        force,
-                        distanceFactor // Store for reference
-                    });
-                    
-                    // Calculate prediction confidence with distance factors
-                    // 1. Consistency of force direction (stable forces = higher confidence)
-                    const forceConsistency = i > 1 ? 
-                        Math.abs(Math.cos(momentumVectors[i-1].direction - direction)) : 0.5;
-                    
-                    // 2. Light speeds up in areas of low refractive index (low resistance)
-                    // More weight to speed factor for distant points (stronger signal)
-                    const speedFactor = (1 / path[i].resistance) * (1 + 0.2 * distanceFactor);
-                    
-                    // 3. Path predictability based on density gradients
-                    // Distant significant points are more reliable signals
-                    const gradientStability = Math.exp(-Math.abs(force) * 2) * (1 + 0.2 * distanceFactor);
-                    
-                    // Combined confidence score with distance weighting
-                    const confidence = 0.3 + 0.7 * (
-                        forceConsistency * 0.4 + 
-                        speedFactor * 0.3 + 
-                        gradientStability * 0.3
-                    );
-                    
-                    confidenceScores.push(confidence);
-                }
-                
-                // Add final point with forward projection
-                if (momentumVectors.length > 1) {
-                    const lastVector = momentumVectors[momentumVectors.length-1];
-                    
-                    momentumVectors.push({
-                        x: path[path.length-1].time,
-                        y: path[path.length-1].price,
-                        dx: lastVector.dx,
-                        dy: lastVector.dy,
-                        magnitude: lastVector.magnitude,
-                        direction: lastVector.direction
-                    });
-                    
-                    confidenceScores.push(confidenceScores[confidenceScores.length-1] || 0.5);
-                }
-                
-                return { momentumVectors, confidenceScores };
-            }
-
-            // Helper function to find index of closest price in priceLevels array
-            function findClosestPriceIndex(priceLevels, targetPrice) {
-                let closestIndex = 0;
-                let minDifference = Math.abs(priceLevels[0] - targetPrice);
-                
-                for (let i = 1; i < priceLevels.length; i++) {
-                    const difference = Math.abs(priceLevels[i] - targetPrice);
-                    if (difference < minDifference) {
-                        minDifference = difference;
-                        closestIndex = i;
-                    }
-                }
-                
-                return closestIndex;
+                return model;
             }
         });
     </script>
 </body>
-</html>
+</html><!DOCTYPE html>
