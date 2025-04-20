@@ -928,7 +928,7 @@
                     units: 32,
                     returnSequences: false,
                     inputShape: [lookbackPeriods, numFeatures],
-                    kernelRegularizer: tf.regularizers.l2(0.001)
+                    kernelRegularizer: tf.regularizers.l2({ l2: 0.001 })  // Changed to correct object format
                 }));
                 
                 // Add a dropout layer with higher rate to prevent overfitting
@@ -941,7 +941,7 @@
                 model.add(tf.layers.dense({ 
                     units: 1,
                     activation: 'linear',
-                    kernelRegularizer: tf.regularizers.l2(0.001)
+                    kernelRegularizer: tf.regularizers.l2({ l2: 0.001 })  // Changed to correct object format
                 }));
                 
                 // Compile the model with a lower learning rate for stability
