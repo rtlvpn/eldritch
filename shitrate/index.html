@@ -2299,7 +2299,11 @@
                         units: 32,
                         returnSequences: true,
                         activation: 'tanh',
-                        recurrentActivation: 'sigmoid'
+                        recurrentActivation: 'sigmoid',
+                        useBias: true,
+                        kernelInitializer: 'glorotNormal',
+                        recurrentInitializer: 'orthogonal',
+                        biasInitializer: 'zeros'
                     }),
                     mergeMode: 'concat'
                 }));
@@ -2333,7 +2337,536 @@
                 
                 return model;
             }
+
+            // Create CNN-LSTM hybrid model for fluid-like price dynamics prediction
+            function createCNNLSTMModel() {
+                // Dispose previous model if exists
+                if (model !== null) {
+                    model.dispose();
+                }
+                
+                // Get configuration parameters
+                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
+                const buckets = parseInt(document.getElementById('buckets').value);
+                
+                // Create a new sequential model
+                model = tf.sequential();
+                
+                // Input shape: [lookbackPeriods (time steps), priceLevels (buckets), channels (1 for volume)]
+                const inputShape = [lookbackPeriods, buckets, 1];
+                
+                // 1. Add CNN layers to process spatial features in the orderbook
+                // First convolutional layer
+                model.add(tf.layers.conv2d({
+                    inputShape: inputShape,
+                    filters: 32,
+                    kernelSize: [3, 3],
+                    activation: 'relu',
+                    padding: 'same'
+                }));
+                
+                // Max pooling to reduce dimensionality
+                model.add(tf.layers.maxPooling2d({
+                    poolSize: [1, 2],  // Pool only along price dimension, not time
+                    strides: [1, 2]
+                }));
+                
+                // Second convolutional layer - deeper features
+                model.add(tf.layers.conv2d({
+                    filters: 64,
+                    kernelSize: [3, 3],
+                    activation: 'relu',
+                    padding: 'same'
+                }));
+                
+                // Another max pooling layer
+                model.add(tf.layers.maxPooling2d({
+                    poolSize: [1, 2],
+                    strides: [1, 2]
+                }));
+                
+                // 2. Reshape for LSTM processing
+                // Calculate shape after pooling
+                const priceLevelsAfterPooling = Math.floor(buckets / 4); // After two pooling layers with stride 2
+                
+                // Reshape to [timeSteps, features]
+                model.add(tf.layers.reshape({
+                    targetShape: [lookbackPeriods, priceLevelsAfterPooling * 64]
+                }));
+                
+                // 3. LSTM layers to process temporal patterns
+                model.add(tf.layers.lstm({
+                    units: 100,
+                    returnSequences: true,
+                    activation: 'tanh',
+                    recurrentActivation: 'sigmoid'
+                }));
+                
+                // Add dropout to prevent overfitting
+                model.add(tf.layers.dropout({ rate: 0.3 }));
+                
+                // Second LSTM layer
+                model.add(tf.layers.lstm({
+                    units: 50,
+                    returnSequences: false, // Only return final output
+                    activation: 'tanh',
+                    recurrentActivation: 'sigmoid'
+                }));
+                
+                // Add dropout
+                model.add(tf.layers.dropout({ rate: 0.3 }));
+                
+                // 4. Dense output layer for prediction
+                model.add(tf.layers.dense({
+                    units: predictionHorizon,
+                    activation: 'sigmoid' // Keep outputs in [0,1] range (will be denormalized later)
+                }));
+                
+                // Compile model with Adam optimizer
+                model.compile({
+                    optimizer: tf.train.adam(0.001),
+                    loss: 'meanSquaredError',
+                    metrics: ['mse']
+                });
+                
+                return model;
+            }
+
+            // Modify the prepareData function to format data for CNN-LSTM
+            function prepareDataForCNNLSTM() {
+                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
+                const buckets = parseInt(document.getElementById('buckets').value);
+                
+                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon || 
+                    cachedHeatmapData.heatmap.length <= lookbackPeriods + predictionHorizon) {
+                    alert('Not enough data for the selected lookback and prediction periods.');
+                    return null;
+                }
+                
+                // Extract prices from candlestick data for the target values
+                const prices = cachedCandlestickData.map(item => item.close);
+                
+                // Prepare input data: reshape the heatmap into [samples, time_steps, price_levels, channels]
+                const numSamples = cachedHeatmapData.heatmap.length - lookbackPeriods - predictionHorizon + 1;
+                const xs = [];
+                const ys = [];
+                
+                // For each sample window
+                for (let i = 0; i <= cachedHeatmapData.heatmap.length - lookbackPeriods - predictionHorizon; i++) {
+                    // Create a sequence of heatmaps
+                    const heatmapSequence = [];
+                    
+                    for (let t = 0; t < lookbackPeriods; t++) {
+                        // Get volumes for this timestamp and normalize them
+                        const volumes = cachedHeatmapData.heatmap[i + t].volumes.slice();
+                        heatmapSequence.push(volumes);
+                    }
+                    
+                    xs.push(heatmapSequence);
+                    
+                    // Output values (multiple future prices)
+                    const futureValues = prices.slice(i + lookbackPeriods, i + lookbackPeriods + predictionHorizon);
+                    ys.push(futureValues);
+                }
+                
+                // Normalize data
+                // Find min/max for volumes across all samples
+                let minVolume = Infinity;
+                let maxVolume = -Infinity;
+                
+                for (let i = 0; i < xs.length; i++) {
+                    for (let t = 0; t < xs[i].length; t++) {
+                        for (let p = 0; p < xs[i][t].length; p++) {
+                            minVolume = Math.min(minVolume, xs[i][t][p]);
+                            maxVolume = Math.max(maxVolume, xs[i][t][p]);
+                        }
+                    }
+                }
+                
+                // Ensure we don't have min=max
+                if (minVolume === maxVolume) {
+                    maxVolume = minVolume + 0.0001;
+                }
+                
+                // Normalize volumes to [0,1]
+                const normalizedXs = xs.map(sample => 
+                    sample.map(timeStep => 
+                        timeStep.map(volume => 
+                            (volume - minVolume) / (maxVolume - minVolume)
+                        )
+                    )
+                );
+                
+                // Store volume normalization params
+                normalizedParams.minVolume = minVolume;
+                normalizedParams.maxVolume = maxVolume;
+                
+                // Normalize prices as before
+                const minPrice = Math.min(...prices);
+                const maxPrice = Math.max(...prices);
+                
+                // Ensure we don't have min=max for price normalization
+                const priceRange = maxPrice - minPrice;
+                const normalizedYs = ys.map(priceSequence => 
+                    priceSequence.map(price => 
+                        priceRange > 0 ? (price - minPrice) / priceRange : 0.5
+                    )
+                );
+                
+                // Store price normalization parameters
+                normalizedParams.minPrice = minPrice;
+                normalizedParams.maxPrice = maxPrice > minPrice ? maxPrice : minPrice + 0.0001;
+                
+                // Reshape for CNN input: add channel dimension [samples, time_steps, price_levels, channels]
+                const reshapedXs = normalizedXs.map(sample => {
+                    const result = [];
+                    for (let t = 0; t < sample.length; t++) {
+                        const timeSlice = [];
+                        for (let p = 0; p < sample[t].length; p++) {
+                            // Add channel dimension (1)
+                            timeSlice.push([sample[t][p]]);
+                        }
+                        result.push(timeSlice);
+                    }
+                    return result;
+                });
+                
+                // Convert to tensors with proper shapes
+                return {
+                    xs: tf.tensor4d(reshapedXs),  // [samples, time_steps, price_levels, channels]
+                    ys: tf.tensor2d(normalizedYs), // [samples, prediction_horizon]
+                    originalPrices: prices
+                };
+            }
+
+            // Update the training function to use the CNN-LSTM model
+            async function trainCNNLSTMModel() {
+                // Show loading indicator
+                document.getElementById('nextPricePrediction').textContent = 'Training CNN-LSTM...';
+                document.getElementById('priceDirection').textContent = '---';
+                document.getElementById('predictionConfidence').textContent = '---';
+                document.getElementById('modelAccuracy').textContent = '---';
+                
+                // Prepare data in the CNN-LSTM format
+                const data = prepareDataForCNNLSTM();
+                if (!data) return;
+                
+                // Create the CNN-LSTM model
+                createCNNLSTMModel();
+                
+                try {
+                    // Check for NaN in the training data
+                    const xsHasNaN = tf.tidy(() => tf.any(tf.isNaN(data.xs)).dataSync()[0]);
+                    const ysHasNaN = tf.tidy(() => tf.any(tf.isNaN(data.ys)).dataSync()[0]);
+                    
+                    if (xsHasNaN || ysHasNaN) {
+                        console.error("Training data contains NaN values - fixing...");
+                        
+                        // Handle NaN values as before
+                        const cleanData = tf.tidy(() => {
+                            const fixedXs = tf.where(tf.isNaN(data.xs), tf.scalar(0.5), data.xs);
+                            
+                            const ysData = data.ys.dataSync();
+                            const validYs = Array.from(ysData).filter(v => !isNaN(v));
+                            const meanY = validYs.length > 0 ? 
+                                validYs.reduce((a, b) => a + b, 0) / validYs.length : 0.5;
+                            
+                            const fixedYs = tf.where(tf.isNaN(data.ys), tf.scalar(meanY), data.ys);
+                            
+                            return { xs: fixedXs, ys: fixedYs };
+                        });
+                        
+                        // Train the model
+                        const batchSize = Math.min(16, Math.floor(cleanData.xs.shape[0] / 4)); // Smaller batch size for complex model
+                        const epochs = 30; // Fewer epochs due to more complex model
+                        
+                        // Add early stopping to prevent overfitting
+                        const earlyStoppingCallback = {
+                            onEpochEnd: (epoch, logs) => {
+                                console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
+                                // Update accuracy display
+                                const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
+                                document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
+                                
+                                // Early stopping condition
+                                if (isNaN(logs.loss) || logs.loss < 0.0001) {
+                                    console.log("Early stopping - loss is too small or NaN");
+                                    model.stopTraining = true;
+                                }
+                            }
+                        };
+                        
+                        // Train with higher validation split for complex model
+                        const history = await model.fit(cleanData.xs, cleanData.ys, {
+                            batchSize,
+                            epochs,
+                            shuffle: true,
+                            validationSplit: 0.3,
+                            callbacks: [earlyStoppingCallback]
+                        });
+                        
+                        // Update model status
+                        isModelTrained = true;
+                        
+                        // Make prediction
+                        makeCNNLSTMPrediction();
+                        
+                        // Dispose tensors
+                        if (cleanData.xs !== data.xs) cleanData.xs.dispose();
+                        if (cleanData.ys !== data.ys) cleanData.ys.dispose();
+                        
+                    } else {
+                        // Data is clean, train directly
+                        const batchSize = Math.min(16, Math.floor(data.xs.shape[0] / 4));
+                        const epochs = 30;
+                        
+                        const earlyStoppingCallback = {
+                            onEpochEnd: (epoch, logs) => {
+                                console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
+                                const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
+                                document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
+                                
+                                if (isNaN(logs.loss) || logs.loss < 0.0001) {
+                                    console.log("Early stopping - loss is too small or NaN");
+                                    model.stopTraining = true;
+                                }
+                            }
+                        };
+                        
+                        const history = await model.fit(data.xs, data.ys, {
+                            batchSize,
+                            epochs,
+                            shuffle: true,
+                            validationSplit: 0.3,
+                            callbacks: [earlyStoppingCallback]
+                        });
+                        
+                        isModelTrained = true;
+                        makeCNNLSTMPrediction();
+                    }
+                    
+                } catch (error) {
+                    console.error('Error during CNN-LSTM model training:', error);
+                    document.getElementById('nextPricePrediction').textContent = 'Training failed';
+                } finally {
+                    // Dispose original tensors
+                    if (data && data.xs) data.xs.dispose();
+                    if (data && data.ys) data.ys.dispose();
+                }
+            }
+
+            // Function to make prediction with CNN-LSTM model
+            function makeCNNLSTMPrediction() {
+                if (!isModelTrained || !model) {
+                    document.getElementById('nextPricePrediction').textContent = 'Train model first';
+                    return;
+                }
+                
+                try {
+                    const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                    const buckets = parseInt(document.getElementById('buckets').value);
+                    
+                    // Prepare the latest data for prediction
+                    // Get the last 'lookbackPeriods' heatmaps
+                    if (cachedHeatmapData.heatmap.length < lookbackPeriods) {
+                        document.getElementById('nextPricePrediction').textContent = 'Not enough data';
+                        return;
+                    }
+                    
+                    // Extract the last sequence of heatmaps
+                    const lastHeatmaps = cachedHeatmapData.heatmap.slice(-lookbackPeriods);
+                    
+                    // Process into the right format
+                    const inputSequence = [];
+                    for (let t = 0; t < lastHeatmaps.length; t++) {
+                        // Get volumes for this timestamp
+                        const volumes = lastHeatmaps[t].volumes.slice();
+                        inputSequence.push(volumes);
+                    }
+                    
+                    // Normalize using stored parameters
+                    const { minVolume, maxVolume } = normalizedParams;
+                    const volumeRange = maxVolume - minVolume;
+                    
+                    const normalizedSequence = inputSequence.map(timeStep => 
+                        timeStep.map(volume => 
+                            volumeRange > 0 ? (volume - minVolume) / volumeRange : 0.5
+                        )
+                    );
+                    
+                    // Reshape for CNN input: add sample and channel dimensions
+                    const reshapedInput = [];
+                    for (let t = 0; t < normalizedSequence.length; t++) {
+                        const timeSlice = [];
+                        for (let p = 0; p < normalizedSequence[t].length; p++) {
+                            // Add channel dimension
+                            timeSlice.push([normalizedSequence[t][p]]);
+                        }
+                        reshapedInput.push(timeSlice);
+                    }
+                    
+                    // Use tf.tidy for memory management
+                    const prediction = tf.tidy(() => {
+                        // Create input tensor with shape [1, lookbackPeriods, buckets, 1]
+                        const inputTensor = tf.tensor4d([reshapedInput]);
+                        
+                        // Make prediction
+                        return model.predict(inputTensor);
+                    });
+                    
+                    // Get the predicted values
+                    const predictionData = prediction.dataSync();
+                    const predictionHorizon = predictionData.length;
+                    
+                    // Create array of future predicted prices
+                    const futurePrices = [];
+                    const lastDate = new Date(cachedCandlestickData[cachedCandlestickData.length - 1].timestamp);
+                    const futureTimestamps = [];
+                    
+                    // Calculate interval from the data
+                    const dataInterval = 60 * 1000; // 1 minute in milliseconds
+                    
+                    // Denormalize predictions
+                    for (let i = 0; i < predictionHorizon; i++) {
+                        const predictedNormalized = predictionData[i];
+                        
+                        // Check for valid prediction
+                        if (!isFinite(predictedNormalized)) {
+                            console.log(`Predicted normalized value at index ${i} is NaN or Infinity, skipping`);
+                            continue;
+                        }
+                        
+                        // Denormalize the prediction
+                        const priceRange = normalizedParams.maxPrice - normalizedParams.minPrice;
+                        const predictedPrice = (predictedNormalized * priceRange) + normalizedParams.minPrice;
+                        
+                        // Calculate future timestamp
+                        const futureTimestamp = new Date(lastDate.getTime() + (i + 1) * dataInterval);
+                        
+                        futurePrices.push(predictedPrice);
+                        futureTimestamps.push(futureTimestamp);
+                    }
+                    
+                    // Update UI with first prediction
+                    if (futurePrices.length > 0) {
+                        const nextPrice = futurePrices[0];
+                        const lastPrice = cachedCandlestickData[cachedCandlestickData.length - 1].close;
+                        const priceChange = nextPrice - lastPrice;
+                        const percentChange = (priceChange / lastPrice) * 100;
+                        
+                        // Determine direction and confidence
+                        const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
+                        const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
+                        
+                        // Update UI
+                        document.getElementById('nextPricePrediction').textContent = nextPrice.toFixed(4);
+                        document.getElementById('priceDirection').textContent = direction;
+                        document.getElementById('priceDirection').className = 
+                            'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
+                        document.getElementById('predictionConfidence').textContent = confidence;
+                    }
+                    
+                    // Add predictions to chart
+                    const chartDiv = document.getElementById('chart');
+                    
+                    // Create prediction trace
+                    const predictionTrace = {
+                        x: futureTimestamps,
+                        y: futurePrices,
+                        mode: 'lines',
+                        name: 'Price Prediction',
+                        line: {
+                            shape: 'spline',
+                            color: 'rgba(255, 255, 0, 0.9)',
+                            width: 2,
+                            dash: 'dash'
+                        },
+                        yaxis: 'y',
+                        type: 'scatter'
+                    };
+                    
+                    // First, try to find and remove any existing prediction trace
+                    let predictionTraceExists = false;
+                    if (chartDiv && chartDiv.data) {
+                        for (let i = 0; i < chartDiv.data.length; i++) {
+                            if (chartDiv.data[i].name === 'Price Prediction') {
+                                Plotly.deleteTraces('chart', i);
+                                predictionTraceExists = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Add the prediction trace
+                    Plotly.addTraces('chart', predictionTrace);
+                    
+                    // Dispose tensors
+                    prediction.dispose();
+                    
+                } catch (error) {
+                    console.error('Error making CNN-LSTM prediction:', error);
+                    document.getElementById('nextPricePrediction').textContent = 'Prediction failed';
+                }
+            }
+
+            // Add UI controls for model selection
+            function addModelSelectionControls() {
+                const modelControlsDiv = document.querySelector('.model-controls');
+                
+                // Add model type selection
+                const modelTypeLabel = document.createElement('label');
+                modelTypeLabel.setAttribute('for', 'modelType');
+                modelTypeLabel.textContent = 'Model Type:';
+                
+                const modelTypeSelect = document.createElement('select');
+                modelTypeSelect.id = 'modelType';
+                
+                const options = [
+                    { value: 'gru', text: 'GRU (Basic)' },
+                    { value: 'cnnlstm', text: 'CNN-LSTM (Advanced)' }
+                ];
+                
+                options.forEach(option => {
+                    const optElement = document.createElement('option');
+                    optElement.value = option.value;
+                    optElement.textContent = option.text;
+                    modelTypeSelect.appendChild(optElement);
+                });
+                
+                // Default to CNN-LSTM
+                modelTypeSelect.value = 'cnnlstm';
+                
+                // Insert before the train button
+                const trainBtn = document.getElementById('trainModelBtn');
+                modelControlsDiv.insertBefore(modelTypeLabel, trainBtn);
+                modelControlsDiv.insertBefore(modelTypeSelect, trainBtn);
+                
+                // Update train button click handler
+                document.getElementById('trainModelBtn').removeEventListener('click', trainModel);
+                document.getElementById('trainModelBtn').addEventListener('click', function() {
+                    if (cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
+                        const modelType = document.getElementById('modelType').value;
+                        if (modelType === 'cnnlstm') {
+                            trainCNNLSTMModel();
+                        } else {
+                            trainModel(); // Original model training function
+                        }
+                    } else {
+                        alert('No data available for training. Please load data first.');
+                    }
+                });
+            }
+
+            // Call this function after document is loaded
+            document.addEventListener('DOMContentLoaded', function() {
+                // Existing code...
+                
+                // Add model selection controls
+                setTimeout(addModelSelectionControls, 1000); // Give time for the original controls to be created
+            });
         });
     </script>
 </body>
-</html><!DOCTYPE html>
+</html>
