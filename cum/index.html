@@ -923,22 +923,30 @@
                 // Input shape: [lookback periods, features (heatmap buckets + OBM values)]
                 const numFeatures = getNumFeatures();
                 
-                // Add an LSTM layer
+                // Add LSTM layer with L2 regularization to improve stability
                 model.add(tf.layers.lstm({
                     units: 32,
                     returnSequences: false,
-                    inputShape: [lookbackPeriods, numFeatures]
+                    inputShape: [lookbackPeriods, numFeatures],
+                    kernelRegularizer: tf.regularizers.l2(0.001)
                 }));
                 
-                // Add a dropout layer to prevent overfitting
-                model.add(tf.layers.dropout({ rate: 0.2 }));
+                // Add a dropout layer with higher rate to prevent overfitting
+                model.add(tf.layers.dropout({ rate: 0.3 }));
+                
+                // Add batch normalization for better training stability
+                model.add(tf.layers.batchNormalization());
                 
                 // Add a dense layer for the output (price prediction)
-                model.add(tf.layers.dense({ units: 1 }));
+                model.add(tf.layers.dense({ 
+                    units: 1,
+                    activation: 'linear',
+                    kernelRegularizer: tf.regularizers.l2(0.001)
+                }));
                 
-                // Compile the model
+                // Compile the model with a lower learning rate for stability
                 model.compile({
-                    optimizer: tf.train.adam(0.001),
+                    optimizer: tf.train.adam(0.0005),
                     loss: 'meanSquaredError',
                     metrics: ['mse']
                 });
@@ -1129,9 +1137,27 @@
                 createModel();
                 
                 try {
-                    // Train the model
+                    // Check for NaN or Infinity in the training data
+                    const hasInvalidInputs = data.xs.arraySync().some(sequence => 
+                        sequence.some(features => features.some(value => isNaN(value) || !isFinite(value)))
+                    );
+                    
+                    const hasInvalidOutputs = data.ys.arraySync().some(value => 
+                        isNaN(value) || !isFinite(value)
+                    );
+                    
+                    if (hasInvalidInputs || hasInvalidOutputs) {
+                        console.error('Invalid values in training data');
+                        document.getElementById('nextPricePrediction').textContent = 'Invalid training data';
+                        return;
+                    }
+                    
+                    // Train the model with early stopping to prevent overfitting
                     const batchSize = Math.min(32, Math.floor(data.xs.shape[0] / 4));
                     const epochs = 50;
+                    
+                    let bestLoss = Infinity;
+                    let stableEpochs = 0;
                     
                     // Train the model
                     const history = await model.fit(data.xs, data.ys, {
@@ -1142,8 +1168,24 @@
                         callbacks: {
                             onEpochEnd: (epoch, logs) => {
                                 console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
+                                
+                                // Check for improvement
+                                if (logs.loss < bestLoss) {
+                                    bestLoss = logs.loss;
+                                    stableEpochs = 0;
+                                } else {
+                                    stableEpochs++;
+                                }
+                                
+                                // Early stopping if no improvement for several epochs
+                                if (stableEpochs > 10) {
+                                    console.log('Early stopping due to stable loss');
+                                    model.stopTraining = true;
+                                }
+                                
+                                const accuracy = (1 - Math.sqrt(logs.loss));
                                 document.getElementById('modelAccuracy').textContent = 
-                                    `${(1 - Math.sqrt(logs.loss)).toFixed(4) * 100}%`;
+                                    `${(accuracy * 100).toFixed(2)}%`;
                             }
                         }
                     });
@@ -1186,11 +1228,33 @@
                     // Get the latest sequence for prediction
                     const latestFeatures = features.slice(features.length - lookbackPeriods);
                     
+                    // Check for NaN or Infinity in features
+                    const hasInvalidValues = latestFeatures.some(timestampFeatures => 
+                        timestampFeatures.some(value => isNaN(value) || !isFinite(value))
+                    );
+                    
+                    if (hasInvalidValues) {
+                        console.error('Invalid feature values detected');
+                        document.getElementById('nextPricePrediction').textContent = 'Invalid data';
+                        return;
+                    }
+                    
                     // Normalize the features using saved parameters
                     const normalizedLatestFeatures = latestFeatures.map(timestampFeatures => {
                         return timestampFeatures.map((value, index) => {
+                            // Check if we have valid normalization parameters
+                            if (!normalizedParams.featureStats || 
+                                !normalizedParams.featureStats[index] || 
+                                normalizedParams.featureStats[index].min === undefined) {
+                                return 0; // Default to 0 if parameters are missing
+                            }
+                            
                             const min = normalizedParams.featureStats[index].min;
                             const max = normalizedParams.featureStats[index].max;
+                            
+                            // Avoid division by zero
+                            if (max === min) return 0.5;
+                            
                             return (value - min) / (max - min || 1);
                         });
                     });
@@ -1202,6 +1266,13 @@
                     // Get the predicted value
                     const predictedNormalized = prediction.dataSync()[0];
                     
+                    // Check for invalid prediction
+                    if (isNaN(predictedNormalized) || !isFinite(predictedNormalized)) {
+                        console.error('Invalid prediction value:', predictedNormalized);
+                        document.getElementById('nextPricePrediction').textContent = 'Invalid prediction';
+                        return;
+                    }
+                    
                     // Denormalize to get the actual price
                     const predictedPrice = predictedNormalized * 
                         (normalizedParams.maxPrice - normalizedParams.minPrice) + 
@@ -1212,16 +1283,25 @@
                     const priceChange = predictedPrice - lastPrice;
                     const percentChange = (priceChange / lastPrice) * 100;
                     
-                    // Determine direction and confidence
-                    const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
-                    const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
-                    
-                    // Update UI
-                    document.getElementById('nextPricePrediction').textContent = predictedPrice.toFixed(4);
-                    document.getElementById('priceDirection').textContent = direction;
-                    document.getElementById('priceDirection').className = 
-                        'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
-                    document.getElementById('predictionConfidence').textContent = confidence;
+                    // Check for invalid calculations
+                    if (isNaN(percentChange) || !isFinite(percentChange)) {
+                        document.getElementById('nextPricePrediction').textContent = predictedPrice.toFixed(4);
+                        document.getElementById('priceDirection').textContent = priceChange > 0 ? '▲ UP' : '▼ DOWN';
+                        document.getElementById('priceDirection').className = 
+                            'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
+                        document.getElementById('predictionConfidence').textContent = 'N/A';
+                    } else {
+                        // Determine direction and confidence
+                        const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
+                        const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
+                        
+                        // Update UI
+                        document.getElementById('nextPricePrediction').textContent = predictedPrice.toFixed(4);
+                        document.getElementById('priceDirection').textContent = direction;
+                        document.getElementById('priceDirection').className = 
+                            'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
+                        document.getElementById('predictionConfidence').textContent = confidence;
+                    }
                     
                     // Display the prediction container
                     document.getElementById('predictionContainer').style.display = 'block';
