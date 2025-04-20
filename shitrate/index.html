@@ -901,15 +901,22 @@
             });
             
             // Add event listener for train model button
+            // *** Modified Listener ***
             document.getElementById('trainModelBtn').addEventListener('click', function() {
                 if (cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
-                    trainModel();
+                    // Check selected model type
+                    const modelType = document.getElementById('modelType').value;
+                    if (modelType === 'cnnlstm') {
+                        trainCNNLSTMModel(); // Call the CNN-LSTM training function
+                    } else {
+                        trainModel(); // Call the original GRU training function
+                    }
                 } else {
                     alert('No data available for training. Please load data first.');
                 }
             });
             
-            // Function to create the TensorFlow model
+            // Function to create the TensorFlow model (Original GRU)
             function createModel() {
                 // Dispose previous model if exists
                 if (model !== null) {
@@ -2814,58 +2821,56 @@
             // Add UI controls for model selection
             function addModelSelectionControls() {
                 const modelControlsDiv = document.querySelector('.model-controls');
-                
-                // Add model type selection
+                const trainBtn = document.getElementById('trainModelBtn');
+
+                // Ensure the container and button exist before proceeding
+                if (!modelControlsDiv || !trainBtn) {
+                    console.error("Model controls container or train button not found. Cannot add model selection.");
+                    return;
+                }
+
+                // Add model type selection label
                 const modelTypeLabel = document.createElement('label');
                 modelTypeLabel.setAttribute('for', 'modelType');
                 modelTypeLabel.textContent = 'Model Type:';
-                
+
+                // Add model type select dropdown
                 const modelTypeSelect = document.createElement('select');
                 modelTypeSelect.id = 'modelType';
-                
+
                 const options = [
                     { value: 'gru', text: 'GRU (Basic)' },
                     { value: 'cnnlstm', text: 'CNN-LSTM (Advanced)' }
                 ];
-                
+
                 options.forEach(option => {
                     const optElement = document.createElement('option');
                     optElement.value = option.value;
                     optElement.textContent = option.text;
                     modelTypeSelect.appendChild(optElement);
                 });
-                
+
                 // Default to CNN-LSTM
                 modelTypeSelect.value = 'cnnlstm';
-                
-                // Insert before the train button
-                const trainBtn = document.getElementById('trainModelBtn');
+
+                // Insert the label and select before the train button
                 modelControlsDiv.insertBefore(modelTypeLabel, trainBtn);
                 modelControlsDiv.insertBefore(modelTypeSelect, trainBtn);
-                
-                // Update train button click handler
-                document.getElementById('trainModelBtn').removeEventListener('click', trainModel);
-                document.getElementById('trainModelBtn').addEventListener('click', function() {
-                    if (cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
-                        const modelType = document.getElementById('modelType').value;
-                        if (modelType === 'cnnlstm') {
-                            trainCNNLSTMModel();
-                        } else {
-                            trainModel(); // Original model training function
-                        }
-                    } else {
-                        alert('No data available for training. Please load data first.');
-                    }
-                });
+
+                // NOTE: The event listener modification is now done directly where the original listener was attached.
             }
 
-            // Call this function after document is loaded
-            document.addEventListener('DOMContentLoaded', function() {
-                // Existing code...
-                
-                // Add model selection controls
-                setTimeout(addModelSelectionControls, 1000); // Give time for the original controls to be created
-            });
+            // Call this function after the necessary DOM elements are parsed
+            // but potentially before all data/scripts are fully loaded if needed.
+            // Placing it here ensures .model-controls and #trainModelBtn exist.
+            addModelSelectionControls();
+
+            // Initial state of prediction container
+            document.getElementById('predictionContainer').style.display =
+                document.getElementById('enablePrediction').checked ? 'block' : 'none';
+
+            // ... (rest of the loadData function and other functions) ...
+
         });
     </script>
 </body>
