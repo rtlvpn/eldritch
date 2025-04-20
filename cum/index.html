@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Milk Price and Orderbook Heatmap</title>
     <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-gpu@latest"></script>
+    <!-- Add this in the <head> section, after the Plotly script -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.20.0/dist/tf.min.js"></script>
+    <!-- Optional: Add this for better WebGL performance -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3.20.0/dist/tf-backend-webgl.min.js"></script>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -260,6 +263,35 @@
             filter: invert(1) hue-rotate(130deg) brightness(1.5);
             cursor: pointer;
         }
+
+        /* Add to your existing CSS */
+        #trainingStatus {
+            display: inline-block;
+            padding: 0 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            border-left: 2px solid #00ff9d;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+
+        #trainModelBtn {
+            background-color: #1a1a2e;
+            margin-left: 10px;
+        }
+
+        #trainModelBtn:hover {
+            background-color: #16213e;
+            box-shadow: 0 0 15px rgba(255, 105, 255, 0.5);
+            border-color: rgba(255, 105, 255, 0.8);
+        }
     </style>
 </head>
 <body>
@@ -336,6 +368,13 @@
             <div class="checkbox-container">
                 <input type="checkbox" id="showOBM" checked>
                 <label for="showOBM">Show Order Book Momentum</label>
+            </div>
+            <!-- Add this inside the controls div -->
+            <div class="control-section">
+                <label for="mlEnabled">ML Prediction:</label>
+                <input type="checkbox" id="mlEnabled">
+                <button id="trainModelBtn">Train Model</button>
+                <span id="trainingStatus" style="display: none; margin-left: 10px; color: #00ff9d;">Model not trained</span>
             </div>
         </div>
         
@@ -754,7 +793,7 @@
                 toggleCVPDisplay();
                 // Re-render the chart with the current data to update layouts
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
-                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                    renderChart(cachedCandlestickData, cachedHeatmapData).catch(err => console.error('Error rendering chart:', err));
                 }
             });
             
@@ -857,7 +896,11 @@
                     cachedCandlestickData = candlestickData;
                     cachedHeatmapData = heatmapData;
                     lastFetchTime = endTime;
-                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                    
+                    // Collect training data for the ML model
+                    collectTrainingData(cachedHeatmapData, cachedCandlestickData);
+                    
+                    renderChart(cachedCandlestickData, cachedHeatmapData).catch(err => console.error('Error rendering chart:', err));
                 })
                 .catch(error => {
                     console.error('Error fetching data:', error);
@@ -899,7 +942,7 @@
                 return colorscale;
             }
             
-            function renderChart(candlestickData, heatmapData) {
+            async function renderChart(candlestickData, heatmapData) {
                 if (!candlestickData.length || !heatmapData.timestamps.length) {
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
                     return;
@@ -1602,6 +1645,37 @@
                         annotations: annotations
                     });
                 }
+                
+                // Check if ML predictions are enabled
+                const mlEnabled = document.getElementById('mlEnabled').checked;
+                if (mlEnabled && modelTrained && candlestickData.length > 0) {
+                    try {
+                        // Extract features from current data
+                        const features = extractFeatures(heatmapData, candlestickData);
+                        
+                        if (features) {
+                            // Make prediction
+                            const prediction = await predictPrice(features);
+                            
+                            if (prediction !== null) {
+                                // Create prediction trace
+                                const lastPrice = candlestickData[candlestickData.length - 1].close;
+                                const mlPredictionTrace = visualizeMLPrediction(
+                                    prediction, 
+                                    times, 
+                                    lastPrice
+                                );
+                                
+                                if (mlPredictionTrace) {
+                                    // Add ML prediction to chart
+                                    Plotly.addTraces('chart', mlPredictionTrace);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error adding ML predictions to chart:', error);
+                    }
+                }
             }
             
             // Also add event listener for the OBM checkbox
@@ -1609,7 +1683,7 @@
                 document.getElementById('obmChart').style.display = this.checked ? 'block' : 'none';
                 // Re-render the chart with the current data to update layouts
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
-                    renderChart(cachedCandlestickData, cachedHeatmapData);
+                    renderChart(cachedCandlestickData, cachedHeatmapData).catch(err => console.error('Error rendering chart:', err));
                 }
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
@@ -1944,596 +2018,369 @@
                 return closestIndex;
             }
 
-            // Neural-enhanced price prediction system
-            let predictionModel;
-            let isModelReady = false;
-            let historicalFeatures = [];
-            
-            // Initialize the neural network model
-            async function initNeuralModel() {
-                try {
-                    console.log("Initializing TensorFlow.js with GPU acceleration...");
-                    
-                    // Check for GPU support
-                    const backend = await tf.backend();
-                    console.log(`TensorFlow backend: ${backend}`);
-                    
-                    // Create the model architecture
-                    predictionModel = createHybridOpticalFlowModel();
-                    isModelReady = true;
-                    
-                    console.log("Neural-enhanced optical model initialized successfully");
-                    // Start training on initial data if available
-                    if (cachedHeatmapData.timestamps.length > 0 && cachedCandlestickData.length > 0) {
-                        trainModel(cachedHeatmapData, cachedCandlestickData);
-                    }
-                    
-                } catch (err) {
-                    console.error("Failed to initialize neural model:", err);
-                    alert("GPU acceleration not available. Falling back to standard prediction.");
-                }
+            // Neural Network functionality for price prediction
+            let priceModel;
+            let modelTrained = false;
+            let trainingInProgress = false;
+            let featuresCache = [];
+            let labelsCache = [];
+
+            // Initialize TensorFlow and set preferred backend
+            async function initTensorFlow() {
+                // Use WebGL for hardware acceleration if available
+                await tf.setBackend('webgl');
+                console.log('TensorFlow.js initialized with backend:', tf.getBackend());
+                
+                // Set memory management for better performance
+                tf.env().set('WEBGL_DELETE_TEXTURE_THRESHOLD', 0);
+                tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
             }
-            
-            // Create the neural model architecture
-            function createHybridOpticalFlowModel() {
-                // Define a multi-input model that combines:
-                // 1. Order book density features
-                // 2. Price time series data
-                // 3. Physics-derived features (refraction, resistance)
+
+            // Create a model architecture tailored for orderbook data
+            function createModel() {
+                const model = tf.sequential();
                 
-                // Input for order book density matrix (time x price levels)
-                const orderBookInput = tf.input({shape: [null, 100, 1], name: 'orderbook_density'});
-                
-                // Input for price series
-                const priceInput = tf.input({shape: [null, 5], name: 'price_features'});
-                
-                // Input for physics-derived features
-                const physicsInput = tf.input({shape: [null, 8], name: 'physics_features'});
-                
-                // Process order book data with 3D convolutions (time x price x features)
-                const orderBookFeatures = tf.layers.conv2d({
-                    filters: 32,
-                    kernelSize: [3, 5],
-                    strides: [1, 1],
-                    padding: 'same',
-                    activation: 'relu',
-                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
-                }).apply(tf.layers.reshape({targetShape: [20, 100, 1]}).apply(orderBookInput));
-                
-                // Add pooling to reduce dimensions
-                const pooledFeatures = tf.layers.maxPooling2d({
-                    poolSize: [2, 2],
-                    strides: [2, 2]
-                }).apply(orderBookFeatures);
-                
-                // Further process with another convolution
-                const conv2 = tf.layers.conv2d({
-                    filters: 64,
-                    kernelSize: [2, 3],
-                    activation: 'relu'
-                }).apply(pooledFeatures);
-                
-                // Flatten for dense layers
-                const flattened = tf.layers.flatten().apply(conv2);
-                
-                // Process price data with LSTM (good for time series)
-                const priceLSTM = tf.layers.lstm({
-                    units: 64,
-                    returnSequences: false,
-                    dropout: 0.2,
-                    recurrentDropout: 0.2
-                }).apply(priceInput);
-                
-                // Process physics features with dense layers
-                const physicsDense = tf.layers.dense({
+                // Input layer - adapt to your feature size
+                model.add(tf.layers.dense({
+                    inputShape: [20], // Will be derived from feature extraction
                     units: 32,
                     activation: 'relu',
-                    kernelRegularizer: tf.regularizers.l1l2({l1: 1e-5, l2: 1e-4})
-                }).apply(physicsInput);
+                    kernelRegularizer: tf.regularizers.l2({l2: 0.001})
+                }));
                 
-                // Combine all feature streams
-                const combined = tf.layers.concatenate().apply([
-                    flattened, 
-                    priceLSTM, 
-                    physicsDense
-                ]);
-                
-                // Add attention mechanism for focusing on relevant parts of the order book
-                const attention = tf.layers.dense({
-                    units: 128,
-                    activation: 'tanh',
-                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
-                }).apply(combined);
-                
-                const attentionWeights = tf.layers.dense({
-                    units: 128,
-                    activation: 'softmax'
-                }).apply(attention);
-                
-                const attentionOutput = tf.layers.multiply().apply([attention, attentionWeights]);
-                
-                // Final dense layers
-                const dense1 = tf.layers.dense({
-                    units: 64, 
+                // Hidden layer
+                model.add(tf.layers.dropout({rate: 0.2}));
+                model.add(tf.layers.dense({
+                    units: 16, 
                     activation: 'relu',
-                    kernelRegularizer: tf.regularizers.l2({l2: 1e-4})
-                }).apply(attentionOutput);
+                    kernelRegularizer: tf.regularizers.l2({l2: 0.001})
+                }));
                 
-                const dropout = tf.layers.dropout({rate: 0.3}).apply(dense1);
+                // Output layer - predicts price
+                model.add(tf.layers.dense({units: 1}));
                 
-                // Multiple outputs for different prediction tasks
-                const priceOutput = tf.layers.dense({
-                    units: 1, 
-                    name: 'price_prediction'
-                }).apply(dropout);
-                
-                const resistanceOutput = tf.layers.dense({
-                    units: 100,
-                    name: 'resistance_map'
-                }).apply(dropout);
-                
-                const momentumOutput = tf.layers.dense({
-                    units: 2,
-                    name: 'momentum_vector'
-                }).apply(dropout);
-                
-                const confidenceOutput = tf.layers.dense({
-                    units: 1,
-                    activation: 'sigmoid',
-                    name: 'prediction_confidence'
-                }).apply(dropout);
-                
-                // Create the model with multiple inputs and outputs
-                const model = tf.model({
-                    inputs: [orderBookInput, priceInput, physicsInput],
-                    outputs: [priceOutput, resistanceOutput, momentumOutput, confidenceOutput]
-                });
-                
-                // Compile with appropriate loss functions for each output
+                // Compile the model with Adam optimizer
                 model.compile({
-                    optimizer: tf.train.adam({learningRate: 0.0001}),
-                    loss: {
-                        price_prediction: 'meanSquaredError',
-                        resistance_map: 'meanSquaredError',
-                        momentum_vector: 'meanSquaredError',
-                        prediction_confidence: 'binaryCrossentropy'
-                    },
-                    metrics: {
-                        price_prediction: ['mae', 'mse'],
-                        prediction_confidence: ['accuracy']
-                    }
+                    optimizer: tf.train.adam(0.001),
+                    loss: 'meanSquaredError',
+                    metrics: ['mse']
                 });
                 
                 return model;
             }
-            
-            // Function to prepare features for the neural model
-            function prepareFeatures(heatmapData, candlestickData) {
-                const features = {
-                    orderBookDensity: [],
-                    priceFeatures: [],
-                    physicsFeatures: []
-                };
-                
-                // Skip if not enough data
+
+            // Extract features from heatmap data
+            function extractFeatures(heatmapData, candlestickData) {
+                // Make sure we have data to work with
                 if (!heatmapData.heatmap.length || !candlestickData.length) {
-                    return features;
+                    return null;
                 }
                 
-                // Calculate refractive indices using existing function
-                const refractiveIndices = calculateRefractiveIndices(heatmapData);
+                // Get the current timestamp
+                const currentTimestamp = heatmapData.timestamps[heatmapData.timestamps.length - 1];
                 
-                // Align timestamps between heatmap and candlestick data
-                const alignedPrices = [];
-                let candleIndex = 0;
+                // Get features from OBM 
+                const obmData = calculateOBM(heatmapData);
+                const lastObmIndex = obmData.obmValues.length - 1;
                 
-                for (let i = 0; i < heatmapData.timestamps.length; i++) {
-                    const heatmapTime = heatmapData.timestamps[i];
+                // Find the corresponding price in candlestick data
+                const currentPrice = candlestickData[candlestickData.length - 1].close;
+                
+                // Extract features
+                const features = [];
+                
+                // 1. OBM features (last 5 values)
+                const obmWindow = 5;
+                for (let i = 0; i < obmWindow; i++) {
+                    const idx = lastObmIndex - obmWindow + i + 1;
+                    features.push(idx >= 0 ? obmData.obmValues[idx] : 0);
+                }
+                
+                // 2. OBM trend strength
+                for (let i = 0; i < 3; i++) {
+                    const idx = lastObmIndex - 2 + i;
+                    features.push(idx >= 0 ? obmData.trendStrength[idx] : 0);
+                }
+                
+                // 3. Volume imbalance features from heatmap
+                const lastHeatmapIndex = heatmapData.heatmap.length - 1;
+                if (lastHeatmapIndex >= 0) {
+                    const volumes = heatmapData.heatmap[lastHeatmapIndex].volumes;
+                    const middleIndex = Math.floor(volumes.length / 2);
                     
-                    // Find matching candlestick or closest one
-                    let price = null;
-                    let matchedCandle = null;
+                    // Buy vs sell pressure
+                    let buyPressure = 0, sellPressure = 0;
                     
-                    while (candleIndex < candlestickData.length) {
-                        const candleTime = candlestickData[candleIndex].timestamp / 1000;
+                    // Get weighted volume in 4 regions (near/far buy/sell)
+                    for (let j = 0; j < volumes.length; j++) {
+                        const volume = Math.abs(volumes[j]);
+                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
                         
-                        if (Math.abs(candleTime - heatmapTime) < 60) { // Within a minute
-                            price = candlestickData[candleIndex].close;
-                            matchedCandle = candlestickData[candleIndex];
-                            break;
-                        } else if (candleTime > heatmapTime) {
-                            break;
-                        }
-                        
-                        candleIndex++;
-                    }
-                    
-                    // If no exact match found, interpolate
-                    if (price === null && candleIndex > 0 && candleIndex < candlestickData.length) {
-                        const prevCandle = candlestickData[candleIndex - 1];
-                        const nextCandle = candlestickData[candleIndex];
-                        
-                        const prevTime = prevCandle.timestamp / 1000;
-                        const nextTime = nextCandle.timestamp / 1000;
-                        
-                        const timeRatio = (heatmapTime - prevTime) / (nextTime - prevTime);
-                        price = prevCandle.close + timeRatio * (nextCandle.close - prevCandle.close);
-                        
-                        // Create an interpolated candle
-                        matchedCandle = {
-                            timestamp: heatmapTime * 1000,
-                            open: price,
-                            high: price,
-                            low: price,
-                            close: price,
-                            volume: (prevCandle.volume + nextCandle.volume) / 2
-                        };
-                    }
-                    
-                    // Skip this timestamp if we can't find or interpolate a price
-                    if (price === null) continue;
-                    
-                    // Prepare order book density feature
-                    features.orderBookDensity.push(
-                        heatmapData.heatmap[i].volumes.map(v => Math.abs(v))
-                    );
-                    
-                    // Prepare price features
-                    // [price, price_change, range, volume, avg_price]
-                    const priceChange = i > 0 ? price - alignedPrices[alignedPrices.length - 1] : 0;
-                    const priceFeature = [
-                        price,
-                        priceChange,
-                        matchedCandle.high - matchedCandle.low,
-                        matchedCandle.volume,
-                        (matchedCandle.high + matchedCandle.low) / 2
-                    ];
-                    features.priceFeatures.push(priceFeature);
-                    alignedPrices.push(price);
-                    
-                    // Prepare physics-based features
-                    // Find closest price level
-                    const priceIndex = findClosestPriceIndex(heatmapData.priceLevels, price);
-                    
-                    // Calculate aggregate density above and below current price
-                    let densityBelow = 0;
-                    let densityAbove = 0;
-                    
-                    for (let j = 0; j < heatmapData.priceLevels.length; j++) {
-                        const volume = Math.abs(heatmapData.heatmap[i].volumes[j]);
-                        if (j < priceIndex) {
-                            densityBelow += volume;
-                        } else if (j > priceIndex) {
-                            densityAbove += volume;
+                        if (j < middleIndex) {
+                            if (distanceFactor < 0.5) { // Near buy
+                                buyPressure += volume * (1 - distanceFactor);
+                            } else { // Far buy
+                                buyPressure += volume * distanceFactor;
+                            }
+                        } else {
+                            if (distanceFactor < 0.5) { // Near sell
+                                sellPressure += volume * (1 - distanceFactor);
+                            } else { // Far sell
+                                sellPressure += volume * distanceFactor;
+                            }
                         }
                     }
                     
-                    // Calculate density imbalance
-                    const totalDensity = densityBelow + densityAbove;
-                    const densityImbalance = totalDensity > 0 ? 
-                        (densityBelow - densityAbove) / totalDensity : 0;
+                    // Add pressure features
+                    features.push(buyPressure);
+                    features.push(sellPressure);
                     
-                    // Get the refractive index at current price
-                    const refractiveIndex = refractiveIndices[i][priceIndex];
+                    // Add buy/sell ratio
+                    const totalPressure = buyPressure + sellPressure;
+                    features.push(totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0);
+                } else {
+                    // Fill with zeros if no data
+                    features.push(0, 0, 0);
+                }
+                
+                // 4. Recent price changes
+                for (let i = 1; i <= 5; i++) {
+                    const idx = candlestickData.length - i;
+                    const prevIdx = idx - 1;
                     
-                    // Calculate the gradient of refractive index
-                    let gradientUp = 0, gradientDown = 0;
-                    
-                    if (priceIndex > 0) {
-                        gradientDown = refractiveIndices[i][priceIndex] - refractiveIndices[i][priceIndex-1];
+                    if (idx >= 0 && prevIdx >= 0) {
+                        const priceDelta = (candlestickData[idx].close - candlestickData[prevIdx].close) / 
+                                           candlestickData[prevIdx].close;
+                        features.push(priceDelta);
+                    } else {
+                        features.push(0);
                     }
+                }
+                
+                // 5. Include price volatility
+                const priceHistory = candlestickData.slice(-10).map(c => c.close);
+                features.push(calculateVolatility(priceHistory));
+                
+                // 6. Add refraction gradient from physics model
+                const optimalPath = findOptimalPricePath(
+                    heatmapData, 
+                    calculateRefractiveIndices(heatmapData), 
+                    candlestickData
+                );
+                
+                if (optimalPath.resistanceMap.length > 0) {
+                    const lastResistanceMap = optimalPath.resistanceMap[optimalPath.resistanceMap.length - 1];
+                    const currentPriceIndex = findClosestPriceIndex(heatmapData.priceLevels, currentPrice);
                     
-                    if (priceIndex < heatmapData.priceLevels.length - 1) {
-                        gradientUp = refractiveIndices[i][priceIndex+1] - refractiveIndices[i][priceIndex];
+                    if (currentPriceIndex >= 0 && currentPriceIndex < lastResistanceMap.length) {
+                        features.push(lastResistanceMap[currentPriceIndex].gradientUp || 0);
+                        features.push(lastResistanceMap[currentPriceIndex].gradientDown || 0);
+                        features.push(lastResistanceMap[currentPriceIndex].resistance || 1);
+                    } else {
+                        features.push(0, 0, 1);
                     }
-                    
-                    // Calculate volatility over last few points
-                    const lookback = Math.min(10, alignedPrices.length);
-                    const recentPrices = alignedPrices.slice(-lookback);
-                    const volatility = calculateVolatility(recentPrices);
-                    
-                    // Physics features:
-                    // [refractive_index, gradient_up, gradient_down, density_imbalance,
-                    //  density_below, density_above, local_volatility, price_momentum]
-                    const physicsFeature = [
-                        refractiveIndex,
-                        gradientUp,
-                        gradientDown,
-                        densityImbalance,
-                        densityBelow,
-                        densityAbove,
-                        volatility,
-                        i > 0 ? priceChange / (alignedPrices[alignedPrices.length - 2] || 1) : 0
-                    ];
-                    
-                    features.physicsFeatures.push(physicsFeature);
+                } else {
+                    features.push(0, 0, 1);
                 }
                 
                 return features;
             }
-            
-            // Train the model with new data
-            async function trainModel(heatmapData, candlestickData) {
-                if (!isModelReady) {
-                    console.log("Model not ready for training");
-                    return;
-                }
-                
-                console.log("Preparing training features...");
-                const features = prepareFeatures(heatmapData, candlestickData);
-                
-                // Skip if not enough data
-                if (!features.orderBookDensity.length) {
-                    console.log("Not enough data for training");
-                    return;
-                }
-                
-                // Prepare training data
-                const orderBookTensor = tf.tensor3d(
-                    features.orderBookDensity,
-                    [features.orderBookDensity.length, features.orderBookDensity[0].length, 1]
-                );
-                
-                const priceTensor = tf.tensor2d(features.priceFeatures);
-                const physicsTensor = tf.tensor2d(features.physicsFeatures);
-                
-                // Prepare target data (we're using future prices as targets)
-                // For simplicity, one-step-ahead prediction
-                const futureIndices = features.priceFeatures.map((_, i) => 
-                    Math.min(i + 1, features.priceFeatures.length - 1));
-                
-                const priceTargets = futureIndices.map(i => [features.priceFeatures[i][0]]);
-                
-                // Resistance targets - for now we're just using the refraction indices
-                const resistanceTargets = features.physicsFeatures.map((_, i) => {
-                    const futureIndex = futureIndices[i];
-                    const refIndex = futureIndex < refractiveIndices.length ? 
-                        refractiveIndices[futureIndex] : refractiveIndices[refractiveIndices.length - 1];
-                    
-                    // Flatten to a fixed size
-                    return Array(100).fill(0).map((_, j) => {
-                        const refJ = Math.min(j, refIndex.length - 1);
-                        return refIndex[refJ] || 1;
-                    });
-                });
-                
-                // Momentum targets - direction and magnitude of future price movement
-                const momentumTargets = features.priceFeatures.map((_, i) => {
-                    const futureIndex = Math.min(i + 5, features.priceFeatures.length - 1);
-                    const currentPrice = features.priceFeatures[i][0];
-                    const futurePrice = features.priceFeatures[futureIndex][0];
-                    
-                    const priceDelta = futurePrice - currentPrice;
-                    const magnitude = Math.abs(priceDelta);
-                    const direction = priceDelta > 0 ? 1 : -1;
-                    
-                    return [direction, magnitude];
-                });
-                
-                // Confidence targets - binary labels indicating accuracy
-                // For now, we're using a simple heuristic
-                const confidenceTargets = features.priceFeatures.map((_, i) => {
-                    // If current prediction is within 0.5% of actual future, high confidence
-                    const futureIndex = Math.min(i + 1, features.priceFeatures.length - 1);
-                    const nextPrice = features.priceFeatures[futureIndex][0];
-                    const currentPrice = features.priceFeatures[i][0];
-                    
-                    // Mark targets as accurate if they're within volatility threshold
-                    const threshold = currentPrice * volatility * 2;
-                    const isAccurate = Math.abs(nextPrice - currentPrice) < threshold;
-                    
-                    return [isAccurate ? 1 : 0];
-                });
-                
-                const priceTargetTensor = tf.tensor2d(priceTargets);
-                const resistanceTargetTensor = tf.tensor2d(resistanceTargets);
-                const momentumTargetTensor = tf.tensor2d(momentumTargets);
-                const confidenceTargetTensor = tf.tensor2d(confidenceTargets);
-                
-                console.log("Starting model training...");
+
+            // Train model with historical data
+            async function trainModel(historicalData, epochs = 50, batchSize = 32) {
+                if (trainingInProgress) return;
+                trainingInProgress = true;
                 
                 try {
-                    // Train the model (online learning - small number of epochs per update)
-                    await predictionModel.fit(
-                        [orderBookTensor, priceTensor, physicsTensor],
-                        {
-                            price_prediction: priceTargetTensor,
-                            resistance_map: resistanceTargetTensor,
-                            momentum_vector: momentumTargetTensor,
-                            prediction_confidence: confidenceTargetTensor
-                        },
-                        {
-                            epochs: 5,
-                            batchSize: 16,
-                            shuffle: true,
-                            validationSplit: 0.2,
-                            callbacks: {
-                                onEpochEnd: (epoch, logs) => {
-                                    console.log(`Epoch ${epoch + 1}: price MSE = ${logs.price_prediction_mse.toFixed(6)}`);
-                                }
-                            }
-                        }
-                    );
+                    // Show training indicator
+                    document.getElementById('trainingStatus').style.display = 'block';
+                    document.getElementById('trainingStatus').textContent = 'Training in progress...';
                     
-                    console.log("Model training complete");
-                    
-                    // Store features for future prediction
-                    historicalFeatures = features;
-                    
-                } catch (err) {
-                    console.error("Error training model:", err);
-                } finally {
-                    // Clean up tensors
-                    tf.dispose([
-                        orderBookTensor, priceTensor, physicsTensor,
-                        priceTargetTensor, resistanceTargetTensor,
-                        momentumTargetTensor, confidenceTargetTensor
-                    ]);
-                }
-            }
-            
-            // Function to make predictions with the neural model
-            async function predictWithNeuralModel(heatmapData, candlestickData) {
-                if (!isModelReady || !historicalFeatures.orderBookDensity.length) {
-                    console.log("Model not ready for prediction or no historical data");
-                    // Fall back to the physics-based prediction
-                    return calculatePricePrediction(heatmapData, candlestickData);
-                }
-                
-                // Prepare latest features for prediction
-                const features = prepareFeatures(heatmapData, candlestickData);
-                
-                // Create tensors
-                const orderBookTensor = tf.tensor3d(
-                    features.orderBookDensity,
-                    [features.orderBookDensity.length, features.orderBookDensity[0].length, 1]
-                );
-                
-                const priceTensor = tf.tensor2d(features.priceFeatures);
-                const physicsTensor = tf.tensor2d(features.physicsFeatures);
-                
-                try {
-                    // Make prediction
-                    const [pricesPredicted, resistancePredicted, momentumPredicted, confidencePredicted] = 
-                        await predictionModel.predict([orderBookTensor, priceTensor, physicsTensor]);
-                    
-                    // Convert predictions to JavaScript arrays
-                    const pricesArray = await pricesPredicted.array();
-                    const resistanceArray = await resistancePredicted.array();
-                    const momentumArray = await momentumPredicted.array();
-                    const confidenceArray = await confidencePredicted.array();
-                    
-                    // Format the results to match the structure expected by the visualization code
-                    const result = {
-                        timestamps: heatmapData.timestamps.map(ts => new Date(ts * 1000)),
-                        actualPrice: candlestickData.map(c => c.close),
-                        predictedPath: [],
-                        refractiveIndices: [],
-                        resistanceMap: [],
-                        momentumVectors: [],
-                        confidenceScores: []
-                    };
-                    
-                    // Populate the predictedPath
-                    for (let i = 0; i < pricesArray.length; i++) {
-                        // Get the corresponding timestamp
-                        const timestamp = result.timestamps[i];
-                        
-                        // Get the predicted price
-                        const predictedPrice = pricesArray[i][0];
-                        
-                        // Get the resistance for this point
-                        const resistance = resistanceArray[i].reduce((sum, val) => sum + val, 0) / resistanceArray[i].length;
-                        
-                        result.predictedPath.push({
-                            time: timestamp,
-                            price: predictedPrice,
-                            resistance: resistance
-                        });
-                        
-                        // Add momentum vectors
-                        if (i > 0) {
-                            const [direction, magnitude] = momentumArray[i];
-                            
-                            // Calculate dx and dy components
-                            // dx is time direction (always positive)
-                            const dx = 1;
-                            // dy is price direction (scaled by magnitude)
-                            const dy = direction * magnitude;
-                            
-                            result.momentumVectors.push({
-                                x: timestamp,
-                                y: predictedPrice,
-                                dx: dx,
-                                dy: dy,
-                                magnitude: magnitude,
-                                direction: Math.atan2(dy, dx)
-                            });
-                        } else {
-                            // Default momentum for first point
-                            result.momentumVectors.push({
-                                x: timestamp,
-                                y: predictedPrice,
-                                dx: 0,
-                                dy: 0,
-                                magnitude: 0,
-                                direction: 0
-                            });
-                        }
-                        
-                        // Add confidence scores
-                        result.confidenceScores.push(confidenceArray[i][0]);
+                    // Initialize TensorFlow if not already done
+                    if (!priceModel) {
+                        await initTensorFlow();
+                        priceModel = createModel();
                     }
                     
-                    // Return the prediction result
-                    return result;
+                    // Prepare features and labels
+                    const xs = tf.tensor2d(featuresCache);
+                    const ys = tf.tensor2d(labelsCache, [labelsCache.length, 1]);
                     
-                } catch (err) {
-                    console.error("Error making prediction:", err);
-                    // Fall back to the physics-based prediction
-                    return calculatePricePrediction(heatmapData, candlestickData);
+                    // Train the model
+                    const result = await priceModel.fit(xs, ys, {
+                        epochs: epochs,
+                        batchSize: batchSize,
+                        validationSplit: 0.2,
+                        shuffle: true,
+                        callbacks: {
+                            onEpochEnd: (epoch, logs) => {
+                                console.log(`Epoch ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(5)}`);
+                                document.getElementById('trainingStatus').textContent = 
+                                    `Training: ${epoch + 1}/${epochs} - loss: ${logs.loss.toFixed(5)}`;
+                            }
+                        }
+                    });
+                    
+                    // Model trained successfully
+                    modelTrained = true;
+                    console.log('Model training complete');
+                    document.getElementById('trainingStatus').textContent = 'Model trained successfully!';
+                    
+                    // Cleanup tensors
+                    xs.dispose();
+                    ys.dispose();
+                    
+                    // Hide the status after a delay
+                    setTimeout(() => {
+                        document.getElementById('trainingStatus').style.display = 'none';
+                    }, 3000);
+                    
+                    return result;
+                } catch (error) {
+                    console.error('Error training model:', error);
+                    document.getElementById('trainingStatus').textContent = 'Error training model: ' + error.message;
                 } finally {
-                    // Clean up tensors
-                    tf.dispose([orderBookTensor, priceTensor, physicsTensor]);
+                    trainingInProgress = false;
                 }
             }
-            
-            // Replace the original calculatePricePrediction function
-            const originalCalculatePricePrediction = calculatePricePrediction;
-            
-            calculatePricePrediction = async function(heatmapData, candlestickData) {
-                // If model is ready, use neural prediction
-                if (isModelReady) {
-                    return await predictWithNeuralModel(heatmapData, candlestickData);
-                } else {
-                    // Fall back to physics-based prediction
-                    return originalCalculatePricePrediction(heatmapData, candlestickData);
+
+            // Make price prediction
+            async function predictPrice(features) {
+                if (!priceModel || !modelTrained) return null;
+                
+                try {
+                    // Convert features to tensor
+                    const inputTensor = tf.tensor2d([features]);
+                    
+                    // Make prediction
+                    const prediction = await priceModel.predict(inputTensor);
+                    const predictionValue = prediction.dataSync()[0];
+                    
+                    // Clean up tensors
+                    inputTensor.dispose();
+                    prediction.dispose();
+                    
+                    return predictionValue;
+                } catch (error) {
+                    console.error('Error making prediction:', error);
+                    return null;
                 }
-            };
-            
-            // Modify the renderChart function to handle async predictions
-            const originalRenderChart = renderChart;
-            
-            renderChart = async function(candlestickData, heatmapData) {
-                if (!candlestickData.length || !heatmapData.timestamps.length) {
-                    document.getElementById('chart').innerHTML = 'No data available for the selected time range';
-                    return;
+            }
+
+            // Collect training data when new data arrives
+            function collectTrainingData(heatmapData, candlestickData) {
+                if (!heatmapData || !candlestickData || candlestickData.length < 10) return;
+                
+                // Extract features for the current state
+                const features = extractFeatures(heatmapData, candlestickData);
+                if (!features) return;
+                
+                // The label is the next price change
+                // We'll use this to predict price movement direction
+                const currentIndex = candlestickData.length - 1;
+                if (currentIndex < 1) return;
+                
+                const currentPrice = candlestickData[currentIndex].close;
+                // Store current features with current price as label
+                // Later we can calculate returns or use future price prediction
+                featuresCache.push(features);
+                labelsCache.push(currentPrice);
+                
+                // Limit cache size to prevent memory issues
+                const maxCacheSize = 1000;
+                if (featuresCache.length > maxCacheSize) {
+                    featuresCache.shift();
+                    labelsCache.shift();
+                }
+            }
+
+            // Add the visualize ML prediction function
+            function visualizeMLPrediction(prediction, timestamps, lastPrice) {
+                if (!prediction) return null;
+                
+                // Create future timestamps for prediction (next 5 time periods)
+                const lastTimestamp = timestamps[timestamps.length - 1];
+                const timeIncrement = timestamps.length > 1 ? 
+                    timestamps[timestamps.length - 1] - timestamps[timestamps.length - 2] : 60000; // default 1 minute
+                
+                const futureTimes = [];
+                const futurePrices = [];
+                
+                // Generate prediction path
+                for (let i = 1; i <= 5; i++) {
+                    const futureTime = new Date(lastTimestamp.getTime() + timeIncrement * i);
+                    futureTimes.push(futureTime);
+                    
+                    // Apply the prediction as a percentage change
+                    const predictedPrice = lastPrice * (1 + prediction/100);
+                    futurePrices.push(predictedPrice);
                 }
                 
-                // Calculate Order Book Momentum
-                const obmData = calculateOBM(heatmapData);
-                
-                // Calculate physics-based or neural price prediction
-                let predictionData;
-                
-                if (isModelReady) {
-                    // Neural prediction
-                    predictionData = await calculatePricePrediction(heatmapData, candlestickData);
-                } else {
-                    // Traditional prediction
-                    predictionData = originalCalculatePricePrediction(heatmapData, candlestickData);
-                }
-                
-                // Rest of the function remains the same as the original renderChart...
-                // ... (existing code)
-            };
+                return {
+                    x: futureTimes,
+                    y: futurePrices,
+                    mode: 'lines+markers',
+                    name: 'ML Prediction',
+                    line: {
+                        color: 'rgba(255, 105, 255, 0.9)',
+                        width: 3,
+                        dash: 'dashdot'
+                    },
+                    marker: {
+                        symbol: 'circle',
+                        size: 8,
+                        color: 'rgba(255, 105, 255, 0.9)',
+                        line: {
+                            color: 'white',
+                            width: 1
+                        }
+                    }
+                };
+            }
+        });
+
+        // Add event listeners for ML controls
+        document.getElementById('mlEnabled').addEventListener('change', function() {
+            if (this.checked && !modelTrained) {
+                alert('The model needs to be trained first. Click "Train Model" to begin training.');
+            }
+            // Re-render to show/hide predictions
+            if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
+                renderChart(cachedCandlestickData, cachedHeatmapData).catch(err => console.error('Error rendering chart:', err));
+            }
+        });
+
+        document.getElementById('trainModelBtn').addEventListener('click', async function() {
+            if (!cachedCandlestickData.length || !cachedHeatmapData.timestamps.length) {
+                alert('Please load data first before training the model.');
+                return;
+            }
             
-            // Initialize the neural model when the app loads
-            initNeuralModel();
+            if (featuresCache.length < 50) {
+                alert('Not enough training data. Please refresh data several times to collect more samples.');
+                return;
+            }
             
-            // Modify the loadData function to train the model when new data arrives
-            const originalLoadData = loadData;
+            // Start model training
+            await trainModel(null, 50);
             
-            loadData = function(fullRefresh = false) {
-                // Call the original function
-                originalLoadData(fullRefresh);
-                
-                // If the model is ready and we have data, train it
-                if (isModelReady && cachedHeatmapData.timestamps.length > 0 && cachedCandlestickData.length > 0) {
-                    // Train the model with the latest data
-                    trainModel(cachedHeatmapData, cachedCandlestickData);
-                }
-            };
+            // After training, update chart with predictions if enabled
+            if (document.getElementById('mlEnabled').checked) {
+                renderChart(cachedCandlestickData, cachedHeatmapData).catch(err => console.error('Error rendering chart:', err));
+            }
+        });
+
+        // Initialize TensorFlow on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Existing initialization code
+            
+            // Initialize TensorFlow.js
+            try {
+                await initTensorFlow();
+                console.log('TensorFlow.js initialized successfully');
+            } catch (error) {
+                console.error('Error initializing TensorFlow.js:', error);
+            }
         });
     </script>
 </body>
