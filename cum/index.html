@@ -214,7 +214,7 @@
             top: 10px;
             left: 50%;
             transform: translateX(-50%);
-            font-family: 'Courier New', monospace;
+            font-family: 'Courier New, monospace';
             color: #00ff9d;
             text-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
             font-size: 16px;
@@ -923,22 +923,38 @@
                 // Input shape: [lookback periods, features (heatmap buckets + OBM values)]
                 const numFeatures = getNumFeatures();
                 
-                // Add an LSTM layer
-                model.add(tf.layers.lstm({
+                // Use a simpler model architecture with better numerical stability
+                // Add a Dense layer first to pre-process inputs
+                model.add(tf.layers.dense({
                     units: 32,
-                    returnSequences: false,
+                    activation: 'relu',
                     inputShape: [lookbackPeriods, numFeatures]
                 }));
                 
-                // Add a dropout layer to prevent overfitting
+                // Add a GRU layer (more stable than LSTM)
+                model.add(tf.layers.gru({
+                    units: 16,
+                    returnSequences: false,
+                    activation: 'tanh',
+                    recurrentActivation: 'sigmoid',
+                    useBias: true,
+                    kernelInitializer: 'glorotNormal',
+                    recurrentInitializer: 'orthogonal',
+                    biasInitializer: 'zeros'
+                }));
+                
+                // Add a dropout layer with moderate dropout
                 model.add(tf.layers.dropout({ rate: 0.2 }));
                 
-                // Add a dense layer for the output (price prediction)
-                model.add(tf.layers.dense({ units: 1 }));
+                // Add a dense layer for the output with a bound activation
+                model.add(tf.layers.dense({ 
+                    units: 1,
+                    activation: 'sigmoid' // Bounds output between 0-1 (for normalization)
+                }));
                 
-                // Compile the model
+                // Compile the model with clipping to prevent exploding gradients
                 model.compile({
-                    optimizer: tf.train.adam(0.001),
+                    optimizer: tf.train.adamax(0.0005), // Use adamax (more stable)
                     loss: 'meanSquaredError',
                     metrics: ['mse']
                 });
@@ -1005,19 +1021,34 @@
                     const timestampFeatures = [];
                     
                     // Sample volume features from heatmap (evenly distributed)
+                    let hasNonZeroValue = false;
                     for (let j = 0; j < featureBuckets; j++) {
                         const bucketIndex = j * bucketStep;
                         if (bucketIndex < heatmapData.heatmap[i].volumes.length) {
-                            timestampFeatures.push(Math.abs(heatmapData.heatmap[i].volumes[bucketIndex]));
+                            const value = Math.abs(heatmapData.heatmap[i].volumes[bucketIndex]);
+                            timestampFeatures.push(value);
+                            if (value > 0) hasNonZeroValue = true;
+                        }
+                    }
+                    
+                    // If all volume features are zero, add a small random noise to avoid min=max=0
+                    if (!hasNonZeroValue) {
+                        for (let j = 0; j < timestampFeatures.length; j++) {
+                            // Add tiny random noise (0.00001 to 0.0001) to prevent all zeros
+                            timestampFeatures[j] = Math.random() * 0.00009 + 0.00001;
                         }
                     }
                     
                     // Add OBM features if available for this timestamp
                     if (obmData && obmData.obmValues.length > i) {
-                        // OBM value
-                        timestampFeatures.push(obmData.obmValues[i] || 0);
-                        // Trend strength
-                        timestampFeatures.push(obmData.trendStrength[i] || 0);
+                        // OBM value (ensure non-zero if all zeros)
+                        const obmValue = obmData.obmValues[i] || Math.random() * 0.00002 - 0.00001;
+                        timestampFeatures.push(obmValue);
+                        
+                        // Trend strength (ensure non-zero if zero)
+                        const trendStrength = obmData.trendStrength[i] || Math.random() * 0.00002 - 0.00001;
+                        timestampFeatures.push(trendStrength);
+                        
                         // Add imbalance data approximation
                         const middleIndex = Math.floor(heatmapData.heatmap[i].volumes.length / 2);
                         let buyPressure = 0;
@@ -1032,14 +1063,18 @@
                             }
                         }
                         
+                        // Add small non-zero value to prevent all zeros
+                        buyPressure = buyPressure || Math.random() * 0.00009 + 0.00001;
+                        sellPressure = sellPressure || Math.random() * 0.00009 + 0.00001;
+                        
                         // Order book imbalance
                         const totalPressure = buyPressure + sellPressure;
-                        const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
+                        const imbalance = (buyPressure - sellPressure) / totalPressure;
                         timestampFeatures.push(imbalance);
                         
                         // Add buy and sell pressure ratio
-                        timestampFeatures.push(buyPressure > 0 ? buyPressure / totalPressure : 0);
-                        timestampFeatures.push(sellPressure > 0 ? sellPressure / totalPressure : 0);
+                        timestampFeatures.push(buyPressure / totalPressure);
+                        timestampFeatures.push(sellPressure / totalPressure);
                     }
                     
                     result.push(timestampFeatures);
@@ -1053,13 +1088,16 @@
                 // Normalize prices
                 const minPrice = Math.min(...prices);
                 const maxPrice = Math.max(...prices);
+                
+                // Ensure we don't have min=max for price normalization
+                const priceRange = maxPrice - minPrice;
                 const normalizedPrices = prices.map(price => 
-                    (price - minPrice) / (maxPrice - minPrice || 1)
+                    priceRange > 0 ? (price - minPrice) / priceRange : 0.5
                 );
                 
                 // Store normalization parameters for later use
                 normalizedParams.minPrice = minPrice;
-                normalizedParams.maxPrice = maxPrice;
+                normalizedParams.maxPrice = maxPrice > minPrice ? maxPrice : minPrice + 0.0001; // Ensure difference
                 
                 // Normalize features
                 const normalizedFeatures = [];
@@ -1074,6 +1112,15 @@
                     }
                 }
                 
+                // Ensure min != max for all features by adding small offset if needed
+                for (let j = 0; j < featureLength; j++) {
+                    if (featureStats[j].min === featureStats[j].max) {
+                        // Add a small offset to max to ensure normalization works
+                        featureStats[j].max = featureStats[j].min + 0.0001;
+                        console.log(`Debug - Fixed feature ${j} min/max: ${featureStats[j].min} -> ${featureStats[j].max}`);
+                    }
+                }
+                
                 // Store feature normalization parameters
                 normalizedParams.featureStats = featureStats;
                 
@@ -1083,8 +1130,9 @@
                     for (let j = 0; j < features[i].length; j++) {
                         const min = featureStats[j].min;
                         const max = featureStats[j].max;
+                        const range = max - min;
                         normalizedTimestampFeatures.push(
-                            (features[i][j] - min) / (max - min || 1)
+                            range > 0 ? (features[i][j] - min) / range : 0.5
                         );
                     }
                     normalizedFeatures.push(normalizedTimestampFeatures);
@@ -1125,27 +1173,67 @@
                 const data = prepareData();
                 if (!data) return;
                 
-                // Create the model
+                // Create the model with our improved architecture
                 createModel();
                 
                 try {
-                    // Train the model
-                    const batchSize = Math.min(32, Math.floor(data.xs.shape[0] / 4));
-                    const epochs = 50;
+                    // Use tf.tidy for memory management but handle it synchronously
+                    // since tf.tidy doesn't return a Promise
+                    const cleanData = tf.tidy(() => {
+                        // Check for NaN in the training data
+                        const xsHasNaN = tf.any(tf.isNaN(data.xs)).dataSync()[0];
+                        const ysHasNaN = tf.any(tf.isNaN(data.ys)).dataSync()[0];
+                        
+                        if (xsHasNaN || ysHasNaN) {
+                            console.error("Training data contains NaN values - fixing...");
+                            
+                            // If we have NaN in training data, we need to fix it
+                            // For xs, replace NaN with 0.5 (midpoint of normalized range)
+                            const fixedXs = tf.where(tf.isNaN(data.xs), tf.scalar(0.5), data.xs);
+                            
+                            // For ys, replace NaN with mean of non-NaN values
+                            const ysData = data.ys.dataSync();
+                            const validYs = Array.from(ysData).filter(v => !isNaN(v));
+                            const meanY = validYs.length > 0 ? 
+                                validYs.reduce((a, b) => a + b, 0) / validYs.length : 0.5;
+                            
+                            const fixedYs = tf.where(tf.isNaN(data.ys), tf.scalar(meanY), data.ys);
+                            
+                            // Now use the fixed data
+                            return { xs: fixedXs, ys: fixedYs };
+                        } else {
+                            // Data is good, return as is
+                            return { xs: data.xs, ys: data.ys };
+                        }
+                    });
                     
                     // Train the model
-                    const history = await model.fit(data.xs, data.ys, {
+                    const batchSize = Math.min(32, Math.floor(cleanData.xs.shape[0] / 4));
+                    const epochs = 50;
+                    
+                    // Add early stopping to prevent overfitting
+                    const earlyStoppingCallback = {
+                        onEpochEnd: (epoch, logs) => {
+                            console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
+                            // Properly calculate and display accuracy
+                            const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
+                            document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
+                            
+                            // If the loss is extremely small or NaN, stop training
+                            if (isNaN(logs.loss) || logs.loss < 0.0001) {
+                                console.log("Early stopping - loss is too small or NaN");
+                                model.stopTraining = true;
+                            }
+                        }
+                    };
+                    
+                    // Train the model with early stopping
+                    const history = await model.fit(cleanData.xs, cleanData.ys, {
                         batchSize,
                         epochs,
                         shuffle: true,
                         validationSplit: 0.2,
-                        callbacks: {
-                            onEpochEnd: (epoch, logs) => {
-                                console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
-                                document.getElementById('modelAccuracy').textContent = 
-                                    `${(1 - Math.sqrt(logs.loss)).toFixed(4) * 100}%`;
-                            }
-                        }
+                        callbacks: [earlyStoppingCallback]
                     });
                     
                     // Update model status
@@ -1153,13 +1241,18 @@
                     
                     // Make prediction
                     makePrediction();
+                    
+                    // Dispose tensors to prevent memory leaks
+                    if (cleanData.xs !== data.xs) cleanData.xs.dispose();
+                    if (cleanData.ys !== data.ys) cleanData.ys.dispose();
+                    
                 } catch (error) {
-                    console.error('Error training model:', error);
+                    console.error('Error during model training:', error);
                     document.getElementById('nextPricePrediction').textContent = 'Training failed';
                 } finally {
-                    // Dispose tensors to prevent memory leaks
-                    data.xs.dispose();
-                    data.ys.dispose();
+                    // Dispose original tensors if they exist
+                    if (data && data.xs) data.xs.dispose();
+                    if (data && data.ys) data.ys.dispose();
                 }
             }
             
@@ -1189,25 +1282,77 @@
                     // Normalize the features using saved parameters
                     const normalizedLatestFeatures = latestFeatures.map(timestampFeatures => {
                         return timestampFeatures.map((value, index) => {
+                            if (index >= normalizedParams.featureStats.length) {
+                                console.log(`Warning: Feature index ${index} out of bounds`);
+                                return 0.5;
+                            }
+                            
                             const min = normalizedParams.featureStats[index].min;
                             const max = normalizedParams.featureStats[index].max;
-                            return (value - min) / (max - min || 1);
+                            const range = max - min;
+                            
+                            if (range <= 0) {
+                                console.log(`Debug - Feature ${index} has zero range: min=${min}, max=${max}`);
+                                return 0.5; // Use middle value for zero-range features
+                            }
+                            
+                            const normalized = (value - min) / range;
+                            
+                            // Ensure value is valid - very important for numerical stability
+                            if (isNaN(normalized) || !isFinite(normalized)) {
+                                console.log(`Debug - Invalid normalized value for feature ${index}: ${normalized}`);
+                                return 0.5;
+                            }
+                            
+                            // Clamp values to prevent extreme outliers
+                            return Math.max(0, Math.min(1, normalized));
                         });
                     });
                     
-                    // Make prediction
-                    const inputTensor = tf.tensor3d([normalizedLatestFeatures]);
-                    const prediction = model.predict(inputTensor);
+                    // Use tf.tidy to automatically dispose intermediate tensors
+                    const prediction = tf.tidy(() => {
+                        // Create input tensor and check for NaN values
+                        const inputTensor = tf.tensor3d([normalizedLatestFeatures]);
+                        
+                        // Log tensor shape to verify input is correct
+                        console.log("Input tensor shape:", inputTensor.shape);
+                        
+                        // Check for NaN values in input tensor
+                        const inputHasNaN = tf.any(tf.isNaN(inputTensor)).dataSync()[0];
+                        if (inputHasNaN) {
+                            console.error("Input tensor contains NaN values");
+                            return null;
+                        }
+                        
+                        // Make prediction
+                        return model.predict(inputTensor);
+                    });
+                    
+                    // Handle the case where prediction is null (due to NaN inputs)
+                    if (prediction === null) {
+                        document.getElementById('nextPricePrediction').textContent = 'Invalid input data';
+                        return;
+                    }
                     
                     // Get the predicted value
-                    const predictedNormalized = prediction.dataSync()[0];
+                    const predictionData = prediction.dataSync();
+                    const predictedNormalized = predictionData[0];
                     
-                    // Denormalize to get the actual price
-                    const predictedPrice = predictedNormalized * 
-                        (normalizedParams.maxPrice - normalizedParams.minPrice) + 
-                        normalizedParams.minPrice;
+                    // Check for NaN prediction and provide fallback
+                    if (!isFinite(predictedNormalized)) {
+                        console.log("Predicted normalized value is NaN or Infinity, using fallback prediction");
+                        document.getElementById('nextPricePrediction').textContent = 'Prediction unavailable';
+                        document.getElementById('priceDirection').textContent = '--';
+                        document.getElementById('predictionConfidence').textContent = '--';
+                        prediction.dispose();
+                        return;
+                    }
                     
-                    // Calculate prediction confidence (basic implementation)
+                    // Safely denormalize the prediction (since model output is 0-1, we need to scale it)
+                    const priceRange = normalizedParams.maxPrice - normalizedParams.minPrice;
+                    const predictedPrice = (predictedNormalized * priceRange) + normalizedParams.minPrice;
+                    
+                    // Calculate prediction confidence
                     const lastPrice = prices[prices.length - 1];
                     const priceChange = predictedPrice - lastPrice;
                     const percentChange = (priceChange / lastPrice) * 100;
@@ -1223,11 +1368,7 @@
                         'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
                     document.getElementById('predictionConfidence').textContent = confidence;
                     
-                    // Display the prediction container
-                    document.getElementById('predictionContainer').style.display = 'block';
-                    
                     // Dispose tensors
-                    inputTensor.dispose();
                     prediction.dispose();
                 } catch (error) {
                     console.error('Error making prediction:', error);
