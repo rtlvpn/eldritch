@@ -1,4 +1,5 @@
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,9 +13,10 @@
             padding: 20px;
             background-color: #121212;
             color: #00ff9d;
-            background-image: linear-gradient(rgba(8, 8, 16, 0.97), rgba(8, 8, 16, 0.97)), 
-                              repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 157, 0.05) 2px, rgba(0, 255, 157, 0.05) 4px);
+            background-image: linear-gradient(rgba(8, 8, 16, 0.97), rgba(8, 8, 16, 0.97)),
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0, 255, 157, 0.05) 2px, rgba(0, 255, 157, 0.05) 4px);
         }
+
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -24,12 +26,14 @@
             box-shadow: 0 0 20px rgba(0, 255, 157, 0.2), 0 0 40px rgba(0, 255, 157, 0.1) inset;
             padding: 20px;
         }
+
         .charts-wrapper {
             display: flex;
             gap: 20px;
             width: 100%;
             transition: all 0.3s ease;
         }
+
         .main-chart-container {
             width: 75%;
             height: 600px;
@@ -38,6 +42,7 @@
             background-color: rgba(10, 10, 20, 0.5);
             transition: width 0.3s ease;
         }
+
         .cvp-chart-container {
             width: 25%;
             height: 600px;
@@ -46,6 +51,7 @@
             background-color: rgba(10, 10, 20, 0.5);
             transition: all 0.3s ease;
         }
+
         .chart-container {
             width: 100%;
             height: 600px;
@@ -53,6 +59,7 @@
             margin-top: 20px;
             background-color: rgba(10, 10, 20, 0.5);
         }
+
         h1 {
             text-align: center;
             color: #00ff9d;
@@ -63,6 +70,7 @@
             margin-bottom: 20px;
             font-weight: bold;
         }
+
         .controls {
             margin-bottom: 20px;
             display: flex;
@@ -74,7 +82,9 @@
             border-radius: 4px;
             border-left: 3px solid #00ff9d;
         }
-        select, button {
+
+        select,
+        button {
             padding: 8px 12px;
             border-radius: 4px;
             border: 1px solid #00ff9d;
@@ -82,6 +92,7 @@
             color: #00ff9d;
             font-family: 'Courier New', monospace;
         }
+
         select {
             appearance: none;
             background-image: url("data:image/svg+xml;utf8,<svg fill='%2300ff9d' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
@@ -89,10 +100,13 @@
             background-position: right 8px center;
             padding-right: 30px;
         }
-        select:focus, button:focus {
+
+        select:focus,
+        button:focus {
             outline: none;
             box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
         }
+
         button {
             background-color: #1a1a2e;
             color: #00ff9d;
@@ -101,15 +115,18 @@
             transition: all 0.2s;
             box-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
         }
+
         button:hover {
             background-color: #16213e;
             box-shadow: 0 0 15px rgba(0, 255, 157, 0.4);
         }
+
         label {
             color: #00ff9d;
             font-weight: bold;
             text-shadow: 0 0 5px rgba(0, 255, 157, 0.5);
         }
+
         .slider-container {
             display: flex;
             align-items: center;
@@ -118,9 +135,11 @@
             padding: 5px 10px;
             border-radius: 4px;
         }
+
         .slider-container label {
             width: 120px;
         }
+
         .slider-container input[type="range"] {
             width: 100px;
             appearance: none;
@@ -129,6 +148,7 @@
             border-radius: 3px;
             border: 1px solid #00ff9d;
         }
+
         .slider-container input[type="range"]::-webkit-slider-thumb {
             appearance: none;
             width: 16px;
@@ -138,6 +158,7 @@
             cursor: pointer;
             box-shadow: 0 0 10px rgba(0, 255, 157, 0.8);
         }
+
         .slider-container span {
             width: 30px;
             text-align: center;
@@ -147,10 +168,12 @@
             border: 1px solid #00ff9d;
             box-shadow: 0 0 5px rgba(0, 255, 157, 0.4) inset;
         }
+
         /* Add style for the OBM chart */
         .obm-chart-container {
             width: 100%;
-            height: 250px; /* Increase height for more impact */
+            height: 250px;
+            /* Increase height for more impact */
             border: 1px solid rgba(0, 255, 157, 0.6);
             margin-top: 20px;
             background-color: rgba(10, 10, 20, 0.8);
@@ -159,6 +182,7 @@
             border-radius: 6px;
             overflow: hidden;
         }
+
         /* Add scan lines effect */
         .obm-chart-container::before {
             content: "";
@@ -168,13 +192,14 @@
             right: 0;
             bottom: 0;
             background: linear-gradient(to bottom,
-                rgba(10, 10, 20, 0) 50%,
-                rgba(0, 255, 157, 0.03) 50%);
+                    rgba(10, 10, 20, 0) 50%,
+                    rgba(0, 255, 157, 0.03) 50%);
             background-size: 100% 4px;
             pointer-events: none;
             z-index: 10;
             animation: scanlines 8s linear infinite;
         }
+
         /* Add CRT edge effect */
         .obm-chart-container::after {
             content: "";
@@ -183,30 +208,45 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: radial-gradient(
-                ellipse at center,
-                rgba(10, 10, 20, 0) 60%,
-                rgba(0, 0, 30, 0.6) 100%
-            );
+            background: radial-gradient(ellipse at center,
+                    rgba(10, 10, 20, 0) 60%,
+                    rgba(0, 0, 30, 0.6) 100%);
             pointer-events: none;
             z-index: 11;
         }
+
         /* Pulse animation */
         @keyframes pulse {
-            0% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
-            50% { box-shadow: 0 0 30px rgba(0, 255, 157, 0.6), inset 0 0 40px rgba(0, 0, 20, 0.7); }
-            100% { box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6); }
+            0% {
+                box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6);
+            }
+
+            50% {
+                box-shadow: 0 0 30px rgba(0, 255, 157, 0.6), inset 0 0 40px rgba(0, 0, 20, 0.7);
+            }
+
+            100% {
+                box-shadow: 0 0 20px rgba(0, 255, 157, 0.4), inset 0 0 30px rgba(0, 0, 20, 0.6);
+            }
         }
+
         /* Scan lines animation */
         @keyframes scanlines {
-            0% { background-position: 0 0; }
-            100% { background-position: 0 100%; }
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 0 100%;
+            }
         }
+
         /* Glow and pulse on hover */
         .obm-chart-container:hover {
             animation: pulse 3s infinite;
             border-color: rgba(0, 255, 200, 0.8);
         }
+
         /* Custom title for OBM chart */
         .obm-title {
             position: absolute;
@@ -222,6 +262,7 @@
             letter-spacing: 2px;
             text-transform: uppercase;
         }
+
         .control-section {
             margin-bottom: 10px;
             background-color: rgba(0, 0, 0, 0.3);
@@ -229,7 +270,7 @@
             border-radius: 4px;
             border-left: 3px solid #00ff9d;
         }
-        
+
         .date-picker-container {
             display: flex;
             align-items: center;
@@ -239,8 +280,9 @@
             padding: 8px 12px;
             border-radius: 4px;
         }
-        
-        input[type="date"], input[type="time"] {
+
+        input[type="date"],
+        input[type="time"] {
             padding: 8px 12px;
             border-radius: 4px;
             border: 1px solid #00ff9d;
@@ -248,18 +290,19 @@
             color: #00ff9d;
             font-family: 'Courier New', monospace;
         }
-        
-        input[type="date"]:focus, input[type="time"]:focus {
+
+        input[type="date"]:focus,
+        input[type="time"]:focus {
             outline: none;
             box-shadow: 0 0 0 2px rgba(0, 255, 157, 0.5);
         }
-        
+
         /* Date picker calendar styling */
         ::-webkit-calendar-picker-indicator {
             filter: invert(1) hue-rotate(130deg) brightness(1.5);
             cursor: pointer;
         }
-        
+
         /* Add styles for prediction-related elements */
         .prediction-container {
             margin-top: 20px;
@@ -269,14 +312,14 @@
             border-left: 3px solid #00ff9d;
             color: #00ff9d;
         }
-        
+
         .prediction-metrics {
             display: flex;
             gap: 20px;
             margin-top: 10px;
             flex-wrap: wrap;
         }
-        
+
         .metric {
             background-color: rgba(10, 10, 20, 0.7);
             padding: 8px 15px;
@@ -285,21 +328,21 @@
             display: flex;
             flex-direction: column;
         }
-        
+
         .metric-value {
             font-size: 1.2em;
             font-weight: bold;
             margin-top: 5px;
         }
-        
+
         .prediction-up {
             color: rgb(0, 255, 157);
         }
-        
+
         .prediction-down {
             color: rgb(255, 41, 105);
         }
-        
+
         .model-controls {
             display: flex;
             gap: 10px;
@@ -308,10 +351,11 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Milk Price and Orderbook Heatmap</h1>
-        
+
         <div class="controls">
             <div class="control-section">
                 <label for="dateRangeMode">Date Range Mode:</label>
@@ -320,7 +364,7 @@
                     <option value="custom">Custom Date Range</option>
                 </select>
             </div>
-            
+
             <div id="fromNowControls">
                 <label for="timeRange">Time Range:</label>
                 <select id="timeRange">
@@ -340,21 +384,21 @@
                     <option value="168h">7 Days</option>
                 </select>
             </div>
-            
+
             <div id="customRangeControls" style="display: none;">
                 <div class="date-picker-container">
                     <label for="startDate">Start Date:</label>
                     <input type="date" id="startDate">
                     <input type="time" id="startTime" value="00:00">
                 </div>
-                
+
                 <div class="date-picker-container">
                     <label for="endDate">End Date:</label>
                     <input type="date" id="endDate">
                     <input type="time" id="endTime" value="23:59">
                 </div>
             </div>
-            
+
             <label for="buckets">Price Buckets:</label>
             <select id="buckets">
                 <option value="50">50</option>
@@ -363,19 +407,19 @@
                 <option value="300">300</option>
                 <option value="400">400</option>
             </select>
-            
+
             <div class="slider-container">
                 <label for="colorDensity">Color Density:</label>
                 <input type="range" id="colorDensity" min="1" max="10" step="1" value="5">
                 <span id="densityValue">5</span>
             </div>
-            
+
             <div class="slider-container">
                 <label for="marginPercent">Margin %:</label>
                 <input type="range" id="marginPercent" min="5" max="400" step="5" value="70">
                 <span id="marginValue">45</span>
             </div>
-            
+
             <button id="refreshBtn">Refresh Data</button>
             <div class="checkbox-container">
                 <input type="checkbox" id="showCVP" checked>
@@ -386,33 +430,34 @@
                 <label for="showOBM">Show Order Book Momentum</label>
             </div>
         </div>
-        
+
         <div class="control-section">
             <div class="checkbox-container">
                 <input type="checkbox" id="enablePrediction" checked>
                 <label for="enablePrediction">Enable TensorFlow Price Prediction</label>
             </div>
-            
+
             <div class="model-controls">
                 <label for="lookbackPeriods">Lookback Periods:</label>
                 <select id="lookbackPeriods">
-                    <option value="3">3</option>
-                    <option value="5" selected>5</option>
-                    <option value="10">10</option>
-                    <option value="15">15</option>
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes</option>
+                    <option value="60" selected>1 hour</option>
+                    <option value="180">3 hours</option>
+                    <option value="360">6 hours</option>
                 </select>
-                
+
                 <label for="predictionHorizon">Predict Ahead:</label>
                 <select id="predictionHorizon">
                     <option value="1">1 period</option>
                     <option value="3" selected>3 periods</option>
                     <option value="5">5 periods</option>
                 </select>
-                
+
                 <button id="trainModelBtn">Train Model</button>
             </div>
         </div>
-        
+
         <div class="prediction-container" id="predictionContainer" style="display: none;">
             <h3>Price Prediction</h3>
             <div class="prediction-metrics">
@@ -434,51 +479,51 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="charts-wrapper">
             <div id="chart" class="main-chart-container"></div>
             <div id="cvpChart" class="cvp-chart-container"></div>
         </div>
-        
+
         <div id="obmChart" class="obm-chart-container"></div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             // Order Book Momentum (OBM) calculation functions
-            
+
             // Calculate density-weighted average price at a specific time
             function calculateWeightedAvgPrice(priceVolumes) {
                 let weightedSum = 0;
                 let totalVolume = 0;
-                
+
                 for (let i = 0; i < priceVolumes.prices.length; i++) {
                     const price = priceVolumes.prices[i];
                     const volume = Math.abs(priceVolumes.volumes[i]);
-                    
+
                     weightedSum += price * volume;
                     totalVolume += volume;
                 }
-                
+
                 return totalVolume > 0 ? weightedSum / totalVolume : 0;
             }
-            
+
             // Calculate price standard deviation weighted by density
             function calculateWeightedStdDev(priceVolumes, avgPrice) {
                 let weightedSumSq = 0;
                 let totalVolume = 0;
-                
+
                 for (let i = 0; i < priceVolumes.prices.length; i++) {
                     const price = priceVolumes.prices[i];
                     const volume = Math.abs(priceVolumes.volumes[i]);
-                    
+
                     weightedSumSq += Math.pow(price - avgPrice, 2) * volume;
                     totalVolume += volume;
                 }
-                
+
                 return totalVolume > 0 ? Math.sqrt(weightedSumSq / totalVolume) : 1; // Default to 1 to avoid division by zero
             }
-            
+
             // Calculate Order Book Momentum with time series techniques
             function calculateOBM(heatmapData) {
                 const result = {
@@ -489,88 +534,88 @@
                     signals: [],
                     signalStrengths: []
                 };
-                
+
                 if (heatmapData.heatmap.length < 10) return result; // Need enough data for time series analysis
-                
+
                 // Calculate raw OBM values first (similar to current approach but storing intermediates)
                 const rawImbalances = [];
                 const imbalanceChanges = [];
                 const rawOBMValues = [];
-                
+
                 for (let i = 1; i < heatmapData.heatmap.length; i++) {
                     const currentPriceVolumes = {
-                        prices: heatmapData.priceLevels, 
+                        prices: heatmapData.priceLevels,
                         volumes: heatmapData.heatmap[i].volumes
                     };
-                    
+
                     // Find the middle price index to separate buy/sell sides
                     const middleIndex = Math.floor(currentPriceVolumes.prices.length / 2);
-                    
+
                     // Calculate buy pressure (volume below middle) and sell pressure (volume above middle)
                     let buyPressure = 0;
                     let sellPressure = 0;
-                    
+
                     for (let j = 0; j < currentPriceVolumes.prices.length; j++) {
                         const volume = Math.abs(currentPriceVolumes.volumes[j]);
-                        
+
                         // Weight by distance from middle (further away has more impact)
                         const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
                         const weightedVolume = volume * (1 + distanceFactor);
-                        
+
                         if (j < middleIndex) {
                             buyPressure += weightedVolume;
                         } else {
                             sellPressure += weightedVolume;
                         }
                     }
-                    
+
                     // Calculate order book imbalance ratio
                     const totalPressure = buyPressure + sellPressure;
                     const imbalance = totalPressure > 0 ? (buyPressure - sellPressure) / totalPressure : 0;
                     rawImbalances.push(imbalance);
-                    
+
                     // Calculate rate of change of imbalance (if we have previous data)
                     let imbalanceChange = 0;
                     if (i > 1) {
                         const prevImbalance = rawImbalances[rawImbalances.length - 2];
-                        
+
                         // Calculate delta time between measurements for more accurate rate
                         const currentTimestamp = heatmapData.timestamps[i];
-                        const prevTimestamp = heatmapData.timestamps[i-1];
+                        const prevTimestamp = heatmapData.timestamps[i - 1];
                         const deltaTime = Math.max(1, (currentTimestamp - prevTimestamp) / 60); // In minutes
-                        
+
                         // Rate of change of imbalance
                         imbalanceChange = (imbalance - prevImbalance) / deltaTime;
                     }
                     imbalanceChanges.push(imbalanceChange);
-                    
+
                     // Raw OBM value (will be processed with time series techniques)
                     const rawObm = imbalance * 0.3 + imbalanceChange * 0.7;
                     rawOBMValues.push(rawObm);
-                    
+
                     result.timestamps.push(new Date(heatmapData.timestamps[i] * 1000));
                 }
-                
+
                 // Apply time series techniques to the raw OBM values
-                
+
                 // 1. Exponential Moving Average (EMA) to reduce noise
                 const emaAlpha = 0.2; // Smoothing factor
                 const emaValues = [];
-                
+
                 for (let i = 0; i < rawOBMValues.length; i++) {
                     if (i === 0) {
                         emaValues.push(rawOBMValues[i]);
                     } else {
                         // EMA = currentValue * alpha + previousEMA * (1 - alpha)
-                        const ema = rawOBMValues[i] * emaAlpha + emaValues[i-1] * (1 - emaAlpha);
+                        const ema = rawOBMValues[i] * emaAlpha + emaValues[i - 1] * (1 - emaAlpha);
                         emaValues.push(ema);
                     }
                 }
-                
+
                 // 2. Calculate trend strength using linear regression
                 const trendStrengthValues = [];
                 const windowSize = Math.min(10, Math.floor(rawOBMValues.length / 3));
-                
+
                 for (let i = 0; i < rawOBMValues.length; i++) {
                     if (i < windowSize) {
                         // Not enough data for trend calculation
@@ -582,11 +627,11 @@
                         trendStrengthValues.push(trend);
                     }
                 }
-                
+
                 // 3. Forecast future values using simple autoregression
                 const forecastValues = [];
                 const forecastLag = 3; // How many past values to use
-                
+
                 for (let i = 0; i < rawOBMValues.length; i++) {
                     if (i < forecastLag) {
                         // Not enough data for forecasting
@@ -595,19 +640,19 @@
                         // Simple autoregression model with exponentially weighted past values
                         let forecast = 0;
                         let weightSum = 0;
-                        
+
                         for (let j = 1; j <= forecastLag; j++) {
                             const weight = Math.exp(-0.5 * j); // Exponential weighting
-                            forecast += emaValues[i-j] * weight;
+                            forecast += emaValues[i - j] * weight;
                             weightSum += weight;
                         }
-                        
+
                         // Add trend component to forecast
                         forecast = forecast / weightSum + trendStrengthValues[i] * 0.5;
                         forecastValues.push(forecast);
                     }
                 }
-                
+
                 // 4. Final OBM values combine EMA, trend strength, and momentum
                 for (let i = 0; i < emaValues.length; i++) {
                     // Enhanced OBM value with trend momentum
@@ -616,11 +661,11 @@
                     result.trendStrength.push(trendStrengthValues[i]);
                     result.forecastValues.push(forecastValues[i]);
                 }
-                
+
                 // Add explicit trading signals
                 result.signals = [];
                 result.signalStrengths = [];
-                
+
                 // For signal generation - need at least 5 data points
                 if (result.obmValues.length >= 5) {
                     // Variables to track signal state
@@ -628,53 +673,53 @@
                     let inShortPosition = false;
                     let lastSignalIndex = -10; // Prevent rapid signal switching
                     const signalCooldown = 5; // Minimum points between signals
-                    
+
                     // Calculate smoothed momentum for better signal quality
                     const smoothedOBM = exponentialMovingAverage(result.obmValues, 0.15);
                     const secondSmoothing = exponentialMovingAverage(smoothedOBM, 0.25);
-                    
+
                     // Add signal momentum divergence tracking
                     const divergences = findDivergences(smoothedOBM, secondSmoothing);
-                    
+
                     for (let i = 3; i < result.obmValues.length; i++) {
                         // Default - no signal
                         let signal = "NONE";
                         let signalStrength = 0;
-                        
+
                         // Get current momentum values and trends
                         const obm = smoothedOBM[i];
-                        const obmPrev = smoothedOBM[i-1];
-                        const obmPrev2 = smoothedOBM[i-2];
+                        const obmPrev = smoothedOBM[i - 1];
+                        const obmPrev2 = smoothedOBM[i - 2];
                         const trend = result.trendStrength[i] || 0;
-                        
+
                         // Check for strong zero-line crossover (more reliable signals)
                         const crossedAboveZero = obmPrev <= 0 && obm > 0 && trend > 0;
                         const crossedBelowZero = obmPrev >= 0 && obm < 0 && trend < 0;
-                        
+
                         // Momentum reversal after exhaustion (strong signals)
                         const bullishReversal = obm > 0 && obmPrev < obmPrev2 && obm > obmPrev && trend > 0;
                         const bearishReversal = obm < 0 && obmPrev > obmPrev2 && obm < obmPrev && trend < 0;
-                        
+
                         // Check for divergences (strongest signals)
                         const hasBullishDivergence = divergences.bullish.includes(i);
                         const hasBearishDivergence = divergences.bearish.includes(i);
-                        
+
                         // Calculate signal strength factors
                         const zeroCrossFactor = 0.6;
                         const reversalFactor = 0.8;
                         const divergenceFactor = 1.0;
                         const trendFactor = Math.min(1.0, Math.abs(trend) * 10);
                         const momentumFactor = Math.min(1.0, Math.abs(obm) * 2);
-                        
+
                         // LONG ENTRY conditions (BUY signal)
-                        if ((crossedAboveZero || bullishReversal || hasBullishDivergence) && 
+                        if ((crossedAboveZero || bullishReversal || hasBullishDivergence) &&
                             !inLongPosition && i - lastSignalIndex > signalCooldown) {
-                            
+
                             signal = "BUY";
                             inLongPosition = true;
                             inShortPosition = false;
                             lastSignalIndex = i;
-                            
+
                             // Calculate signal strength (0-100%)
                             if (hasBullishDivergence) {
                                 signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
@@ -685,14 +730,14 @@
                             }
                         }
                         // LONG EXIT or SHORT ENTRY conditions (SELL signal)
-                        else if ((crossedBelowZero || bearishReversal || hasBearishDivergence) && 
-                                 !inShortPosition && i - lastSignalIndex > signalCooldown) {
-                            
+                        else if ((crossedBelowZero || bearishReversal || hasBearishDivergence) &&
+                            !inShortPosition && i - lastSignalIndex > signalCooldown) {
+
                             signal = "SELL";
                             inLongPosition = false;
                             inShortPosition = true;
                             lastSignalIndex = i;
-                            
+
                             // Calculate signal strength (0-100%)
                             if (hasBearishDivergence) {
                                 signalStrength = Math.min(100, Math.round((divergenceFactor + trendFactor + momentumFactor) * 33));
@@ -702,82 +747,82 @@
                                 signalStrength = Math.min(100, Math.round((zeroCrossFactor + trendFactor + momentumFactor) * 20));
                             }
                         }
-                        
+
                         result.signals.push(signal);
                         result.signalStrengths.push(signalStrength);
                     }
                 }
-                
+
                 return result;
             }
-            
+
             // Helper function to calculate linear regression slope (trend)
             function calculateLinearRegressionSlope(values) {
                 const n = values.length;
-                
+
                 if (n <= 1) return 0;
-                
+
                 let sumX = 0;
                 let sumY = 0;
                 let sumXY = 0;
                 let sumXX = 0;
-                
+
                 for (let i = 0; i < n; i++) {
                     sumX += i;
                     sumY += values[i];
                     sumXY += i * values[i];
                     sumXX += i * i;
                 }
-                
+
                 // Calculate slope of the best fit line
                 const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
                 return slope;
             }
-            
+
             // Helper function for EMA calculation
             function exponentialMovingAverage(data, alpha) {
                 const results = [];
                 if (data.length === 0) return results;
-                
+
                 results.push(data[0]);
                 for (let i = 1; i < data.length; i++) {
-                    const ema = data[i] * alpha + results[i-1] * (1 - alpha);
+                    const ema = data[i] * alpha + results[i - 1] * (1 - alpha);
                     results.push(ema);
                 }
                 return results;
             }
-            
+
             // Helper function to find momentum divergences
             function findDivergences(momentum, price) {
                 const bullishDivergenceIndices = [];
                 const bearishDivergenceIndices = [];
                 const lookbackWindow = 10;
-                
+
                 // Find local minimums and maximums within lookback window
                 for (let i = lookbackWindow; i < momentum.length - 1; i++) {
                     // Check for price making lower lows while momentum makes higher lows (bullish)
                     const isPriceLowerLow = findLowestInRange(price, i - lookbackWindow, i) === i;
                     const isMomentumHigherLow = momentum[i] > momentum[findLowestInRange(momentum, i - lookbackWindow, i)];
-                    
+
                     if (momentum[i] < 0 && isPriceLowerLow && isMomentumHigherLow) {
                         bullishDivergenceIndices.push(i);
                     }
-                    
+
                     // Check for price making higher highs while momentum makes lower highs (bearish)
                     const isPriceHigherHigh = findHighestInRange(price, i - lookbackWindow, i) === i;
                     const isMomentumLowerHigh = momentum[i] < momentum[findHighestInRange(momentum, i - lookbackWindow, i)];
-                    
+
                     if (momentum[i] > 0 && isPriceHigherHigh && isMomentumLowerHigh) {
                         bearishDivergenceIndices.push(i);
                     }
                 }
-                
+
                 return {
                     bullish: bullishDivergenceIndices,
                     bearish: bearishDivergenceIndices
                 };
             }
-            
+
             // Find index of lowest value in range
             function findLowestInRange(data, start, end) {
                 let lowestIndex = start;
@@ -788,7 +833,7 @@
                 }
                 return lowestIndex;
             }
-            
+
             // Find index of highest value in range
             function findHighestInRange(data, start, end) {
                 let highestIndex = start;
@@ -799,31 +844,31 @@
                 }
                 return highestIndex;
             }
-            
+
             // Keep track of the last timestamp we've fetched
             let lastFetchTime = 0;
             let cachedCandlestickData = [];
             let cachedHeatmapData = { timestamps: [], priceLevels: [], heatmap: [] };
             let currentTimeRange = '';
-            
+
             // Set default date values (today and yesterday)
             const today = new Date();
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
-            
+
             document.getElementById('endDate').valueAsDate = today;
             document.getElementById('startDate').valueAsDate = yesterday;
-            
+
             // Add event listener for date range mode toggle
-            document.getElementById('dateRangeMode').addEventListener('change', function() {
+            document.getElementById('dateRangeMode').addEventListener('change', function () {
                 const isCustomMode = this.value === 'custom';
                 document.getElementById('fromNowControls').style.display = isCustomMode ? 'none' : 'block';
                 document.getElementById('customRangeControls').style.display = isCustomMode ? 'block' : 'none';
             });
-            
+
             // Initial load
             loadData(true); // true indicates a full load
-            
+
             // Set up event listeners
             document.getElementById('refreshBtn').addEventListener('click', () => loadData(true)); // Full refresh on button click
             document.getElementById('timeRange').addEventListener('change', () => loadData(true)); // Full refresh on time range change
@@ -833,7 +878,7 @@
             document.getElementById('startTime').addEventListener('change', () => loadData(true)); // Full refresh on start time change
             document.getElementById('endTime').addEventListener('change', () => loadData(true)); // Full refresh on end time change
             document.getElementById('dateRangeMode').addEventListener('change', () => loadData(true)); // Full refresh on mode change
-            document.getElementById('colorDensity').addEventListener('input', function() {
+            document.getElementById('colorDensity').addEventListener('input', function () {
                 document.getElementById('densityValue').textContent = this.value;
                 // Only adjust the colorscale weighting without changing data
                 const existingData = Plotly.data('chart');
@@ -844,22 +889,22 @@
                     }, [0]); // Apply to the heatmap trace only (index 0)
                 }
             });
-            
+
             // Add event listener for the CVP checkbox
-            document.getElementById('showCVP').addEventListener('change', function() {
+            document.getElementById('showCVP').addEventListener('change', function () {
                 toggleCVPDisplay();
                 // Re-render the chart with the current data to update layouts
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
                     renderChart(cachedCandlestickData, cachedHeatmapData);
                 }
             });
-            
+
             // Function to toggle CVP display and adjust main chart width
             function toggleCVPDisplay() {
                 const showCVP = document.getElementById('showCVP').checked;
                 const mainChart = document.getElementById('chart');
                 const cvpChart = document.getElementById('cvpChart');
-                
+
                 if (showCVP) {
                     mainChart.style.width = '75%';
                     cvpChart.style.display = 'block';
@@ -867,29 +912,29 @@
                     mainChart.style.width = '100%';
                     cvpChart.style.display = 'none';
                 }
-                
+
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             }
-            
+
             // Initialize the display state
             toggleCVPDisplay();
-            
+
             // Auto refresh every minute - use incremental update
             setInterval(() => loadData(false), 12000000);
-            
+
             // Add event listener for margin percent slider
-            document.getElementById('marginPercent').addEventListener('input', function() {
+            document.getElementById('marginPercent').addEventListener('input', function () {
                 document.getElementById('marginValue').textContent = this.value;
             });
-            
+
             // TensorFlow Model Variables
             let model = null;
             let isModelTrained = false;
             let normalizedParams = {};
-            
+
             // Add event listener for enable prediction checkbox
-            document.getElementById('enablePrediction').addEventListener('change', function() {
+            document.getElementById('enablePrediction').addEventListener('change', function () {
                 document.getElementById('predictionContainer').style.display = this.checked ? 'block' : 'none';
                 if (this.checked && cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
                     if (!isModelTrained) {
@@ -899,41 +944,53 @@
                     }
                 }
             });
-            
-            // Add event listener for train model button
+
+            // Helper function to get the lookback periods in minutes
+            function getLookbackPeriodsInMinutes() {
+                const selectedValue = document.getElementById('lookbackPeriods').value;
+                // Since the values are now directly the number of minutes (periods)
+                // we just need to parse the integer.
+                return parseInt(selectedValue);
+            }
+
             // *** Modified Listener ***
-            document.getElementById('trainModelBtn').addEventListener('click', function() {
+            document.getElementById('trainModelBtn').addEventListener('click', function () {
                 if (cachedCandlestickData.length > 0 && cachedHeatmapData.timestamps.length > 0) {
                     // Check selected model type
                     const modelType = document.getElementById('modelType').value;
+                    // Make sure the makePrediction function is called appropriately based on the selected model
                     if (modelType === 'cnnlstm') {
-                        trainCNNLSTMModel(); // Call the CNN-LSTM training function
+                        trainCNNLSTMModel().then(() => {
+                            if (isModelTrained) makeCNNLSTMPrediction();
+                        });
                     } else {
-                        trainModel(); // Call the original GRU training function
+                        trainModel().then(() => {
+                            if (isModelTrained) makePrediction(); // Call the original prediction function for GRU
+                        });
                     }
                 } else {
                     alert('No data available for training. Please load data first.');
                 }
             });
-            
+
             // Function to create the TensorFlow model (Original GRU)
             function createModel() {
                 // Dispose previous model if exists
                 if (model !== null) {
                     model.dispose();
                 }
-                
+
                 model = tf.sequential();
-                
-                // Get lookback periods
-                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
-                
+
+                // Get lookback periods using the helper function
+                const lookbackPeriods = getLookbackPeriodsInMinutes();
+
                 // Input shape: [lookback periods, features (heatmap buckets + OBM values)]
                 const numFeatures = getNumFeatures();
-                
+
                 // Get prediction horizon (how many periods to predict)
                 const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
-                
+
                 // Use a simpler model architecture with better numerical stability
                 // Add a Dense layer first to pre-process inputs
                 model.add(tf.layers.dense({
@@ -941,7 +998,7 @@
                     activation: 'relu',
                     inputShape: [lookbackPeriods, numFeatures]
                 }));
-                
+
                 // Add a GRU layer (more stable than LSTM)
                 model.add(tf.layers.gru({
                     units: 16,
@@ -953,26 +1010,26 @@
                     recurrentInitializer: 'orthogonal',
                     biasInitializer: 'zeros'
                 }));
-                
+
                 // Add a dropout layer with moderate dropout
                 model.add(tf.layers.dropout({ rate: 0.2 }));
-                
+
                 // Change output layer to predict multiple values (one for each future period)
-                model.add(tf.layers.dense({ 
+                model.add(tf.layers.dense({
                     units: predictionHorizon,  // Output multiple values instead of just 1
                     activation: 'sigmoid' // Bounds output between 0-1 (for normalization)
                 }));
-                
+
                 // Compile the model with clipping to prevent exploding gradients
                 model.compile({
                     optimizer: tf.train.adamax(0.0005), // Use adamax (more stable)
                     loss: 'meanSquaredError',
                     metrics: ['mse']
                 });
-                
+
                 return model;
             }
-            
+
             // Function to get the number of features for the model
             function getNumFeatures() {
                 // Use a subset of heatmap buckets as features to keep the model small
@@ -981,38 +1038,38 @@
                 // Use 20% of buckets + 5 OBM features
                 return Math.ceil(buckets * 0.2) + 5;
             }
-            
+
             // Function to prepare data for the model
             function prepareData() {
-                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const lookbackPeriods = getLookbackPeriodsInMinutes();
                 const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
-                
-                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon || 
+
+                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon ||
                     cachedHeatmapData.heatmap.length <= lookbackPeriods + predictionHorizon) {
                     alert('Not enough data for the selected lookback and prediction periods.');
                     return null;
                 }
-                
+
                 // Calculate OBM data
                 const obmData = calculateOBM(cachedHeatmapData);
-                
+
                 // Extract prices from candlestick data
                 const prices = cachedCandlestickData.map(item => item.close);
-                
+
                 // Extract features from heatmap data
                 const features = extractFeatures(cachedHeatmapData, obmData);
-                
+
                 // Normalize data
                 const { normalizedPrices, normalizedFeatures } = normalizeData(prices, features);
-                
+
                 // Create sequences for training
                 const { xs, ys } = createSequences(
-                    normalizedFeatures, 
-                    normalizedPrices, 
-                    lookbackPeriods, 
+                    normalizedFeatures,
+                    normalizedPrices,
+                    lookbackPeriods,
                     predictionHorizon
                 );
-                
+
                 return {
                     xs: xs,
                     ys: ys,
@@ -1020,17 +1077,17 @@
                     originalFeatures: features
                 };
             }
-            
+
             // Function to extract features from heatmap and OBM data
             function extractFeatures(heatmapData, obmData) {
                 const result = [];
                 const buckets = parseInt(document.getElementById('buckets').value);
                 const featureBuckets = Math.ceil(buckets * 0.2); // Use 20% of buckets as features
                 const bucketStep = Math.floor(buckets / featureBuckets);
-                
+
                 for (let i = 0; i < heatmapData.heatmap.length; i++) {
                     const timestampFeatures = [];
-                    
+
                     // Sample volume features from heatmap (evenly distributed)
                     let hasNonZeroValue = false;
                     for (let j = 0; j < featureBuckets; j++) {
@@ -1041,7 +1098,7 @@
                             if (value > 0) hasNonZeroValue = true;
                         }
                     }
-                    
+
                     // If all volume features are zero, add a small random noise to avoid min=max=0
                     if (!hasNonZeroValue) {
                         for (let j = 0; j < timestampFeatures.length; j++) {
@@ -1049,22 +1106,22 @@
                             timestampFeatures[j] = Math.random() * 0.00009 + 0.00001;
                         }
                     }
-                    
+
                     // Add OBM features if available for this timestamp
                     if (obmData && obmData.obmValues.length > i) {
                         // OBM value (ensure non-zero if all zeros)
                         const obmValue = obmData.obmValues[i] || Math.random() * 0.00002 - 0.00001;
                         timestampFeatures.push(obmValue);
-                        
+
                         // Trend strength (ensure non-zero if zero)
                         const trendStrength = obmData.trendStrength[i] || Math.random() * 0.00002 - 0.00001;
                         timestampFeatures.push(trendStrength);
-                        
+
                         // Add imbalance data approximation
                         const middleIndex = Math.floor(heatmapData.heatmap[i].volumes.length / 2);
                         let buyPressure = 0;
                         let sellPressure = 0;
-                        
+
                         for (let j = 0; j < heatmapData.heatmap[i].volumes.length; j++) {
                             const volume = Math.abs(heatmapData.heatmap[i].volumes[j]);
                             if (j < middleIndex) {
@@ -1073,48 +1130,48 @@
                                 sellPressure += volume;
                             }
                         }
-                        
+
                         // Add small non-zero value to prevent all zeros
                         buyPressure = buyPressure || Math.random() * 0.00009 + 0.00001;
                         sellPressure = sellPressure || Math.random() * 0.00009 + 0.00001;
-                        
+
                         // Order book imbalance
                         const totalPressure = buyPressure + sellPressure;
                         const imbalance = (buyPressure - sellPressure) / totalPressure;
                         timestampFeatures.push(imbalance);
-                        
+
                         // Add buy and sell pressure ratio
                         timestampFeatures.push(buyPressure / totalPressure);
                         timestampFeatures.push(sellPressure / totalPressure);
                     }
-                    
+
                     result.push(timestampFeatures);
                 }
-                
+
                 return result;
             }
-            
+
             // Function to normalize data for the model
             function normalizeData(prices, features) {
                 // Normalize prices
                 const minPrice = Math.min(...prices);
                 const maxPrice = Math.max(...prices);
-                
+
                 // Ensure we don't have min=max for price normalization
                 const priceRange = maxPrice - minPrice;
-                const normalizedPrices = prices.map(price => 
+                const normalizedPrices = prices.map(price =>
                     priceRange > 0 ? (price - minPrice) / priceRange : 0.5
                 );
-                
+
                 // Store normalization parameters for later use
                 normalizedParams.minPrice = minPrice;
                 normalizedParams.maxPrice = maxPrice > minPrice ? maxPrice : minPrice + 0.0001; // Ensure difference
-                
+
                 // Normalize features
                 const normalizedFeatures = [];
                 const featureLength = features[0].length;
                 const featureStats = Array(featureLength).fill().map(() => ({ min: Infinity, max: -Infinity }));
-                
+
                 // Find min/max for each feature
                 for (let i = 0; i < features.length; i++) {
                     for (let j = 0; j < features[i].length; j++) {
@@ -1122,7 +1179,7 @@
                         featureStats[j].max = Math.max(featureStats[j].max, features[i][j]);
                     }
                 }
-                
+
                 // Ensure min != max for all features by adding small offset if needed
                 for (let j = 0; j < featureLength; j++) {
                     if (featureStats[j].min === featureStats[j].max) {
@@ -1131,10 +1188,10 @@
                         console.log(`Debug - Fixed feature ${j} min/max: ${featureStats[j].min} -> ${featureStats[j].max}`);
                     }
                 }
-                
+
                 // Store feature normalization parameters
                 normalizedParams.featureStats = featureStats;
-                
+
                 // Normalize features
                 for (let i = 0; i < features.length; i++) {
                     const normalizedTimestampFeatures = [];
@@ -1148,31 +1205,31 @@
                     }
                     normalizedFeatures.push(normalizedTimestampFeatures);
                 }
-                
+
                 return { normalizedPrices, normalizedFeatures };
             }
-            
+
             // Function to create sequences for training
             function createSequences(features, prices, lookback, horizon) {
                 const xs = [];
                 const ys = [];
-                
+
                 for (let i = 0; i <= features.length - lookback - horizon; i++) {
                     // Input sequence
                     const sequence = features.slice(i, i + lookback);
                     xs.push(sequence);
-                    
+
                     // Output values (multiple future prices)
                     const futureValues = prices.slice(i + lookback, i + lookback + horizon);
                     ys.push(futureValues);
                 }
-                
+
                 return {
                     xs: tf.tensor3d(xs),
                     ys: tf.tensor2d(ys, [ys.length, horizon])
                 };
             }
-            
+
             // Function to train the model
             async function trainModel() {
                 // Show loading indicator
@@ -1180,14 +1237,14 @@
                 document.getElementById('priceDirection').textContent = '---';
                 document.getElementById('predictionConfidence').textContent = '---';
                 document.getElementById('modelAccuracy').textContent = '---';
-                
+
                 // Prepare data
                 const data = prepareData();
                 if (!data) return;
-                
+
                 // Create the model with our improved architecture
                 createModel();
-                
+
                 try {
                     // Use tf.tidy for memory management but handle it synchronously
                     // since tf.tidy doesn't return a Promise
@@ -1195,22 +1252,22 @@
                         // Check for NaN in the training data
                         const xsHasNaN = tf.any(tf.isNaN(data.xs)).dataSync()[0];
                         const ysHasNaN = tf.any(tf.isNaN(data.ys)).dataSync()[0];
-                        
+
                         if (xsHasNaN || ysHasNaN) {
                             console.error("Training data contains NaN values - fixing...");
-                            
+
                             // If we have NaN in training data, we need to fix it
                             // For xs, replace NaN with 0.5 (midpoint of normalized range)
                             const fixedXs = tf.where(tf.isNaN(data.xs), tf.scalar(0.5), data.xs);
-                            
+
                             // For ys, replace NaN with mean of non-NaN values
                             const ysData = data.ys.dataSync();
                             const validYs = Array.from(ysData).filter(v => !isNaN(v));
-                            const meanY = validYs.length > 0 ? 
+                            const meanY = validYs.length > 0 ?
                                 validYs.reduce((a, b) => a + b, 0) / validYs.length : 0.5;
-                            
+
                             const fixedYs = tf.where(tf.isNaN(data.ys), tf.scalar(meanY), data.ys);
-                            
+
                             // Now use the fixed data
                             return { xs: fixedXs, ys: fixedYs };
                         } else {
@@ -1218,11 +1275,11 @@
                             return { xs: data.xs, ys: data.ys };
                         }
                     });
-                    
+
                     // Train the model
                     const batchSize = Math.min(32, Math.floor(cleanData.xs.shape[0] / 4));
                     const epochs = 50;
-                    
+
                     // Add early stopping to prevent overfitting
                     const earlyStoppingCallback = {
                         onEpochEnd: (epoch, logs) => {
@@ -1230,7 +1287,7 @@
                             // Properly calculate and display accuracy
                             const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
                             document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
-                            
+
                             // If the loss is extremely small or NaN, stop training
                             if (isNaN(logs.loss) || logs.loss < 0.0001) {
                                 console.log("Early stopping - loss is too small or NaN");
@@ -1238,7 +1295,7 @@
                             }
                         }
                     };
-                    
+
                     // Train the model with early stopping
                     const history = await model.fit(cleanData.xs, cleanData.ys, {
                         batchSize,
@@ -1247,17 +1304,17 @@
                         validationSplit: 0.2,
                         callbacks: [earlyStoppingCallback]
                     });
-                    
+
                     // Update model status
                     isModelTrained = true;
-                    
+
                     // Make prediction
                     makePrediction();
-                    
+
                     // Dispose tensors to prevent memory leaks
                     if (cleanData.xs !== data.xs) cleanData.xs.dispose();
                     if (cleanData.ys !== data.ys) cleanData.ys.dispose();
-                    
+
                 } catch (error) {
                     console.error('Error during model training:', error);
                     document.getElementById('nextPricePrediction').textContent = 'Training failed';
@@ -1267,31 +1324,31 @@
                     if (data && data.ys) data.ys.dispose();
                 }
             }
-            
+
             // Function to make a prediction
             function makePrediction() {
                 if (!isModelTrained || !model) {
                     document.getElementById('nextPricePrediction').textContent = 'Train model first';
                     return;
                 }
-                
+
                 try {
-                    const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                    const lookbackPeriods = getLookbackPeriodsInMinutes();
                     const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
-                    
+
                     // Get the latest data for prediction
                     const obmData = calculateOBM(cachedHeatmapData);
                     const features = extractFeatures(cachedHeatmapData, obmData);
                     const prices = cachedCandlestickData.map(item => item.close);
-                    
+
                     if (features.length < lookbackPeriods) {
                         document.getElementById('nextPricePrediction').textContent = 'Not enough data';
                         return;
                     }
-                    
+
                     // Get the latest sequence for prediction
                     const latestFeatures = features.slice(features.length - lookbackPeriods);
-                    
+
                     // Normalize the features using saved parameters
                     const normalizedLatestFeatures = latestFeatures.map(timestampFeatures => {
                         return timestampFeatures.map((value, index) => {
@@ -1299,109 +1356,109 @@
                                 console.log(`Warning: Feature index ${index} out of bounds`);
                                 return 0.5;
                             }
-                            
+
                             const min = normalizedParams.featureStats[index].min;
                             const max = normalizedParams.featureStats[index].max;
                             const range = max - min;
-                            
+
                             if (range <= 0) {
                                 console.log(`Debug - Feature ${index} has zero range: min=${min}, max=${max}`);
                                 return 0.5; // Use middle value for zero-range features
                             }
-                            
+
                             const normalized = (value - min) / range;
-                            
+
                             // Ensure value is valid - very important for numerical stability
                             if (isNaN(normalized) || !isFinite(normalized)) {
                                 console.log(`Debug - Invalid normalized value for feature ${index}: ${normalized}`);
                                 return 0.5;
                             }
-                            
+
                             // Clamp values to prevent extreme outliers
                             return Math.max(0, Math.min(1, normalized));
                         });
                     });
-                    
+
                     // Use tf.tidy to automatically dispose intermediate tensors
                     const prediction = tf.tidy(() => {
                         // Create input tensor and check for NaN values
                         const inputTensor = tf.tensor3d([normalizedLatestFeatures]);
-                        
+
                         // Log tensor shape to verify input is correct
                         console.log("Input tensor shape:", inputTensor.shape);
-                        
+
                         // Check for NaN values in input tensor
                         const inputHasNaN = tf.any(tf.isNaN(inputTensor)).dataSync()[0];
                         if (inputHasNaN) {
                             console.error("Input tensor contains NaN values");
                             return null;
                         }
-                        
+
                         // Make prediction
                         return model.predict(inputTensor);
                     });
-                    
+
                     // Handle the case where prediction is null (due to NaN inputs)
                     if (prediction === null) {
                         document.getElementById('nextPricePrediction').textContent = 'Invalid input data';
                         return;
                     }
-                    
+
                     // Get the predicted values (now multiple values)
                     const predictionData = prediction.dataSync();
-                    
+
                     // Create array of future predicted prices
                     const futurePrices = [];
                     const lastDate = new Date(cachedCandlestickData[cachedCandlestickData.length - 1].timestamp);
                     const futureTimestamps = [];
-                    
+
                     // Calculate interval in minutes from the existing data 
                     // assuming each tick is 1 minute or whatever your data interval is
                     const dataInterval = 60 * 1000; // 1 minute in milliseconds
-                    
+
                     // Denormalize and store future predictions 
                     for (let i = 0; i < predictionHorizon; i++) {
                         const predictedNormalized = predictionData[i];
-                        
+
                         // Check for invalid prediction
                         if (!isFinite(predictedNormalized)) {
                             console.log(`Predicted normalized value at index ${i} is NaN or Infinity, skipping`);
                             continue;
                         }
-                        
+
                         // Denormalize the prediction
                         const priceRange = normalizedParams.maxPrice - normalizedParams.minPrice;
                         const predictedPrice = (predictedNormalized * priceRange) + normalizedParams.minPrice;
-                        
+
                         // Calculate future timestamp
                         const futureTimestamp = new Date(lastDate.getTime() + (i + 1) * dataInterval);
-                        
+
                         futurePrices.push(predictedPrice);
                         futureTimestamps.push(futureTimestamp);
                     }
-                    
+
                     // Update UI with first prediction
                     if (futurePrices.length > 0) {
                         const nextPrice = futurePrices[0];
                         const lastPrice = prices[prices.length - 1];
                         const priceChange = nextPrice - lastPrice;
                         const percentChange = (priceChange / lastPrice) * 100;
-                        
+
                         // Determine direction and confidence
                         const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
                         const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
-                        
+
                         // Update UI
                         document.getElementById('nextPricePrediction').textContent = nextPrice.toFixed(4);
                         document.getElementById('priceDirection').textContent = direction;
-                        document.getElementById('priceDirection').className = 
+                        document.getElementById('priceDirection').className =
                             'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
                         document.getElementById('predictionConfidence').textContent = confidence;
                     }
-                    
+
                     // Add future price predictions to the chart
                     addPredictionsToChart(futureTimestamps, futurePrices);
-                    
+
                     // Dispose tensors
                     prediction.dispose();
                 } catch (error) {
@@ -1409,11 +1466,11 @@
                     document.getElementById('nextPricePrediction').textContent = 'Prediction failed';
                 }
             }
-            
+
             // Create a new function to add predictions to the chart
             function addPredictionsToChart(timestamps, prices) {
                 if (!timestamps.length || !prices.length) return;
-                
+
                 // Create prediction trace
                 const predictionTrace = {
                     x: timestamps,
@@ -1429,16 +1486,16 @@
                     yaxis: 'y',
                     type: 'scatter'
                 };
-                
+
                 // When calling renderChart, we could add a parameter to include predictions
                 // But for now, let's just modify the chart directly
                 Plotly.addTraces('chart', predictionTrace);
             }
-            
+
             // And then when we re-render the chart:
             function renderChart(candlestickData, heatmapData, clearPredictions = true) {
                 // Existing rendering code...
-                
+
                 // After creating the chart, if clearPredictions is true, we can clear any existing predictions
                 if (clearPredictions) {
                     // Find the prediction trace and remove it if it exists
@@ -1451,15 +1508,15 @@
                     }
                 }
             }
-            
+
             // Function to update the prediction horizon selector
             function updatePredictionHorizonOptions() {
                 const timeRange = document.getElementById('timeRange').value;
                 const predictionHorizonSelect = document.getElementById('predictionHorizon');
-                
+
                 // Clear existing options
                 predictionHorizonSelect.innerHTML = '';
-                
+
                 // Set options based on time range
                 let maxPeriods;
                 switch (timeRange) {
@@ -1470,7 +1527,7 @@
                     case '24h': maxPeriods = 1440; break;
                     default: maxPeriods = 60; // Default to 60 minutes
                 }
-                
+
                 // Add options for different forecast lengths
                 const options = [
                     { value: 1, text: '1 period' },
@@ -1479,12 +1536,12 @@
                     { value: 30, text: '30 periods' },
                     { value: Math.min(60, maxPeriods), text: '1 hour' }
                 ];
-                
+
                 // Add additional options for longer time ranges
                 if (maxPeriods >= 180) options.push({ value: 180, text: '3 hours' });
                 if (maxPeriods >= 360) options.push({ value: 360, text: '6 hours' });
                 if (maxPeriods >= 720) options.push({ value: 720, text: '12 hours' });
-                
+
                 // Create and append options
                 options.forEach(option => {
                     const optElement = document.createElement('option');
@@ -1492,22 +1549,22 @@
                     optElement.textContent = option.text;
                     predictionHorizonSelect.appendChild(optElement);
                 });
-                
+
                 // Set default selection
                 predictionHorizonSelect.value = '3';
             }
-            
+
             // Add event listener for timeRange to update prediction horizon options
             document.getElementById('timeRange').addEventListener('change', updatePredictionHorizonOptions);
-            
+
             // Initialize prediction horizon options
             updatePredictionHorizonOptions();
-            
+
             // Modify loadData to call makePrediction when new data is loaded
             const originalLoadData = loadData;
-            loadData = function(fullRefresh = false) {
+            loadData = function (fullRefresh = false) {
                 originalLoadData(fullRefresh);
-                
+
                 // Make a prediction if the model is trained and prediction is enabled
                 if (isModelTrained && document.getElementById('enablePrediction').checked) {
                     // Wait for data to be loaded
@@ -1516,27 +1573,27 @@
                     }, 1000);
                 }
             };
-            
+
             // Initial state of prediction container
-            document.getElementById('predictionContainer').style.display = 
+            document.getElementById('predictionContainer').style.display =
                 document.getElementById('enablePrediction').checked ? 'block' : 'none';
-            
+
             function loadData(fullRefresh = false) {
                 const dateRangeMode = document.getElementById('dateRangeMode').value;
                 const buckets = document.getElementById('buckets').value;
                 const marginPercent = document.getElementById('marginPercent').value;
-                
+
                 let startTime, endTime;
-                
+
                 if (dateRangeMode === 'fromNow') {
                     // Get the current time range selection
                     const timeRange = document.getElementById('timeRange').value;
-                    
+
                     // If time range or buckets changed, we need a full refresh
                     if (timeRange !== currentTimeRange || fullRefresh) {
                         currentTimeRange = timeRange;
                     }
-                    
+
                     // Always recalculate the time range on every refresh
                     // Calculate time range in seconds
                     let duration;
@@ -1557,7 +1614,7 @@
                         case '168h': duration = 3600 * 168; break;
                         default: duration = 3600;
                     }
-                    
+
                     endTime = Math.floor(Date.now() / 1000);
                     startTime = endTime - duration;
                 } else {
@@ -1566,43 +1623,43 @@
                     const endDate = document.getElementById('endDate').valueAsDate;
                     const startTimeStr = document.getElementById('startTime').value;
                     const endTimeStr = document.getElementById('endTime').value;
-                    
+
                     // Parse time strings
                     const [startHours, startMinutes] = startTimeStr.split(':').map(Number);
                     const [endHours, endMinutes] = endTimeStr.split(':').map(Number);
-                    
+
                     // Set the time components
                     startDate.setHours(startHours, startMinutes, 0, 0);
                     endDate.setHours(endHours, endMinutes, 59, 999);
-                    
+
                     // Convert to Unix timestamps (seconds)
                     startTime = Math.floor(startDate.getTime() / 1000);
                     endTime = Math.floor(endDate.getTime() / 1000);
                 }
-                
+
                 // Full refresh - fetch all data with margin percent parameter
                 Promise.all([
                     fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
                     fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
                 ])
-                .then(responses => Promise.all(responses.map(res => res.json())))
-                .then(([candlestickData, heatmapData]) => {
-                    // Just store the complete data
-                    cachedCandlestickData = candlestickData;
-                    cachedHeatmapData = heatmapData;
-                    lastFetchTime = endTime;
-                    renderChart(cachedCandlestickData, cachedHeatmapData);
-                })
-                .catch(error => {
-                    console.error('Error fetching data:', error);
-                    alert('Failed to load data. Please try again.');
-                });
+                    .then(responses => Promise.all(responses.map(res => res.json())))
+                    .then(([candlestickData, heatmapData]) => {
+                        // Just store the complete data
+                        cachedCandlestickData = candlestickData;
+                        cachedHeatmapData = heatmapData;
+                        lastFetchTime = endTime;
+                        renderChart(cachedCandlestickData, cachedHeatmapData);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                        alert('Failed to load data. Please try again.');
+                    });
             }
-            
+
             // Generate a colorscale with weights adjusted by the density value
             function generateWeightedColorscale(density) {
                 const colorscale = [];
-                
+
                 // Base colors (from dark blue to bright yellow)
                 const colors = [
                     'rgb(10, 10, 50)',      // Dark blue
@@ -1615,42 +1672,42 @@
                     'rgb(220, 250, 40)',    // Yellow-green
                     'rgb(255, 235, 0)'      // Bright yellow
                 ];
-                
+
                 // Set the baseline for minimal values
                 colorscale.push([0, colors[0]]);
-                
+
                 // Apply non-linear distribution of colors based on density
                 // Higher density = more color weight to lower values
                 const power = (11 - density) / 2; // Convert to 0.5-5 range (inverse)
-                
+
                 for (let i = 1; i < colors.length; i++) {
                     // Calculate position with weighting based on density
                     // This emphasizes lower values when density is high
                     let position = Math.pow(i / (colors.length - 1), power);
                     colorscale.push([position, colors[i]]);
                 }
-                
+
                 return colorscale;
             }
-            
+
             function renderChart(candlestickData, heatmapData) {
                 if (!candlestickData.length || !heatmapData.timestamps.length) {
                     document.getElementById('chart').innerHTML = 'No data available for the selected time range';
                     return;
                 }
-                
+
                 // Calculate Order Book Momentum
                 const obmData = calculateOBM(heatmapData);
-                
+
                 // Prepare price data
                 const times = candlestickData.map(item => new Date(item.timestamp));
                 const prices = candlestickData.map(item => item.close);
-                
+
                 // Prepare heatmap data
                 const heatmapZ = [];
                 const timestamps = heatmapData.timestamps.map(ts => new Date(ts * 1000));
                 const priceLevels = heatmapData.priceLevels;
-                
+
                 // Convert the heatmap result to a matrix format that Plotly can use
                 // Each row represents a price level, each column represents a timestamp
                 for (let i = 0; i < priceLevels.length; i++) {
@@ -1662,11 +1719,11 @@
                     }
                     heatmapZ.push(row);
                 }
-                
+
                 // Find the price range from priceLevels for consistent scaling
                 const minPrice = Math.min(...priceLevels);
                 const maxPrice = Math.max(...priceLevels);
-                
+
                 // Create the combined plot
                 const trace1 = {
                     x: times,
@@ -1682,10 +1739,10 @@
                     yaxis: 'y',
                     type: 'scatter'
                 };
-                
+
                 // Get color density value
                 const colorDensity = parseInt(document.getElementById('colorDensity').value);
-                
+
                 const trace2 = {
                     x: timestamps,
                     y: priceLevels,
@@ -1702,7 +1759,7 @@
                     zsmooth: 'best',  // Change this from 'false' to 'best'
                     showscale: true
                 };
-                
+
                 const layout = {
                     title: {
                         text: 'Milk Price and Orderbook Heatmap',
@@ -1753,21 +1810,21 @@
                     },
                     autosize: true
                 };
-                
-                Plotly.newPlot('chart', [trace2, trace1], layout, {responsive: true});
-                
+
+                Plotly.newPlot('chart', [trace2, trace1], layout, { responsive: true });
+
                 // Create the volume profile chart if enabled
                 const showCVP = document.getElementById('showCVP').checked;
                 if (showCVP) {
                     // Calculate aggregate volume for each price level
                     const volumeByPrice = new Array(priceLevels.length).fill(0);
-                    
+
                     for (let i = 0; i < priceLevels.length; i++) {
                         for (let j = 0; j < heatmapData.heatmap.length; j++) {
                             volumeByPrice[i] += Math.abs(heatmapData.heatmap[j].volumes[i]);
                         }
                     }
-                    
+
                     // Create the Volume Profile trace as a vertical bar chart
                     const cvpTrace = {
                         y: priceLevels,
@@ -1783,7 +1840,7 @@
                             }
                         }
                     };
-                    
+
                     const cvpLayout = {
                         title: {
                             text: 'Volume Profile',
@@ -1823,33 +1880,33 @@
                         },
                         autosize: true
                     };
-                    
-                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, {responsive: true});
+
+                    Plotly.newPlot('cvpChart', [cvpTrace], cvpLayout, { responsive: true });
                 }
-                
+
                 // Create the OBM chart if enabled
                 const showOBM = document.getElementById('showOBM').checked;
                 if (showOBM && obmData.timestamps.length > 0) {
                     // Add custom title div element
                     document.getElementById('obmChart').innerHTML = '<div class="obm-title">ORDER BOOK MOMENTUM ANALYZER</div>';
-                    
+
                     // Create detailed hover text for each data point
                     const positiveHoverTexts = obmData.obmValues.map((val, i) => {
                         if (val < 0) return null;
                         let trend = obmData.trendStrength[i] || 0;
-                        let trendText = trend > 0.01 ? "ACCELERATING" : 
-                                       (trend < -0.01 ? "DECELERATING" : "STABLE");
+                        let trendText = trend > 0.01 ? "ACCELERATING" :
+                            (trend < -0.01 ? "DECELERATING" : "STABLE");
                         return `OBM: ${val.toFixed(4)}\nTrend: ${trendText}\nBULLISH SIGNAL`;
                     });
-                    
+
                     const negativeHoverTexts = obmData.obmValues.map((val, i) => {
                         if (val > 0) return null;
                         let trend = obmData.trendStrength[i] || 0;
-                        let trendText = trend < -0.01 ? "ACCELERATING" : 
-                                       (trend > 0.01 ? "DECELERATING" : "STABLE");
+                        let trendText = trend < -0.01 ? "ACCELERATING" :
+                            (trend > 0.01 ? "DECELERATING" : "STABLE");
                         return `OBM: ${val.toFixed(4)}\nTrend: ${trendText}\nBEARISH SIGNAL`;
                     });
-                    
+
                     // Create multiple traces for more visual appeal
                     const obmTracePositive = {
                         x: obmData.timestamps,
@@ -1877,7 +1934,7 @@
                             }
                         }
                     };
-                    
+
                     const obmTraceNegative = {
                         x: obmData.timestamps,
                         y: obmData.obmValues.map(val => val <= 0 ? val : null),
@@ -1904,7 +1961,7 @@
                             }
                         }
                     };
-                    
+
                     // Add forecast trace with dotted line
                     const forecastTrace = {
                         x: obmData.timestamps,
@@ -1929,7 +1986,7 @@
                             }
                         }
                     };
-                    
+
                     // Add trend strength visualization
                     const trendStrengthTrace = {
                         x: obmData.timestamps,
@@ -1954,14 +2011,14 @@
                             }
                         }
                     };
-                    
+
                     // Add extreme points markers
                     const highPoints = [], lowPoints = [];
-                    for (let i = 1; i < obmData.obmValues.length-1; i++) {
-                        const prev = obmData.obmValues[i-1];
+                    for (let i = 1; i < obmData.obmValues.length - 1; i++) {
+                        const prev = obmData.obmValues[i - 1];
                         const curr = obmData.obmValues[i];
-                        const next = obmData.obmValues[i+1];
-                        
+                        const next = obmData.obmValues[i + 1];
+
                         if (curr > prev && curr > next && curr > 0.1) {
                             highPoints.push({
                                 x: obmData.timestamps[i],
@@ -1969,7 +2026,7 @@
                                 text: `PEAK: ${curr.toFixed(3)}`
                             });
                         }
-                        
+
                         if (curr < prev && curr < next && curr < -0.1) {
                             lowPoints.push({
                                 x: obmData.timestamps[i],
@@ -1978,7 +2035,7 @@
                             });
                         }
                     }
-                    
+
                     const extremeHighsTrace = {
                         x: highPoints.map(p => p.x),
                         y: highPoints.map(p => p.y),
@@ -2006,7 +2063,7 @@
                             }
                         }
                     };
-                    
+
                     const extremeLowsTrace = {
                         x: lowPoints.map(p => p.x),
                         y: lowPoints.map(p => p.y),
@@ -2034,7 +2091,7 @@
                             }
                         }
                     };
-                    
+
                     const obmLayout = {
                         plot_bgcolor: 'rgba(15, 15, 35, 0.9)',
                         paper_bgcolor: 'rgba(10, 10, 25, 0)',
@@ -2042,7 +2099,7 @@
                         yaxis: {
                             title: {
                                 text: 'MOMENTUM SIGNAL',
-                                font: { 
+                                font: {
                                     color: '#00ff9d',
                                     size: 12,
                                     family: 'Courier New, monospace'
@@ -2053,7 +2110,7 @@
                             zerolinewidth: 2,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
                             gridwidth: 1,
-                            tickfont: { 
+                            tickfont: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace',
                                 size: 10
@@ -2069,7 +2126,7 @@
                         xaxis: {
                             showgrid: true,
                             gridcolor: 'rgba(0, 255, 157, 0.1)',
-                            tickfont: { 
+                            tickfont: {
                                 color: '#00ff9d',
                                 family: 'Courier New, monospace',
                                 size: 10
@@ -2155,7 +2212,7 @@
                             {
                                 x: 0.02,
                                 y: 0.3,
-                                xref: 'paper', 
+                                xref: 'paper',
                                 yref: 'paper',
                                 text: 'BEARISH',
                                 showarrow: false,
@@ -2182,7 +2239,7 @@
                         yaxis2: {
                             title: {
                                 text: 'TREND',
-                                font: { 
+                                font: {
                                     color: 'rgba(180, 180, 255, 0.8)',
                                     size: 10,
                                     family: 'Courier New, monospace'
@@ -2194,7 +2251,7 @@
                             zeroline: true,
                             zerolinecolor: 'rgba(180, 180, 255, 0.3)',
                             zerolinewidth: 1,
-                            tickfont: { 
+                            tickfont: {
                                 color: 'rgba(180, 180, 255, 0.8)',
                                 family: 'Courier New, monospace',
                                 size: 8
@@ -2204,14 +2261,14 @@
                             range: [-0.05, 0.05]
                         }
                     };
-                    
+
                     // Change the plot order to ensure all points are hoverable
                     Plotly.newPlot('obmChart', [
-                        obmTracePositive, 
+                        obmTracePositive,
                         obmTraceNegative,
                         forecastTrace,
                         trendStrengthTrace,
-                        extremeHighsTrace, 
+                        extremeHighsTrace,
                         extremeLowsTrace
                     ], obmLayout, {
                         responsive: true,
@@ -2225,12 +2282,12 @@
                             scale: 2
                         }
                     });
-                    
+
                     // Add pulsing highlight when OBM crosses zero
                     for (let i = 1; i < obmData.obmValues.length; i++) {
-                        if ((obmData.obmValues[i-1] < 0 && obmData.obmValues[i] > 0) ||
-                            (obmData.obmValues[i-1] > 0 && obmData.obmValues[i] < 0)) {
-                            
+                        if ((obmData.obmValues[i - 1] < 0 && obmData.obmValues[i] > 0) ||
+                            (obmData.obmValues[i - 1] > 0 && obmData.obmValues[i] < 0)) {
+
                             Plotly.addTraces('obmChart', {
                                 x: [obmData.timestamps[i]],
                                 y: [obmData.obmValues[i]],
@@ -2264,9 +2321,9 @@
                     document.getElementById('obmChart').style.display = 'none';
                 }
             }
-            
+
             // Also add event listener for the OBM checkbox
-            document.getElementById('showOBM').addEventListener('change', function() {
+            document.getElementById('showOBM').addEventListener('change', function () {
                 document.getElementById('obmChart').style.display = this.checked ? 'block' : 'none';
                 // Re-render the chart with the current data to update layouts
                 if (cachedCandlestickData.length && cachedHeatmapData.timestamps.length) {
@@ -2275,31 +2332,31 @@
                 // Trigger a window resize event to make Plotly adjust
                 window.dispatchEvent(new Event('resize'));
             });
-            
+
             // Add a more sophisticated model architecture that better captures fluid dynamics
             function createAdvancedFluidModel() {
                 // Dispose previous model if exists
                 if (model !== null) {
                     model.dispose();
                 }
-                
+
                 model = tf.sequential();
-                
+
                 // Get configuration
-                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const lookbackPeriods = getLookbackPeriodsInMinutes();
                 const numFeatures = getNumFeatures();
                 const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
-                
+
                 // Create a multi-level recurrent architecture with residual connections
                 // This better simulates fluid dynamics through a system
-                
+
                 // First layer processes the raw features
                 model.add(tf.layers.dense({
                     units: 64,
                     activation: 'relu',
                     inputShape: [lookbackPeriods, numFeatures]
                 }));
-                
+
                 // Add a bidirectional layer to capture flow in both directions
                 model.add(tf.layers.bidirectional({
                     layer: tf.layers.gru({
@@ -2314,34 +2371,34 @@
                     }),
                     mergeMode: 'concat'
                 }));
-                
+
                 // Add a layer to model non-linear fluid dynamics
                 model.add(tf.layers.dense({
                     units: 64,
                     activation: 'swish' // More fluid-like activation function
                 }));
-                
+
                 // Reduce dimensionality while preserving dynamic properties
                 model.add(tf.layers.gru({
                     units: 32,
                     returnSequences: false
                 }));
-                
+
                 // Output layer to predict multiple future points
                 model.add(tf.layers.dense({
                     units: predictionHorizon,
                     activation: 'sigmoid'
                 }));
-                
+
                 // Use a more sophisticated optimizer with gradient clipping
                 const optimizer = tf.train.adam(0.001, 0.9, 0.999, 1e-8);
-                
+
                 model.compile({
                     optimizer: optimizer,
                     loss: 'meanSquaredError',
                     metrics: ['mse']
                 });
-                
+
                 return model;
             }
 
@@ -2351,18 +2408,18 @@
                 if (model !== null) {
                     model.dispose();
                 }
-                
+
                 // Get configuration parameters
-                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const lookbackPeriods = getLookbackPeriodsInMinutes();
                 const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
                 const buckets = parseInt(document.getElementById('buckets').value);
-                
+
                 // Create a new sequential model
                 model = tf.sequential();
-                
+
                 // Input shape: [lookbackPeriods (time steps), priceLevels (buckets), channels (1 for volume)]
                 const inputShape = [lookbackPeriods, buckets, 1];
-                
+
                 // 1. Add CNN layers to process spatial features in the orderbook
                 // First convolutional layer
                 model.add(tf.layers.conv2d({
@@ -2372,13 +2429,13 @@
                     activation: 'relu',
                     padding: 'same'
                 }));
-                
+
                 // Max pooling to reduce dimensionality
                 model.add(tf.layers.maxPooling2d({
                     poolSize: [1, 2],  // Pool only along price dimension, not time
                     strides: [1, 2]
                 }));
-                
+
                 // Second convolutional layer - deeper features
                 model.add(tf.layers.conv2d({
                     filters: 64,
@@ -2386,22 +2443,22 @@
                     activation: 'relu',
                     padding: 'same'
                 }));
-                
+
                 // Another max pooling layer
                 model.add(tf.layers.maxPooling2d({
                     poolSize: [1, 2],
                     strides: [1, 2]
                 }));
-                
+
                 // 2. Reshape for LSTM processing
                 // Calculate shape after pooling
                 const priceLevelsAfterPooling = Math.floor(buckets / 4); // After two pooling layers with stride 2
-                
+
                 // Reshape to [timeSteps, features]
                 model.add(tf.layers.reshape({
                     targetShape: [lookbackPeriods, priceLevelsAfterPooling * 64]
                 }));
-                
+
                 // 3. LSTM layers to process temporal patterns
                 model.add(tf.layers.lstm({
                     units: 100,
@@ -2409,10 +2466,10 @@
                     activation: 'tanh',
                     recurrentActivation: 'sigmoid'
                 }));
-                
+
                 // Add dropout to prevent overfitting
                 model.add(tf.layers.dropout({ rate: 0.3 }));
-                
+
                 // Second LSTM layer
                 model.add(tf.layers.lstm({
                     units: 50,
@@ -2420,69 +2477,69 @@
                     activation: 'tanh',
                     recurrentActivation: 'sigmoid'
                 }));
-                
+
                 // Add dropout
                 model.add(tf.layers.dropout({ rate: 0.3 }));
-                
+
                 // 4. Dense output layer for prediction
                 model.add(tf.layers.dense({
                     units: predictionHorizon,
                     activation: 'sigmoid' // Keep outputs in [0,1] range (will be denormalized later)
                 }));
-                
+
                 // Compile model with Adam optimizer
                 model.compile({
                     optimizer: tf.train.adam(0.001),
                     loss: 'meanSquaredError',
                     metrics: ['mse']
                 });
-                
+
                 return model;
             }
 
             // Modify the prepareData function to format data for CNN-LSTM
             function prepareDataForCNNLSTM() {
-                const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                const lookbackPeriods = getLookbackPeriodsInMinutes();
                 const predictionHorizon = parseInt(document.getElementById('predictionHorizon').value);
                 const buckets = parseInt(document.getElementById('buckets').value);
-                
-                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon || 
+
+                if (cachedCandlestickData.length <= lookbackPeriods + predictionHorizon ||
                     cachedHeatmapData.heatmap.length <= lookbackPeriods + predictionHorizon) {
                     alert('Not enough data for the selected lookback and prediction periods.');
                     return null;
                 }
-                
+
                 // Extract prices from candlestick data for the target values
                 const prices = cachedCandlestickData.map(item => item.close);
-                
+
                 // Prepare input data: reshape the heatmap into [samples, time_steps, price_levels, channels]
                 const numSamples = cachedHeatmapData.heatmap.length - lookbackPeriods - predictionHorizon + 1;
                 const xs = [];
                 const ys = [];
-                
+
                 // For each sample window
                 for (let i = 0; i <= cachedHeatmapData.heatmap.length - lookbackPeriods - predictionHorizon; i++) {
                     // Create a sequence of heatmaps
                     const heatmapSequence = [];
-                    
+
                     for (let t = 0; t < lookbackPeriods; t++) {
                         // Get volumes for this timestamp and normalize them
                         const volumes = cachedHeatmapData.heatmap[i + t].volumes.slice();
                         heatmapSequence.push(volumes);
                     }
-                    
+
                     xs.push(heatmapSequence);
-                    
+
                     // Output values (multiple future prices)
                     const futureValues = prices.slice(i + lookbackPeriods, i + lookbackPeriods + predictionHorizon);
                     ys.push(futureValues);
                 }
-                
+
                 // Normalize data
                 // Find min/max for volumes across all samples
                 let minVolume = Infinity;
                 let maxVolume = -Infinity;
-                
+
                 for (let i = 0; i < xs.length; i++) {
                     for (let t = 0; t < xs[i].length; t++) {
                         for (let p = 0; p < xs[i][t].length; p++) {
@@ -2491,41 +2548,41 @@
                         }
                     }
                 }
-                
+
                 // Ensure we don't have min=max
                 if (minVolume === maxVolume) {
                     maxVolume = minVolume + 0.0001;
                 }
-                
+
                 // Normalize volumes to [0,1]
-                const normalizedXs = xs.map(sample => 
-                    sample.map(timeStep => 
-                        timeStep.map(volume => 
+                const normalizedXs = xs.map(sample =>
+                    sample.map(timeStep =>
+                        timeStep.map(volume =>
                             (volume - minVolume) / (maxVolume - minVolume)
                         )
                     )
                 );
-                
+
                 // Store volume normalization params
                 normalizedParams.minVolume = minVolume;
                 normalizedParams.maxVolume = maxVolume;
-                
+
                 // Normalize prices as before
                 const minPrice = Math.min(...prices);
                 const maxPrice = Math.max(...prices);
-                
+
                 // Ensure we don't have min=max for price normalization
                 const priceRange = maxPrice - minPrice;
-                const normalizedYs = ys.map(priceSequence => 
-                    priceSequence.map(price => 
+                const normalizedYs = ys.map(priceSequence =>
+                    priceSequence.map(price =>
                         priceRange > 0 ? (price - minPrice) / priceRange : 0.5
                     )
                 );
-                
+
                 // Store price normalization parameters
                 normalizedParams.minPrice = minPrice;
                 normalizedParams.maxPrice = maxPrice > minPrice ? maxPrice : minPrice + 0.0001;
-                
+
                 // Reshape for CNN input: add channel dimension [samples, time_steps, price_levels, channels]
                 const reshapedXs = normalizedXs.map(sample => {
                     const result = [];
@@ -2539,7 +2596,7 @@
                     }
                     return result;
                 });
-                
+
                 // Convert to tensors with proper shapes
                 return {
                     xs: tf.tensor4d(reshapedXs),  // [samples, time_steps, price_levels, channels]
@@ -2555,40 +2612,40 @@
                 document.getElementById('priceDirection').textContent = '---';
                 document.getElementById('predictionConfidence').textContent = '---';
                 document.getElementById('modelAccuracy').textContent = '---';
-                
+
                 // Prepare data in the CNN-LSTM format
                 const data = prepareDataForCNNLSTM();
                 if (!data) return;
-                
+
                 // Create the CNN-LSTM model
                 createCNNLSTMModel();
-                
+
                 try {
                     // Check for NaN in the training data
                     const xsHasNaN = tf.tidy(() => tf.any(tf.isNaN(data.xs)).dataSync()[0]);
                     const ysHasNaN = tf.tidy(() => tf.any(tf.isNaN(data.ys)).dataSync()[0]);
-                    
+
                     if (xsHasNaN || ysHasNaN) {
                         console.error("Training data contains NaN values - fixing...");
-                        
+
                         // Handle NaN values as before
                         const cleanData = tf.tidy(() => {
                             const fixedXs = tf.where(tf.isNaN(data.xs), tf.scalar(0.5), data.xs);
-                            
+
                             const ysData = data.ys.dataSync();
                             const validYs = Array.from(ysData).filter(v => !isNaN(v));
-                            const meanY = validYs.length > 0 ? 
+                            const meanY = validYs.length > 0 ?
                                 validYs.reduce((a, b) => a + b, 0) / validYs.length : 0.5;
-                            
+
                             const fixedYs = tf.where(tf.isNaN(data.ys), tf.scalar(meanY), data.ys);
-                            
+
                             return { xs: fixedXs, ys: fixedYs };
                         });
-                        
+
                         // Train the model
                         const batchSize = Math.min(16, Math.floor(cleanData.xs.shape[0] / 4)); // Smaller batch size for complex model
                         const epochs = 30; // Fewer epochs due to more complex model
-                        
+
                         // Add early stopping to prevent overfitting
                         const earlyStoppingCallback = {
                             onEpochEnd: (epoch, logs) => {
@@ -2596,7 +2653,7 @@
                                 // Update accuracy display
                                 const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
                                 document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
-                                
+
                                 // Early stopping condition
                                 if (isNaN(logs.loss) || logs.loss < 0.0001) {
                                     console.log("Early stopping - loss is too small or NaN");
@@ -2604,7 +2661,7 @@
                                 }
                             }
                         };
-                        
+
                         // Train with higher validation split for complex model
                         const history = await model.fit(cleanData.xs, cleanData.ys, {
                             batchSize,
@@ -2613,35 +2670,35 @@
                             validationSplit: 0.3,
                             callbacks: [earlyStoppingCallback]
                         });
-                        
+
                         // Update model status
                         isModelTrained = true;
-                        
+
                         // Make prediction
                         makeCNNLSTMPrediction();
-                        
+
                         // Dispose tensors
                         if (cleanData.xs !== data.xs) cleanData.xs.dispose();
                         if (cleanData.ys !== data.ys) cleanData.ys.dispose();
-                        
+
                     } else {
                         // Data is clean, train directly
                         const batchSize = Math.min(16, Math.floor(data.xs.shape[0] / 4));
                         const epochs = 30;
-                        
+
                         const earlyStoppingCallback = {
                             onEpochEnd: (epoch, logs) => {
                                 console.log(`Epoch ${epoch + 1} of ${epochs}: loss = ${logs.loss.toFixed(5)}`);
                                 const accuracyPercent = ((1 - Math.sqrt(logs.loss)) * 100).toFixed(2);
                                 document.getElementById('modelAccuracy').textContent = `${accuracyPercent}%`;
-                                
+
                                 if (isNaN(logs.loss) || logs.loss < 0.0001) {
                                     console.log("Early stopping - loss is too small or NaN");
                                     model.stopTraining = true;
                                 }
                             }
                         };
-                        
+
                         const history = await model.fit(data.xs, data.ys, {
                             batchSize,
                             epochs,
@@ -2649,11 +2706,11 @@
                             validationSplit: 0.3,
                             callbacks: [earlyStoppingCallback]
                         });
-                        
+
                         isModelTrained = true;
                         makeCNNLSTMPrediction();
                     }
-                    
+
                 } catch (error) {
                     console.error('Error during CNN-LSTM model training:', error);
                     document.getElementById('nextPricePrediction').textContent = 'Training failed';
@@ -2670,21 +2727,21 @@
                     document.getElementById('nextPricePrediction').textContent = 'Train model first';
                     return;
                 }
-                
+
                 try {
-                    const lookbackPeriods = parseInt(document.getElementById('lookbackPeriods').value);
+                    const lookbackPeriods = getLookbackPeriodsInMinutes();
                     const buckets = parseInt(document.getElementById('buckets').value);
-                    
+
                     // Prepare the latest data for prediction
                     // Get the last 'lookbackPeriods' heatmaps
                     if (cachedHeatmapData.heatmap.length < lookbackPeriods) {
                         document.getElementById('nextPricePrediction').textContent = 'Not enough data';
                         return;
                     }
-                    
+
                     // Extract the last sequence of heatmaps
                     const lastHeatmaps = cachedHeatmapData.heatmap.slice(-lookbackPeriods);
-                    
+
                     // Process into the right format
                     const inputSequence = [];
                     for (let t = 0; t < lastHeatmaps.length; t++) {
@@ -2692,17 +2749,17 @@
                         const volumes = lastHeatmaps[t].volumes.slice();
                         inputSequence.push(volumes);
                     }
-                    
+
                     // Normalize using stored parameters
                     const { minVolume, maxVolume } = normalizedParams;
                     const volumeRange = maxVolume - minVolume;
-                    
-                    const normalizedSequence = inputSequence.map(timeStep => 
-                        timeStep.map(volume => 
+
+                    const normalizedSequence = inputSequence.map(timeStep =>
+                        timeStep.map(volume =>
                             volumeRange > 0 ? (volume - minVolume) / volumeRange : 0.5
                         )
                     );
-                    
+
                     // Reshape for CNN input: add sample and channel dimensions
                     const reshapedInput = [];
                     for (let t = 0; t < normalizedSequence.length; t++) {
@@ -2713,71 +2770,71 @@
                         }
                         reshapedInput.push(timeSlice);
                     }
-                    
+
                     // Use tf.tidy for memory management
                     const prediction = tf.tidy(() => {
                         // Create input tensor with shape [1, lookbackPeriods, buckets, 1]
                         const inputTensor = tf.tensor4d([reshapedInput]);
-                        
+
                         // Make prediction
                         return model.predict(inputTensor);
                     });
-                    
+
                     // Get the predicted values
                     const predictionData = prediction.dataSync();
                     const predictionHorizon = predictionData.length;
-                    
+
                     // Create array of future predicted prices
                     const futurePrices = [];
                     const lastDate = new Date(cachedCandlestickData[cachedCandlestickData.length - 1].timestamp);
                     const futureTimestamps = [];
-                    
+
                     // Calculate interval from the data
                     const dataInterval = 60 * 1000; // 1 minute in milliseconds
-                    
+
                     // Denormalize predictions
                     for (let i = 0; i < predictionHorizon; i++) {
                         const predictedNormalized = predictionData[i];
-                        
+
                         // Check for valid prediction
                         if (!isFinite(predictedNormalized)) {
                             console.log(`Predicted normalized value at index ${i} is NaN or Infinity, skipping`);
                             continue;
                         }
-                        
+
                         // Denormalize the prediction
                         const priceRange = normalizedParams.maxPrice - normalizedParams.minPrice;
                         const predictedPrice = (predictedNormalized * priceRange) + normalizedParams.minPrice;
-                        
+
                         // Calculate future timestamp
                         const futureTimestamp = new Date(lastDate.getTime() + (i + 1) * dataInterval);
-                        
+
                         futurePrices.push(predictedPrice);
                         futureTimestamps.push(futureTimestamp);
                     }
-                    
+
                     // Update UI with first prediction
                     if (futurePrices.length > 0) {
                         const nextPrice = futurePrices[0];
                         const lastPrice = cachedCandlestickData[cachedCandlestickData.length - 1].close;
                         const priceChange = nextPrice - lastPrice;
                         const percentChange = (priceChange / lastPrice) * 100;
-                        
+
                         // Determine direction and confidence
                         const direction = priceChange > 0 ? '▲ UP' : '▼ DOWN';
                         const confidence = Math.min(Math.abs(percentChange) * 10, 100).toFixed(2) + '%';
-                        
+
                         // Update UI
                         document.getElementById('nextPricePrediction').textContent = nextPrice.toFixed(4);
                         document.getElementById('priceDirection').textContent = direction;
-                        document.getElementById('priceDirection').className = 
+                        document.getElementById('priceDirection').className =
                             'metric-value ' + (priceChange > 0 ? 'prediction-up' : 'prediction-down');
                         document.getElementById('predictionConfidence').textContent = confidence;
                     }
-                    
+
                     // Add predictions to chart
                     const chartDiv = document.getElementById('chart');
-                    
+
                     // Create prediction trace
                     const predictionTrace = {
                         x: futureTimestamps,
@@ -2793,7 +2850,7 @@
                         yaxis: 'y',
                         type: 'scatter'
                     };
-                    
+
                     // First, try to find and remove any existing prediction trace
                     let predictionTraceExists = false;
                     if (chartDiv && chartDiv.data) {
@@ -2805,13 +2862,13 @@
                             }
                         }
                     }
-                    
+
                     // Add the prediction trace
                     Plotly.addTraces('chart', predictionTrace);
-                    
+
                     // Dispose tensors
                     prediction.dispose();
-                    
+
                 } catch (error) {
                     console.error('Error making CNN-LSTM prediction:', error);
                     document.getElementById('nextPricePrediction').textContent = 'Prediction failed';
@@ -2874,4 +2931,5 @@
         });
     </script>
 </body>
+
 </html>
