@@ -847,8 +847,8 @@
                 
                 // Full refresh - fetch all data with margin percent parameter
                 Promise.all([
-                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
-                    fetch(`https://heatmapeldritch.gleeze.com:3500/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
+                    fetch(`https://heatmapeldritch.gleeze.com:3550/api/candlesticks?startTime=${startTime}&endTime=${endTime}&interval=60`),
+                    fetch(`https://heatmapeldritch.gleeze.com:3550/api/heatmap?startTime=${startTime}&endTime=${endTime}&buckets=${buckets}&marginPercent=${marginPercent}`)
                 ])
                 .then(responses => Promise.all(responses.map(res => res.json())))
                 .then(([candlestickData, heatmapData]) => {
@@ -1651,13 +1651,10 @@
                 return result;
             }
 
-            // Improve the refractive indices calculation with distance weighting
+            // Improve the refractive indices calculation to better represent order density
             function calculateRefractiveIndices(heatmapData) {
                 const priceLevels = heatmapData.priceLevels;
                 const refractiveIndices = [];
-                
-                // Find the middle index of the price levels (approximating current price)
-                const middleIndex = Math.floor(priceLevels.length / 2);
                 
                 // For each timestamp, calculate refractive index at each price level
                 for (let i = 0; i < heatmapData.heatmap.length; i++) {
@@ -1668,40 +1665,15 @@
                     const maxVolume = Math.max(...volumes.map(v => Math.abs(v)));
                     const epsilon = 0.0001; // Prevent division by zero
                     
-                    // First pass: Calculate distance-weighted volumes
-                    const weightedVolumes = [];
-                    
                     for (let j = 0; j < priceLevels.length; j++) {
-                        // Weight by distance from middle (further away has more impact)
-                        // Similar to how it's done in OBM calculation
-                        const distanceFactor = Math.abs(j - middleIndex) / middleIndex;
-                        const rawVolume = Math.abs(volumes[j]);
-                        const weightedVolume = rawVolume * (1 + distanceFactor * 0.75); // 75% distance impact
-                        weightedVolumes.push(weightedVolume);
-                    }
-                    
-                    // Find max of weighted volumes for normalization
-                    const maxWeightedVolume = Math.max(...weightedVolumes);
-                    
-                    // Second pass: Calculate refractive indices based on weighted volumes
-                    for (let j = 0; j < priceLevels.length; j++) {
-                        // Normalize weighted volume
-                        const normalizedVolume = maxWeightedVolume > 0 ? 
-                            weightedVolumes[j] / maxWeightedVolume : 0;
+                        // Normalize volume and calculate refractive index
+                        const normalizedVolume = maxVolume > 0 ? Math.abs(volumes[j]) / maxVolume : 0;
                         
-                        // Exponential relationship: high liquidity = low refractive index
+                        // Updated formula: Exponential relationship for better contrast
+                        // Areas with high volume have LOWER refractive index (easier for light to pass)
+                        // This matches our metaphor: price prefers to go through areas with more liquidity
                         const refractiveIndex = 1 + Math.exp(-5 * normalizedVolume) * 2;
                         timeIndices.push(refractiveIndex);
-                        
-                        // Store additional metadata for debugging if needed
-                        // timeIndices.push({
-                        //     price: priceLevels[j],
-                        //     rawVolume: volumes[j],
-                        //     weightedVolume: weightedVolumes[j],
-                        //     normalizedVolume: normalizedVolume,
-                        //     refractiveIndex: refractiveIndex,
-                        //     distanceFactor: distanceFactor
-                        // });
                     }
                     
                     refractiveIndices.push(timeIndices);
@@ -1710,25 +1682,7 @@
                 return refractiveIndices;
             }
 
-            // Add this function before it's used in findOptimalPricePath
-            // Helper function to calculate price volatility
-            function calculateVolatility(prices) {
-                if (prices.length < 2) return 0.01; // Default if not enough data
-                
-                // Calculate returns
-                const returns = [];
-                for (let i = 1; i < prices.length; i++) {
-                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
-                }
-                
-                // Calculate standard deviation of returns (volatility)
-                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
-                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
-                
-                return Math.sqrt(variance) || 0.01; // Avoid zero
-            }
-
-            // Update the optimal path finding algorithm to consider distance weighting
+            // Completely revamp the optimal path finding algorithm
             function findOptimalPricePath(heatmapData, refractiveIndices, candlestickData) {
                 const priceLevels = heatmapData.priceLevels;
                 const timestamps = heatmapData.timestamps;
@@ -1744,16 +1698,13 @@
                 const startPrice = candlestickData[0].close;
                 let currentPriceIndex = findClosestPriceIndex(priceLevels, startPrice);
                 
-                // Find the middle index for distance calculations
-                const middleIndex = Math.floor(priceLevels.length / 2);
-                
                 path.push({ 
                     time: new Date(timestamps[0] * 1000), 
                     price: priceLevels[currentPriceIndex],
                     resistance: refractiveIndices[0][currentPriceIndex]
                 });
                 
-                // Calculate gradient of refractive indices with distance considerations
+                // Calculate gradient of refractive indices (important for Snell's law)
                 for (let i = 0; i < refractiveIndices.length; i++) {
                     const timeResistance = [];
                     for (let j = 0; j < priceLevels.length; j++) {
@@ -1768,25 +1719,24 @@
                             gradientUp = refractiveIndices[i][j+1] - refractiveIndices[i][j];
                         }
                         
-                        // Distance from the middle (percentage of full range)
-                        const distanceFromMiddle = Math.abs(j - middleIndex) / middleIndex;
-                        
                         // Store resistance and its gradient at this point
                         timeResistance.push({ 
                             price: priceLevels[j],
                             resistance: refractiveIndices[i][j],
                             gradientUp: gradientUp,
-                            gradientDown: gradientDown,
-                            distanceFactor: distanceFromMiddle
+                            gradientDown: gradientDown
                         });
                     }
                     resistanceMap.push(timeResistance);
                 }
                 
+                // Apply Fermat's principle of least time
+                // This is analogous to finding path of least resistance through a medium
+                
                 // Variable search radius based on price volatility
                 const priceHistory = candlestickData.map(c => c.close);
                 const volatility = calculateVolatility(priceHistory);
-                const baseSearchRadius = Math.max(3, Math.floor(priceLevels.length * volatility * 0.25));
+                const baseSearchRadius = Math.max(2, Math.floor(priceLevels.length * volatility * 0.2));
                 
                 // For each timestamp, find the next point on the path
                 for (let i = 1; i < timestamps.length; i++) {
@@ -1794,26 +1744,25 @@
                     const actualPriceIndex = i < candlestickData.length ? 
                         findClosestPriceIndex(priceLevels, candlestickData[i].close) : -1;
                     
-                    // Dynamic search radius that adapts to price movement and volatility
+                    // Dynamic search radius that adapts to price movement
                     const searchRadius = baseSearchRadius + 
-                        (actualPriceIndex >= 0 ? Math.floor(Math.abs(actualPriceIndex - currentPriceIndex) * 0.5) : 0);
+                        (actualPriceIndex >= 0 ? Math.abs(actualPriceIndex - currentPriceIndex) : 0);
                         
                     // Define the search space bounded by the search radius
                     const lowerBound = Math.max(0, currentPriceIndex - searchRadius);
                     const upperBound = Math.min(priceLevels.length - 1, currentPriceIndex + searchRadius);
                     
-                    // Find path of least optical time (resistance) with distance weighting
+                    // Find path of least optical time (resistance)
                     let minResistance = Infinity;
                     let optimalNextIndex = currentPriceIndex;
                     
                     for (let j = lowerBound; j <= upperBound; j++) {
-                        // Skip points with extremely high resistance (very low liquidity)
-                        if (refractiveIndices[i][j] > 2.8) {
+                        // Skip points with very high resistance (extremely low liquidity)
+                        if (refractiveIndices[i][j] > 3) {
                             continue;
                         }
                         
                         // Calculate actual path resistance using the physics of refraction
-                        
                         // 1. Base optical resistance at this point
                         const opticalResistance = refractiveIndices[i][j];
                         
@@ -1822,25 +1771,18 @@
                         const priceDelta = j - currentPriceIndex;
                         const bendPenalty = Math.abs(priceDelta) * 0.05;
                         
-                        // 3. Factor in actual price attraction 
-                        // Stronger attraction for points closer to the actual price (inverse distance weighting)
+                        // 3. Factor in actual price attraction (prices tend to move toward actual market price)
                         const actualPriceAttraction = actualPriceIndex >= 0 ? 
                             0.3 * Math.abs(j - actualPriceIndex) / priceLevels.length : 0;
                         
                         // 4. Incorporate gradient effects (light prefers paths where resistance decreases)
-                        // Gradient effect is stronger for points farther from the middle (distance weighted)
-                        const distanceFactor = resistanceMap[i][j].distanceFactor;
                         const gradientEffect = priceDelta > 0 ? 
-                            resistanceMap[i][j].gradientUp * (0.1 + distanceFactor * 0.15) : 
-                            resistanceMap[i][j].gradientDown * (0.1 + distanceFactor * 0.15);
+                            resistanceMap[i][j].gradientUp * 0.1 : 
+                            resistanceMap[i][j].gradientDown * 0.1;
                         
-                        // 5. Add distance weighting: consider the absolute distance from middle
-                        // Path through distant strong liquidity points has more significance
-                        const distanceWeight = 0.1 * distanceFactor;
-                        
-                        // Total resistance for this path option with all factors
+                        // Total resistance for this path option
                         const totalResistance = 
-                            opticalResistance * (1.0 - distanceWeight) + // Lower resistance for significant far points 
+                            opticalResistance + 
                             bendPenalty + 
                             actualPriceAttraction + 
                             gradientEffect;
@@ -1866,7 +1808,24 @@
                 return { path, resistanceMap };
             }
 
-            // Update the momentum calculation to incorporate distance weighting
+            // Helper function to calculate price volatility
+            function calculateVolatility(prices) {
+                if (prices.length < 2) return 0.01; // Default if not enough data
+                
+                // Calculate returns
+                const returns = [];
+                for (let i = 1; i < prices.length; i++) {
+                    returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+                }
+                
+                // Calculate standard deviation of returns (volatility)
+                const mean = returns.reduce((sum, val) => sum + val, 0) / returns.length;
+                const variance = returns.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / returns.length;
+                
+                return Math.sqrt(variance) || 0.01; // Avoid zero
+            }
+
+            // Improve momentum calculation for better vector visualization
             function calculateOpticalMomentum(optimalPath, refractiveIndices, heatmapData) {
                 const momentumVectors = [];
                 const confidenceScores = [];
@@ -1876,9 +1835,6 @@
                 if (path.length < 3) {
                     return { momentumVectors, confidenceScores };
                 }
-                
-                // Find middle index for distance calculations
-                const middleIndex = Math.floor(heatmapData.priceLevels.length / 2);
                 
                 // Initialize with zero momentum
                 momentumVectors.push({ 
@@ -1890,7 +1846,7 @@
                     direction: 0
                 });
                 
-                // Calculate momentum vectors with distance weighting
+                // Calculate momentum vectors along the path with improved physics
                 for (let i = 1; i < path.length - 1; i++) {
                     // Time delta in milliseconds converted to hours for scaling
                     const dt1 = (path[i].time - path[i-1].time) / (1000 * 3600);
@@ -1900,29 +1856,22 @@
                     const dp1 = path[i].price - path[i-1].price;
                     const dp2 = path[i+1].price - path[i].price;
                     
-                    // Find the price index for current point to calculate distance factor
-                    const priceIndex = findClosestPriceIndex(heatmapData.priceLevels, path[i].price);
-                    const distanceFactor = Math.abs(priceIndex - middleIndex) / middleIndex;
-                    
-                    // Calculate velocity vectors with distance-weighted resistance
-                    // Further from middle = stronger impact on velocity (reduces resistance effect)
-                    const resistanceWeight = 1 / (1 + 0.5 * distanceFactor);
-                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance * resistanceWeight);
-                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance * resistanceWeight);
+                    // Calculate velocity vectors (speed of light varies with refractive index)
+                    const v1 = dp1 / ((dt1 || 0.001) * path[i-1].resistance);
+                    const v2 = dp2 / ((dt2 || 0.001) * path[i].resistance);
                     
                     // Acceleration = change in velocity over time
                     const acceleration = (v2 - v1) / (dt1 + dt2);
                     
-                    // Force = mass * acceleration (mass proportional to resistance, modified by distance)
-                    // Orders far from center have higher impact (lower effective mass)
-                    const effectiveMass = path[i].resistance * (1 - 0.3 * distanceFactor);
-                    const force = acceleration * effectiveMass;
+                    // Force = mass * acceleration (mass proportional to resistance)
+                    const force = acceleration * path[i].resistance;
                     
-                    // Calculate momentum components with improved scaling and distance effects
+                    // Calculate momentum components with improved scaling
+                    // Use a normalized time component for consistent visualization
                     const dx = 1;
                     
-                    // Scale dy for better visibility, increased impact for distant points
-                    const dy = v2 * 20 * (1 + 0.5 * distanceFactor); 
+                    // Scale dy for better visibility - this is the important directional component
+                    const dy = v2 * 20; // Amplify for visibility
                     
                     // Calculate magnitude and direction
                     const magnitude = Math.sqrt(dx * dx + dy * dy);
@@ -1935,24 +1884,21 @@
                         dy,
                         magnitude,
                         direction,
-                        force,
-                        distanceFactor // Store for reference
+                        force // Store force for confidence calculation
                     });
                     
-                    // Calculate prediction confidence with distance factors
+                    // Calculate prediction confidence based on physical principles
                     // 1. Consistency of force direction (stable forces = higher confidence)
                     const forceConsistency = i > 1 ? 
                         Math.abs(Math.cos(momentumVectors[i-1].direction - direction)) : 0.5;
                     
                     // 2. Light speeds up in areas of low refractive index (low resistance)
-                    // More weight to speed factor for distant points (stronger signal)
-                    const speedFactor = (1 / path[i].resistance) * (1 + 0.2 * distanceFactor);
+                    const speedFactor = 1 / path[i].resistance;
                     
                     // 3. Path predictability based on density gradients
-                    // Distant significant points are more reliable signals
-                    const gradientStability = Math.exp(-Math.abs(force) * 2) * (1 + 0.2 * distanceFactor);
+                    const gradientStability = Math.exp(-Math.abs(force) * 2);
                     
-                    // Combined confidence score with distance weighting
+                    // Combined confidence score
                     const confidence = 0.3 + 0.7 * (
                         forceConsistency * 0.4 + 
                         speedFactor * 0.3 + 
