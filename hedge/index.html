@@ -242,6 +242,11 @@
             // --- 3. Calculate P/L for Hedge Position with Conditional Entry ---
             let hedgePnl = 0;
             if (hedgeCapital > 0) {
+                // Store the raw price change P/L calculation for main position (without stop loss)
+                // This is used for hedge calculation and trigger evaluation
+                const rawMainPnl = mainCapital * mainLeverage * (priceChange / 100) * mainDirection;
+                const rawMainPnlPercent = mainCapital > 0 ? (rawMainPnl / mainCapital) * 100 : 0;
+                
                 if (isNaN(hedgeEntryTrigger)) {
                     // SIMPLE APPROACH: Hedge always moves OPPOSITE to price change
                     // For short main position, hedge goes up when price goes up
@@ -249,10 +254,10 @@
                     hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
                 } else {
                     // With trigger - check if threshold reached
-                    const mainPnlPercent = (mainPnl / mainCapital) * 100;
+                    // Use raw P/L percent (without stop loss effect) for trigger evaluation
                     
                     // Trigger based on absolute value - works for both profit and loss
-                    if (Math.abs(mainPnlPercent) >= Math.abs(hedgeEntryTrigger)) {
+                    if (Math.abs(rawMainPnlPercent) >= Math.abs(hedgeEntryTrigger)) {
                         // SIMPLE HEDGE: Always opposite to price movement
                         hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
                     } else {
