@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Trading Hedge Calculator</title>
+    <title>Trading Profit Protection Calculator</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,8 +58,8 @@
 
     <div class="w-full max-w-6xl bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-2xl p-6 md:p-10 border border-gray-700">
         <div class="text-center mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-white">Advanced Hedge Calculator</h1>
-            <p class="text-gray-400 mt-2">Analyze complex trade setups with stop-loss and strategy suggestions.</p>
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Profit Protection Calculator</h1>
+            <p class="text-gray-400 mt-2">Lock in profits with trailing stops and strategic hedging for crypto and forex trading.</p>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -78,8 +78,8 @@
                             <input type="number" id="mainLeverage" class="form-input" value="5">
                         </div>
                          <div>
-                            <label for="mainStopLoss" class="block text-sm font-medium text-gray-300 mb-2">Stop Loss (%)</label>
-                            <input type="number" id="mainStopLoss" class="form-input" placeholder="e.g., 20 for 20%">
+                            <label for="mainStopLoss" class="block text-sm font-medium text-gray-300 mb-2">Stop Loss/Take Profit (%)</label>
+                            <input type="number" id="mainStopLoss" class="form-input" placeholder="e.g., 2 for trailing stop">
                         </div>
                         <div class="md:mt-8">
                             <span class="block text-sm font-medium text-gray-300 mb-2">Position Type</span>
@@ -108,7 +108,7 @@
                             <input type="number" id="hedgeStopLoss" class="form-input" placeholder="e.g., 50 for 50%">
                         </div>
                          <div>
-                            <label for="hedgeEntryTrigger" class="block text-sm font-medium text-gray-300 mb-2">Hedge Entry at Main P/L (%)</label>
+                            <label for="hedgeEntryTrigger" class="block text-sm font-medium text-gray-300 mb-2">Trigger at Main P/L (%)</label>
                             <input type="number" id="hedgeEntryTrigger" class="form-input" placeholder="e.g., 10 for +10%">
                         </div>
                     </div>
@@ -118,9 +118,10 @@
                 <div class="bg-gray-900/50 p-6 rounded-xl border border-gray-700">
                     <h2 class="text-xl font-semibold text-white mb-4">Strategy Presets</h2>
                     <div class="flex flex-wrap gap-3">
-                        <button class="preset-btn bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded-lg transition">Light Hedge</button>
-                        <button class="preset-btn bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded-lg transition">Balanced Hedge</button>
-                        <button class="preset-btn bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 px-4 rounded-lg transition">Aggressive Counter</button>
+                        <button class="preset-btn bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded-lg transition">Profit Lock (2%)</button>
+                        <button class="preset-btn bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded-lg transition">Balanced Protection</button>
+                        <button class="preset-btn bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 px-4 rounded-lg transition">Continuous Hedge</button>
+                        <button id="resetBtn" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition ml-auto">Reset Tracking</button>
                     </div>
                 </div>
                 
@@ -129,6 +130,11 @@
                     <h2 class="text-xl font-semibold text-white mb-4">Market Scenario</h2>
                     <label for="priceChange" class="block text-sm font-medium text-gray-300">Simulated Price Change: <span id="priceChangeValue" class="font-bold text-white">0.0%</span></label>
                     <input type="range" id="priceChange" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mt-2" min="-25" max="25" value="0" step="0.1">
+                    <div class="mt-3 text-sm text-gray-400">
+                        <span>Max Profit Reached: </span>
+                        <span id="maxProfitReached" class="font-semibold text-green-400">0.0%</span>
+                        <span id="hedgeStatus" class="ml-2 text-blue-400 hidden">(Hedge Activated)</span>
+                    </div>
                 </div>
             </div>
 
@@ -213,6 +219,10 @@
         const presetButtons = document.querySelectorAll('.preset-btn');
         const strategyAnalysisText = document.getElementById('strategyAnalysisText');
 
+        // Track maximum profit reached for trailing stop logic
+        let maxProfitPercentEverReached = 0;
+        let isHedgeTriggered = false;
+
         // --- Core Calculation Function ---
         function calculateOutcomes() {
             // --- 1. Read Input Values ---
@@ -230,53 +240,82 @@
             const hedgeDirection = -mainDirection;
 
             // --- 2. Calculate P/L for Main Position ---
-            let mainPnl = mainCapital * mainLeverage * (priceChange / 100) * mainDirection;
-            const mainStopLossAmount = -mainCapital * (mainStopLoss / 100);
-            let isMainStoppedOut = false;
+            // Raw P/L calculation without any stops
+            const rawMainPnl = mainCapital * mainLeverage * (priceChange / 100) * mainDirection;
+            const rawMainPnlPercent = mainCapital > 0 ? (rawMainPnl / mainCapital) * 100 : 0;
             
-            if (mainStopLoss > 0 && mainPnl <= mainStopLossAmount) {
-                mainPnl = mainStopLossAmount;
+            // Track maximum profit percentage ever reached
+            if (rawMainPnlPercent > maxProfitPercentEverReached) {
+                maxProfitPercentEverReached = rawMainPnlPercent;
+                
+                // Check if hedge trigger is hit for the first time
+                if (!isHedgeTriggered && !isNaN(hedgeEntryTrigger) && maxProfitPercentEverReached >= hedgeEntryTrigger) {
+                    isHedgeTriggered = true;
+                    console.log(`Hedge triggered at ${maxProfitPercentEverReached.toFixed(2)}% profit`);
+                }
+            }
+            
+            // Reset tracking if user changes main position type, leverage, or capital
+            if (mainCapital !== parseFloat(mainCapitalInput.value) || 
+                mainLeverage !== parseFloat(mainLeverageInput.value) ||
+                mainPositionType !== document.querySelector('input[name="positionType"]:checked').value) {
+                maxProfitPercentEverReached = 0;
+                isHedgeTriggered = false;
+            }
+            
+            // Initialize final P/L (will be modified by stops)
+            let mainPnl = rawMainPnl;
+            let isMainStoppedOut = false;
+            let isTakeProfit = false;
+            
+            // Apply stop logic
+            if (mainStopLoss > 0) {
+                // This is a TAKE PROFIT level after having some profit
+                // Example: If at 10% profit and drops to 2%, lock in 2%
+                if (maxProfitPercentEverReached >= hedgeEntryTrigger && rawMainPnlPercent <= mainStopLoss) {
+                    mainPnl = mainCapital * (mainStopLoss / 100);
+                    isTakeProfit = true;
+                }
+            } else if (mainStopLoss < 0 && rawMainPnlPercent <= mainStopLoss) {
+                // Traditional stop loss
+                mainPnl = mainCapital * (mainStopLoss / 100);
                 isMainStoppedOut = true;
             }
 
-            // --- 3. Calculate P/L for Hedge Position with Conditional Entry ---
+            // --- 3. Calculate P/L for Hedge Position ---
             let hedgePnl = 0;
+            let isHedgeActive = false;
+            
             if (hedgeCapital > 0) {
-                // Store the raw price change P/L calculation for main position (without stop loss)
-                // This is used for hedge calculation and trigger evaluation
-                const rawMainPnl = mainCapital * mainLeverage * (priceChange / 100) * mainDirection;
-                const rawMainPnlPercent = mainCapital > 0 ? (rawMainPnl / mainCapital) * 100 : 0;
-                
+                // Check if hedge should be active based on trigger
                 if (isNaN(hedgeEntryTrigger)) {
-                    // SIMPLE APPROACH: Hedge always moves OPPOSITE to price change
-                    // For short main position, hedge goes up when price goes up
-                    // For long main position, hedge goes up when price goes down
+                    // No trigger specified - hedge always active
+                    isHedgeActive = true;
+                } else if (isHedgeTriggered) {
+                    // Once triggered, hedge stays active
+                    isHedgeActive = true;
+                }
+                
+                // Calculate hedge P/L if active
+                if (isHedgeActive) {
                     hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
-                } else {
-                    // With trigger - check if threshold reached
-                    // Use raw P/L percent (without stop loss effect) for trigger evaluation
-                    
-                    // Trigger based on absolute value - works for both profit and loss
-                    if (Math.abs(rawMainPnlPercent) >= Math.abs(hedgeEntryTrigger)) {
-                        // SIMPLE HEDGE: Always opposite to price movement
-                        hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
-                    } else {
-                        hedgePnl = 0; // Not triggered yet
-                    }
                 }
             }
 
             // --- 4. Apply Stop-Loss and Liquidation to Hedge ---
-            const hedgeStopLossAmount = -hedgeCapital * (hedgeStopLoss / 100);
             let isHedgeLiquidated = false;
             let isHedgeStoppedOut = false;
             
-            if (hedgePnl <= -hedgeCapital) {
-                hedgePnl = -hedgeCapital;
-                isHedgeLiquidated = true;
-            } else if (hedgeStopLoss > 0 && hedgePnl <= hedgeStopLossAmount) {
-                hedgePnl = hedgeStopLossAmount;
-                isHedgeStoppedOut = true;
+            if (isHedgeActive) {
+                if (hedgePnl <= -hedgeCapital) {
+                    // Hedge is liquidated (100% loss)
+                    hedgePnl = -hedgeCapital;
+                    isHedgeLiquidated = true;
+                } else if (hedgeStopLoss > 0 && hedgePnl <= -hedgeCapital * (hedgeStopLoss / 100)) {
+                    // Hedge hit stop loss
+                    hedgePnl = -hedgeCapital * (hedgeStopLoss / 100);
+                    isHedgeStoppedOut = true;
+                }
             }
 
             // --- 5. Calculate Final Values & Percentages ---
@@ -293,9 +332,27 @@
             // --- 6. Update UI ---
             priceChangeValueSpan.textContent = `${priceChange.toFixed(1)}%`;
             
+            // Update max profit indicator
+            document.getElementById('maxProfitReached').textContent = `${maxProfitPercentEverReached.toFixed(1)}%`;
+            
+            // Update hedge status indicator
+            if (isHedgeTriggered) {
+                document.getElementById('hedgeStatus').classList.remove('hidden');
+            } else {
+                document.getElementById('hedgeStatus').classList.add('hidden');
+            }
+            
             updatePnlUI(mainPnlSpan, mainPnl, mainPnlPercentSpan, mainPnlPercent);
             mainFinalValueSpan.textContent = `$${mainFinalValue.toFixed(2)}`;
-            updateStatusBanner(mainStatusBanner, isMainStoppedOut ? 'STOPPED OUT' : null, 'stopped');
+            
+            // Update main position status banner
+            if (isTakeProfit) {
+                updateStatusBanner(mainStatusBanner, 'TAKE PROFIT', 'stopped');
+            } else if (isMainStoppedOut) {
+                updateStatusBanner(mainStatusBanner, 'STOPPED OUT', 'stopped');
+            } else {
+                updateStatusBanner(mainStatusBanner, null, '');
+            }
             
             updatePnlUI(hedgePnlSpan, hedgePnl, hedgePnlPercentSpan, hedgePnlPercent);
             hedgeFinalValueSpan.textContent = `$${hedgeFinalValue.toFixed(2)}`;
@@ -307,6 +364,14 @@
             // --- 7. Run Strategy Analysis ---
             analyzeStrategy();
         }
+
+        // Reset tracking variables when inputs change
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('change', () => {
+                maxProfitPercentEverReached = 0;
+                isHedgeTriggered = false;
+            });
+        });
 
         // --- UI Helper Functions ---
         function updatePnlUI(pnlElement, pnlValue, percentElement, percentValue) {
@@ -335,6 +400,9 @@
             const mainLeverage = parseFloat(mainLeverageInput.value) || 1;
             const hedgeLeverage = parseFloat(hedgeLeverageInput.value) || 1;
             const hedgeEntryTrigger = parseFloat(hedgeEntryTriggerInput.value);
+            const mainStopLoss = parseFloat(mainStopLossInput.value) || 0;
+            const priceChange = parseFloat(priceChangeSlider.value);
+            const mainPositionType = document.querySelector('input[name="positionType"]:checked').value;
             
             if(mainCapital === 0) {
                 strategyAnalysisText.textContent = "Enter main position capital to begin analysis.";
@@ -342,25 +410,42 @@
             }
 
             let analysis = [];
-
-            if (hedgeCapital === 0) {
-                 analysis.push("This is an unhedged position. Your potential for profit and loss is directly tied to the market movement.");
-            } else {
-                 const hedgeRatio = (hedgeCapital / mainCapital) * 100;
-                if(hedgeRatio < 10) analysis.push("This is a light hedge, primarily for capturing small counter-moves without significantly impacting main profit.");
-                else if (hedgeRatio <= 25) analysis.push("A balanced hedge, offering moderate protection against adverse moves.");
-                else analysis.push("This is a strong hedge, almost a separate trade. It significantly reduces overall risk but also caps potential profit from the main position.");
+            
+            // Calculate potential returns at various price movements
+            const mainReturn = (change) => mainCapital * mainLeverage * (change/100) * (mainPositionType === 'long' ? 1 : -1);
+            const hedgeReturn = (change) => hedgeCapital * hedgeLeverage * (change/100) * (mainPositionType === 'long' ? -1 : 1);
+            
+            // Calculate breakeven point if hedge is active
+            if (hedgeCapital > 0 && hedgeLeverage > 0) {
+                const hedgeRatio = (hedgeCapital * hedgeLeverage) / (mainCapital * mainLeverage) * 100;
                 
-                if (hedgeLeverage > mainLeverage * 2) analysis.push("The hedge has high relative leverage, making it sensitive and potentially profitable on small price swings, but also increasing its liquidation risk.");
-                else analysis.push("The hedge leverage is conservative, aiming for stability over aggressive counter-gains.");
-                
-                if(!isNaN(hedgeEntryTrigger)) {
-                    const triggerType = hedgeEntryTrigger >= 0 ? 'profit' : 'loss';
-                    analysis.push(`The hedge is set to open only after the main position reaches ${Math.abs(hedgeEntryTrigger)}% in ${triggerType}.`);
+                if (mainStopLoss > 0 && hedgeEntryTrigger > 0) {
+                    analysis.push(`TRADING STRATEGY: Start with ${mainPositionType} position of $${mainCapital} at ${mainLeverage}x leverage. `);
+                    analysis.push(`When profit reaches ${hedgeEntryTrigger}%, add a small ${mainPositionType === 'long' ? 'short' : 'long'} hedge of $${hedgeCapital} at ${hedgeLeverage}x leverage to protect profits. `);
+                    analysis.push(`Take profit at ${mainStopLoss}% if price reverses. `);
+                    
+                    // Calculate protected profit amount
+                    const protectedProfit = mainCapital * (mainStopLoss / 100);
+                    const maxPotentialProfit = mainCapital * mainLeverage * 0.25 * (mainPositionType === 'long' ? 1 : -1);
+                    
+                    analysis.push(`This locks in minimum profit of $${protectedProfit.toFixed(2)} while still allowing for ${hedgeRatio.toFixed(1)}% of main position to benefit from continued ${mainPositionType === 'long' ? 'upward' : 'downward'} price movement.`);
+                } else {
+                    const hedgeDirection = mainPositionType === 'long' ? 'short' : 'long';
+                    analysis.push(`You have a ${mainPositionType} main position with a ${hedgeDirection} hedge that's ${hedgeRatio.toFixed(1)}% the size of your main position. `);
+                    
+                    if (hedgeRatio < 33) {
+                        analysis.push(`This is a light hedge, protecting against small reversals while keeping most of your ${mainPositionType} exposure.`);
+                    } else if (hedgeRatio < 66) {
+                        analysis.push(`This is a moderate hedge, giving balanced protection while maintaining some directional bias.`);
+                    } else {
+                        analysis.push(`This is a strong hedge, significantly reducing your overall directional exposure.`);
+                    }
                 }
+            } else {
+                analysis.push(`You have an unhedged ${mainPositionType} position. Consider adding a small hedge at high leverage to protect profits if you're uncertain about market direction.`);
             }
             
-            strategyAnalysisText.textContent = analysis.join(' ');
+            strategyAnalysisText.textContent = analysis.join('');
         }
 
 
@@ -377,24 +462,52 @@
             button.addEventListener('click', () => {
                 const mainCapital = parseFloat(mainCapitalInput.value) || 300;
                 switch(button.textContent) {
-                    case 'Light Hedge':
-                        hedgeCapitalInput.value = (mainCapital * 0.05).toFixed(0); // 5% capital
+                    case 'Profit Lock (2%)':
+                        // Main position settings
+                        mainCapitalInput.value = 300;
+                        mainLeverageInput.value = 5;
+                        mainStopLossInput.value = 2; // Lock in 2% profit
+                        document.querySelector('input[value="short"]').checked = true;
+                        
+                        // Hedge settings
+                        hedgeCapitalInput.value = 10;
                         hedgeLeverageInput.value = 10;
-                        hedgeEntryTriggerInput.value = 10; // Suggest an entry
+                        hedgeEntryTriggerInput.value = 10; // At 10% profit
                         break;
-                    case 'Balanced Hedge':
+                    case 'Balanced Protection':
+                        // Main position settings
+                        mainCapitalInput.value = 300;
+                        mainLeverageInput.value = 5;
+                        mainStopLossInput.value = 5; // Lock in 5% profit
+                        
+                        // Hedge settings
                         hedgeCapitalInput.value = (mainCapital * 0.10).toFixed(0); // 10% capital
-                        hedgeLeverageInput.value = 20;
-                         hedgeEntryTriggerInput.value = 20; // Suggest an entry
+                        hedgeLeverageInput.value = 15;
+                        hedgeEntryTriggerInput.value = 15; // At 15% profit
                         break;
-                    case 'Aggressive Counter':
+                    case 'Continuous Hedge':
+                        // Main position settings
+                        mainCapitalInput.value = 300;
+                        mainLeverageInput.value = 5;
+                        mainStopLossInput.value = -10; // 10% stop loss
+                        
+                        // Hedge settings
                         hedgeCapitalInput.value = (mainCapital * 0.20).toFixed(0); // 20% capital
-                        hedgeLeverageInput.value = 50;
-                         hedgeEntryTriggerInput.value = ''; // No suggested entry for this one
+                        hedgeLeverageInput.value = 25;
+                        hedgeEntryTriggerInput.value = ''; // No trigger - always active
                         break;
                 }
                 calculateOutcomes();
             });
+        });
+
+        // Reset button listener
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            maxProfitPercentEverReached = 0;
+            isHedgeTriggered = false;
+            document.getElementById('maxProfitReached').textContent = "0.0%";
+            document.getElementById('hedgeStatus').classList.add('hidden');
+            calculateOutcomes();
         });
 
         // --- Initial Calculation ---
