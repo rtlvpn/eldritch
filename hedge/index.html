@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Trading Hedge Calculator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .form-input {
+            background-color: #1f2937;
+            border: 1px solid #374151;
+            color: #f3f4f6;
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            width: 100%;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px #1e40af;
+        }
+        .result-card {
+            background-color: #1f2937;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        .profit { color: #4ade80; }
+        .loss { color: #f87171; }
+        .neutral { color: #9ca3af; }
+        .status-banner {
+            position: absolute;
+            top: 0;
+            right: 0;
+            color: white;
+            text-align: center;
+            font-weight: bold;
+            font-size: 0.75rem;
+            padding: 0.25rem 1rem;
+            transform: rotate(45deg) translate(25%, -25%);
+            transform-origin: top right;
+            width: 120px;
+        }
+        .bg-liquidated { background-color: #dc2626; } /* red-600 */
+        .bg-stopped { background-color: #f97316; } /* orange-500 */
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-6xl bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-2xl p-6 md:p-10 border border-gray-700">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-white">Advanced Hedge Calculator</h1>
+            <p class="text-gray-400 mt-2">Analyze complex trade setups with stop-loss and strategy suggestions.</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Left Column: Inputs -->
+            <div class="space-y-6">
+                <!-- Main Position Card -->
+                <div class="bg-gray-900/50 p-6 rounded-xl border border-gray-700">
+                    <h2 class="text-xl font-semibold text-white mb-4 border-b border-gray-600 pb-2">Main Position</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="mainCapital" class="block text-sm font-medium text-gray-300 mb-2">Initial Capital ($)</label>
+                            <input type="number" id="mainCapital" class="form-input" value="300">
+                        </div>
+                        <div>
+                            <label for="mainLeverage" class="block text-sm font-medium text-gray-300 mb-2">Leverage</label>
+                            <input type="number" id="mainLeverage" class="form-input" value="5">
+                        </div>
+                         <div>
+                            <label for="mainStopLoss" class="block text-sm font-medium text-gray-300 mb-2">Stop Loss (%)</label>
+                            <input type="number" id="mainStopLoss" class="form-input" placeholder="e.g., 20 for 20%">
+                        </div>
+                        <div class="md:mt-8">
+                            <span class="block text-sm font-medium text-gray-300 mb-2">Position Type</span>
+                            <div class="flex gap-4">
+                                <label class="flex items-center"><input type="radio" name="positionType" value="short" class="form-radio text-blue-500 bg-gray-700" checked><span class="ml-2">Short</span></label>
+                                <label class="flex items-center"><input type="radio" name="positionType" value="long" class="form-radio text-pink-500 bg-gray-700"><span class="ml-2">Long</span></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hedge Position Card -->
+                <div class="bg-gray-900/50 p-6 rounded-xl border border-gray-700">
+                    <h2 class="text-xl font-semibold text-white mb-4 border-b border-gray-600 pb-2">Hedge Position</h2>
+                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="hedgeCapital" class="block text-sm font-medium text-gray-300 mb-2">Initial Capital ($)</label>
+                            <input type="number" id="hedgeCapital" class="form-input" value="10">
+                        </div>
+                        <div>
+                            <label for="hedgeLeverage" class="block text-sm font-medium text-gray-300 mb-2">Leverage</label>
+                            <input type="number" id="hedgeLeverage" class="form-input" value="10">
+                        </div>
+                         <div>
+                            <label for="hedgeStopLoss" class="block text-sm font-medium text-gray-300 mb-2">Stop Loss (%)</label>
+                            <input type="number" id="hedgeStopLoss" class="form-input" placeholder="e.g., 50 for 50%">
+                        </div>
+                         <div>
+                            <label for="hedgeEntryTrigger" class="block text-sm font-medium text-gray-300 mb-2">Hedge Entry at Main P/L (%)</label>
+                            <input type="number" id="hedgeEntryTrigger" class="form-input" placeholder="e.g., 10 for +10%">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Strategy Presets -->
+                <div class="bg-gray-900/50 p-6 rounded-xl border border-gray-700">
+                    <h2 class="text-xl font-semibold text-white mb-4">Strategy Presets</h2>
+                    <div class="flex flex-wrap gap-3">
+                        <button class="preset-btn bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 px-4 rounded-lg transition">Light Hedge</button>
+                        <button class="preset-btn bg-teal-600 hover:bg-teal-500 text-white font-bold py-2 px-4 rounded-lg transition">Balanced Hedge</button>
+                        <button class="preset-btn bg-rose-600 hover:bg-rose-500 text-white font-bold py-2 px-4 rounded-lg transition">Aggressive Counter</button>
+                    </div>
+                </div>
+                
+                 <!-- Market Scenario Card -->
+                <div class="bg-gray-900/50 p-6 rounded-xl border border-gray-700">
+                    <h2 class="text-xl font-semibold text-white mb-4">Market Scenario</h2>
+                    <label for="priceChange" class="block text-sm font-medium text-gray-300">Simulated Price Change: <span id="priceChangeValue" class="font-bold text-white">0.0%</span></label>
+                    <input type="range" id="priceChange" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mt-2" min="-25" max="25" value="0" step="0.1">
+                </div>
+            </div>
+
+            <!-- Right Column: Results -->
+            <div class="space-y-6">
+                <!-- Main Position Result -->
+                <div id="mainResultCard" class="result-card">
+                    <div id="mainStatusBanner" class="status-banner hidden"></div>
+                    <h3 class="text-lg font-semibold text-white">Main Position Outcome</h3>
+                    <div class="mt-4 flex justify-between items-baseline"><span class="text-gray-400">P/L</span>
+                        <div class="text-right">
+                            <span id="mainPnl" class="text-2xl font-bold neutral">$0.00</span>
+                            <span id="mainPnlPercent" class="text-base font-medium neutral ml-1">(0.0%)</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center text-sm"><span class="text-gray-400">Final Value</span><span id="mainFinalValue" class="font-semibold">$300.00</span></div>
+                </div>
+
+                <!-- Hedge Position Result -->
+                <div id="hedgeResultCard" class="result-card">
+                    <div id="hedgeStatusBanner" class="status-banner hidden"></div>
+                    <h3 class="text-lg font-semibold text-white">Hedge Position Outcome</h3>
+                    <div class="mt-4 flex justify-between items-baseline"><span class="text-gray-400">P/L</span>
+                        <div class="text-right">
+                           <span id="hedgePnl" class="text-2xl font-bold neutral">$0.00</span>
+                           <span id="hedgePnlPercent" class="text-base font-medium neutral ml-1">(0.0%)</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center text-sm"><span class="text-gray-400">Final Value</span><span id="hedgeFinalValue" class="font-semibold">$10.00</span></div>
+                </div>
+
+                <!-- Total Result -->
+                <div class="result-card border-2 border-blue-500">
+                    <h3 class="text-lg font-semibold text-white">Total Net Outcome</h3>
+                    <div class="mt-4 flex justify-between items-baseline"><span class="text-gray-400">Total P/L</span>
+                        <div class="text-right">
+                            <span id="totalPnl" class="text-3xl font-bold neutral">$0.00</span>
+                             <span id="totalPnlPercent" class="text-lg font-medium neutral ml-1">(0.0%)</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex justify-between items-center text-sm"><span class="text-gray-400">Total Final Value</span><span id="totalFinalValue" class="font-semibold">$310.00</span></div>
+                </div>
+
+                <!-- Strategy Analysis -->
+                <div class="result-card bg-gray-900/50 border border-gray-700">
+                     <h3 class="text-lg font-semibold text-white">Strategy Analysis</h3>
+                     <p id="strategyAnalysisText" class="text-gray-400 mt-3 text-sm leading-relaxed">Enter your trade details to see an analysis.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element Selection ---
+        const mainCapitalInput = document.getElementById('mainCapital');
+        const mainLeverageInput = document.getElementById('mainLeverage');
+        const mainStopLossInput = document.getElementById('mainStopLoss');
+        const positionTypeInputs = document.querySelectorAll('input[name="positionType"]');
+        
+        const hedgeCapitalInput = document.getElementById('hedgeCapital');
+        const hedgeLeverageInput = document.getElementById('hedgeLeverage');
+        const hedgeStopLossInput = document.getElementById('hedgeStopLoss');
+        const hedgeEntryTriggerInput = document.getElementById('hedgeEntryTrigger');
+        
+        const priceChangeSlider = document.getElementById('priceChange');
+        const priceChangeValueSpan = document.getElementById('priceChangeValue');
+        
+        const mainPnlSpan = document.getElementById('mainPnl');
+        const mainPnlPercentSpan = document.getElementById('mainPnlPercent');
+        const mainFinalValueSpan = document.getElementById('mainFinalValue');
+        const mainStatusBanner = document.getElementById('mainStatusBanner');
+        
+        const hedgePnlSpan = document.getElementById('hedgePnl');
+        const hedgePnlPercentSpan = document.getElementById('hedgePnlPercent');
+        const hedgeFinalValueSpan = document.getElementById('hedgeFinalValue');
+        const hedgeStatusBanner = document.getElementById('hedgeStatusBanner');
+        
+        const totalPnlSpan = document.getElementById('totalPnl');
+        const totalPnlPercentSpan = document.getElementById('totalPnlPercent');
+        const totalFinalValueSpan = document.getElementById('totalFinalValue');
+        
+        const presetButtons = document.querySelectorAll('.preset-btn');
+        const strategyAnalysisText = document.getElementById('strategyAnalysisText');
+
+        // --- Core Calculation Function ---
+        function calculateOutcomes() {
+            // --- 1. Read Input Values ---
+            const mainCapital = parseFloat(mainCapitalInput.value) || 0;
+            const mainLeverage = parseFloat(mainLeverageInput.value) || 1;
+            const mainStopLoss = parseFloat(mainStopLossInput.value) || 0;
+            const hedgeCapital = parseFloat(hedgeCapitalInput.value) || 0;
+            const hedgeLeverage = parseFloat(hedgeLeverageInput.value) || 1;
+            const hedgeStopLoss = parseFloat(hedgeStopLossInput.value) || 0;
+            const hedgeEntryTrigger = parseFloat(hedgeEntryTriggerInput.value); // Will be NaN if empty
+            const priceChange = parseFloat(priceChangeSlider.value);
+            
+            const mainPositionType = document.querySelector('input[name="positionType"]:checked').value;
+            const mainDirection = mainPositionType === 'long' ? 1 : -1;
+            const hedgeDirection = -mainDirection;
+
+            // --- 2. Calculate P/L for Main Position ---
+            let mainPnl = mainCapital * mainLeverage * (priceChange / 100) * mainDirection;
+            const mainStopLossAmount = -mainCapital * (mainStopLoss / 100);
+            let isMainStoppedOut = false;
+            
+            if (mainStopLoss > 0 && mainPnl <= mainStopLossAmount) {
+                mainPnl = mainStopLossAmount;
+                isMainStoppedOut = true;
+            }
+
+            // --- 3. Calculate P/L for Hedge Position with Conditional Entry ---
+            let hedgePnl = 0;
+            if (hedgeCapital > 0) {
+                if (isNaN(hedgeEntryTrigger)) {
+                    // SIMPLE APPROACH: Hedge always moves OPPOSITE to price change
+                    // For short main position, hedge goes up when price goes up
+                    // For long main position, hedge goes up when price goes down
+                    hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
+                } else {
+                    // With trigger - check if threshold reached
+                    const mainPnlPercent = (mainPnl / mainCapital) * 100;
+                    
+                    // Trigger based on absolute value - works for both profit and loss
+                    if (Math.abs(mainPnlPercent) >= Math.abs(hedgeEntryTrigger)) {
+                        // SIMPLE HEDGE: Always opposite to price movement
+                        hedgePnl = hedgeCapital * hedgeLeverage * (priceChange / 100) * -mainDirection;
+                    } else {
+                        hedgePnl = 0; // Not triggered yet
+                    }
+                }
+            }
+
+            // --- 4. Apply Stop-Loss and Liquidation to Hedge ---
+            const hedgeStopLossAmount = -hedgeCapital * (hedgeStopLoss / 100);
+            let isHedgeLiquidated = false;
+            let isHedgeStoppedOut = false;
+            
+            if (hedgePnl <= -hedgeCapital) {
+                hedgePnl = -hedgeCapital;
+                isHedgeLiquidated = true;
+            } else if (hedgeStopLoss > 0 && hedgePnl <= hedgeStopLossAmount) {
+                hedgePnl = hedgeStopLossAmount;
+                isHedgeStoppedOut = true;
+            }
+
+            // --- 5. Calculate Final Values & Percentages ---
+            const mainFinalValue = mainCapital + mainPnl;
+            const hedgeFinalValue = hedgeCapital + hedgePnl;
+            const totalCapital = mainCapital + hedgeCapital;
+            const totalPnl = mainPnl + hedgePnl;
+            const totalFinalValue = totalCapital + totalPnl;
+            
+            const mainPnlPercent = mainCapital > 0 ? (mainPnl / mainCapital) * 100 : 0;
+            const hedgePnlPercent = hedgeCapital > 0 ? (hedgePnl / hedgeCapital) * 100 : 0;
+            const totalPnlPercent = totalCapital > 0 ? (totalPnl / totalCapital) * 100 : 0;
+
+            // --- 6. Update UI ---
+            priceChangeValueSpan.textContent = `${priceChange.toFixed(1)}%`;
+            
+            updatePnlUI(mainPnlSpan, mainPnl, mainPnlPercentSpan, mainPnlPercent);
+            mainFinalValueSpan.textContent = `$${mainFinalValue.toFixed(2)}`;
+            updateStatusBanner(mainStatusBanner, isMainStoppedOut ? 'STOPPED OUT' : null, 'stopped');
+            
+            updatePnlUI(hedgePnlSpan, hedgePnl, hedgePnlPercentSpan, hedgePnlPercent);
+            hedgeFinalValueSpan.textContent = `$${hedgeFinalValue.toFixed(2)}`;
+            updateStatusBanner(hedgeStatusBanner, isHedgeLiquidated ? 'LIQUIDATED' : (isHedgeStoppedOut ? 'STOPPED OUT' : null), isHedgeLiquidated ? 'liquidated' : 'stopped');
+            
+            updatePnlUI(totalPnlSpan, totalPnl, totalPnlPercentSpan, totalPnlPercent);
+            totalFinalValueSpan.textContent = `$${totalFinalValue.toFixed(2)}`;
+            
+            // --- 7. Run Strategy Analysis ---
+            analyzeStrategy();
+        }
+
+        // --- UI Helper Functions ---
+        function updatePnlUI(pnlElement, pnlValue, percentElement, percentValue) {
+            pnlElement.textContent = `${pnlValue >= 0 ? '+' : ''}$${pnlValue.toFixed(2)}`;
+            percentElement.textContent = `(${(percentValue >= 0 ? '+' : '')}${percentValue.toFixed(1)}%)`;
+            
+            const pnlClass = pnlValue > 0.001 ? 'profit' : pnlValue < -0.001 ? 'loss' : 'neutral';
+            pnlElement.className = pnlElement.className.replace(/profit|loss|neutral/g, '') + ' ' + pnlClass;
+            percentElement.className = percentElement.className.replace(/profit|loss|neutral/g, '') + ' ' + pnlClass;
+        }
+
+        function updateStatusBanner(element, text, type) {
+            if (text) {
+                element.textContent = text;
+                element.classList.remove('hidden', 'bg-liquidated', 'bg-stopped');
+                element.classList.add(type === 'liquidated' ? 'bg-liquidated' : 'bg-stopped');
+            } else {
+                element.classList.add('hidden');
+            }
+        }
+        
+        // --- Strategy Analysis Logic ---
+        function analyzeStrategy() {
+            const mainCapital = parseFloat(mainCapitalInput.value) || 0;
+            const hedgeCapital = parseFloat(hedgeCapitalInput.value) || 0;
+            const mainLeverage = parseFloat(mainLeverageInput.value) || 1;
+            const hedgeLeverage = parseFloat(hedgeLeverageInput.value) || 1;
+            const hedgeEntryTrigger = parseFloat(hedgeEntryTriggerInput.value);
+            
+            if(mainCapital === 0) {
+                strategyAnalysisText.textContent = "Enter main position capital to begin analysis.";
+                return;
+            }
+
+            let analysis = [];
+
+            if (hedgeCapital === 0) {
+                 analysis.push("This is an unhedged position. Your potential for profit and loss is directly tied to the market movement.");
+            } else {
+                 const hedgeRatio = (hedgeCapital / mainCapital) * 100;
+                if(hedgeRatio < 10) analysis.push("This is a light hedge, primarily for capturing small counter-moves without significantly impacting main profit.");
+                else if (hedgeRatio <= 25) analysis.push("A balanced hedge, offering moderate protection against adverse moves.");
+                else analysis.push("This is a strong hedge, almost a separate trade. It significantly reduces overall risk but also caps potential profit from the main position.");
+                
+                if (hedgeLeverage > mainLeverage * 2) analysis.push("The hedge has high relative leverage, making it sensitive and potentially profitable on small price swings, but also increasing its liquidation risk.");
+                else analysis.push("The hedge leverage is conservative, aiming for stability over aggressive counter-gains.");
+                
+                if(!isNaN(hedgeEntryTrigger)) {
+                    const triggerType = hedgeEntryTrigger >= 0 ? 'profit' : 'loss';
+                    analysis.push(`The hedge is set to open only after the main position reaches ${Math.abs(hedgeEntryTrigger)}% in ${triggerType}.`);
+                }
+            }
+            
+            strategyAnalysisText.textContent = analysis.join(' ');
+        }
+
+
+        // --- Event Listeners ---
+        const inputs = [
+            mainCapitalInput, mainLeverageInput, mainStopLossInput,
+            hedgeCapitalInput, hedgeLeverageInput, hedgeStopLossInput, hedgeEntryTriggerInput,
+            priceChangeSlider, ...positionTypeInputs
+        ];
+        inputs.forEach(input => input.addEventListener('input', calculateOutcomes));
+        
+        // Preset button listeners
+        presetButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const mainCapital = parseFloat(mainCapitalInput.value) || 300;
+                switch(button.textContent) {
+                    case 'Light Hedge':
+                        hedgeCapitalInput.value = (mainCapital * 0.05).toFixed(0); // 5% capital
+                        hedgeLeverageInput.value = 10;
+                        hedgeEntryTriggerInput.value = 10; // Suggest an entry
+                        break;
+                    case 'Balanced Hedge':
+                        hedgeCapitalInput.value = (mainCapital * 0.10).toFixed(0); // 10% capital
+                        hedgeLeverageInput.value = 20;
+                         hedgeEntryTriggerInput.value = 20; // Suggest an entry
+                        break;
+                    case 'Aggressive Counter':
+                        hedgeCapitalInput.value = (mainCapital * 0.20).toFixed(0); // 20% capital
+                        hedgeLeverageInput.value = 50;
+                         hedgeEntryTriggerInput.value = ''; // No suggested entry for this one
+                        break;
+                }
+                calculateOutcomes();
+            });
+        });
+
+        // --- Initial Calculation ---
+        document.addEventListener('DOMContentLoaded', calculateOutcomes);
+    </script>
+</body>
+</html>
